@@ -54,4 +54,22 @@ export const deleteStream = command(
 			detector.detection.source = detector.detection.source.filter((s) => s !== source);
 		});
 		await saveConfig({ config, app });
-	})
+	}
+);
+
+export const reorderStream = command(
+	v.object({
+		index0: v.number(),
+		index1: v.number(),
+	}),
+	async ({ index0, index1 }) => {
+		const { config, app } = await getConfig();
+
+		const [stream] = app.streams.splice(index0, 1);
+		if (stream) {
+			app.streams.splice(index1, 0, stream);
+		}
+
+		await saveConfig({ config, app });
+	}
+);
