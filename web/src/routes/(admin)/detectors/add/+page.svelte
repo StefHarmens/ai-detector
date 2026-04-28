@@ -33,6 +33,7 @@
 		},
 		exporters: {}
 	};
+	const INLINE_STREAM_PREVIEW_LIMIT = 5;
 
 	function mergeWithEmptyDetector(detector?: Partial<DetectorConfig>) {
 		return {
@@ -63,9 +64,53 @@
 
 	let label = $state(originalLabel);
 	let detector = $state(initialDetector);
+	let visiblePreviewSources = $state<Set<string>>(new Set());
 	let editorHasErrors = $state(false);
 	let preset = $state<string>('Custom');
 	let advanced = $state(false);
+	const activePreviewSources = $derived(
+		new Set(
+			streams
+				.filter((stream) => isRtspStream(stream.source) && visiblePreviewSources.has(stream.source))
+				.slice(0, INLINE_STREAM_PREVIEW_LIMIT)
+				.map((stream) => stream.source)
+		)
+	);
+
+	function isRtspStream(source: string) {
+		return source.startsWith('rtsp://') || source.startsWith('rtsps://');
+	}
+
+	function setPreviewVisibility(source: string, visible: boolean) {
+		if (visiblePreviewSources.has(source) === visible) {
+			return;
+		}
+
+		const next = new Set(visiblePreviewSources);
+		if (visible) {
+			next.add(source);
+		} else {
+			next.delete(source);
+		}
+		visiblePreviewSources = next;
+	}
+
+	function trackPreviewVisibility(node: HTMLElement, source: string) {
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				setPreviewVisibility(source, entry.isIntersecting);
+			},
+			{ threshold: 0.25 }
+		);
+		observer.observe(node);
+
+		return {
+			destroy() {
+				observer.disconnect();
+				setPreviewVisibility(source, false);
+			}
+		};
+	}
 
 	async function handlePresetChange(file: string) {
 		const preset = await getDetectorPreset({ file });
@@ -162,8 +207,20 @@
 					{#each streams as source (source.source)}
 						<Select.Item value={source.source} label={source.label ?? source.source} class="gap-6">
 							<div class="w-xs">
-								{#if source.source.startsWith('rtsp://') || source.source.startsWith('rtsps://')}
-									<Stream label={source.label} source={source.source} disableLink hideOverlay />
+								{#if isRtspStream(source.source)}
+									<div use:trackPreviewVisibility={source.source}>
+										{#if activePreviewSources.has(source.source)}
+											<Stream label={source.label} source={source.source} disableLink hideOverlay />
+										{:else}
+											<div class="relative aspect-video w-full bg-black">
+												<div
+													class="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-white/60"
+												>
+													Preview paused
+												</div>
+											</div>
+										{/if}
+									</div>
 								{/if}
 							</div>
 							<div class="flex flex-col">

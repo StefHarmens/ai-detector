@@ -11,7 +11,7 @@ import {
 } from '$lib/server/ffmpeg';
 
 const MJPEG_BOUNDARY = 'frame';
-const FIRST_FRAME_TIMEOUT_MS = 10_000;
+const FIRST_FRAME_TIMEOUT_MS = 20_000;
 const NO_FRAME_TIMEOUT_MS = 8_000;
 const FORCE_KILL_DELAY_MS = 2_000;
 const MAX_STDERR_TAIL_LENGTH = 4_000;
@@ -108,6 +108,8 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 					'error',
 					'-nostdin',
 					...getRtspInputArgs(source),
+					'-map',
+					'0:v:0',
 					'-an',
 					'-sn',
 					'-dn',
@@ -155,7 +157,7 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 				}, NO_FRAME_TIMEOUT_MS);
 
 				try {
-					controller.enqueue(chunk);
+					nextController.enqueue(chunk);
 				} catch {
 					stop('Client could not accept more stream data.');
 					finish();

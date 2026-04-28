@@ -33,7 +33,20 @@ export function sanitizeTextForLogs(text: string): string {
 }
 
 export function getRtspInputArgs(source: string): string[] {
-	return ['-thread_queue_size', '512', '-i', source];
+	return [
+		'-rtsp_transport',
+		'tcp',
+		'-timeout',
+		'10000000',
+		'-thread_queue_size',
+		'512',
+		'-analyzeduration',
+		'10000000',
+		'-probesize',
+		'10000000',
+		'-i',
+		source
+	];
 }
 
 function canRun(command: string): boolean {

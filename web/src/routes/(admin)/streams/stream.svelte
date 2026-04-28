@@ -4,9 +4,7 @@
 	import CardOverlay from '$lib/components/card-overlay.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Spinner } from '$lib/components/ui/spinner';
-	import { subscribeToStreamPreview } from '$lib/streams/webrtc-preview-manager';
-	import type { PreviewSnapshot } from '$lib/streams/webrtc-preview-types';
-	import { onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 
 	type Props = {
 		label: string;
@@ -16,8 +14,6 @@
 		disableLink?: boolean;
 	};
 
-	const CONNECTING_SNAPSHOT: PreviewSnapshot = { phase: 'connecting', mediaStream: null };
-
 	let {
 		label,
 		source,
@@ -26,101 +22,41 @@
 		disableLink = false
 	}: Props = $props();
 
-	let video: HTMLVideoElement | null = null;
-	let unsubscribePreview: (() => void) | null = null;
-	let mounted = false;
-	let snapshot = $state<PreviewSnapshot>(CONNECTING_SNAPSHOT);
-	let videoReady = $state(false);
+	let imageReady = $state(false);
+	let unavailable = $state(false);
+	let image: HTMLImageElement | null = null;
 
-	const loading = $derived(
-		snapshot.phase === 'connecting' ||
-			snapshot.phase === 'reconnecting' ||
-			(snapshot.phase === 'live' && !videoReady)
-	);
-	const reconnecting = $derived(snapshot.phase === 'reconnecting');
-	const unavailable = $derived(snapshot.phase === 'error');
-	const errorMessage = $derived(snapshot.error ?? 'Live stream unavailable.');
+	const streamUrl = $derived(resolve(`/streams/${encodeURIComponent(source)}`));
+	const loading = $derived(!imageReady && !unavailable);
 
-	function resetPreview() {
-		snapshot = CONNECTING_SNAPSHOT;
-		videoReady = false;
+	function handleLoad() {
+		imageReady = true;
+		unavailable = false;
 	}
 
-	function handleLoadedData() {
-		videoReady = true;
+	function handleError() {
+		imageReady = false;
+		unavailable = true;
 	}
 
-	function handlePlaying() {
-		videoReady = true;
+	function stopStream() {
+		if (!image) {
+			return;
+		}
+
+		image.removeAttribute('src');
+		image.src = 'data:,';
 	}
-
-	function handleVideoError() {
-		videoReady = false;
-		snapshot = {
-			phase: 'error',
-			mediaStream: null,
-			error: snapshot.error ?? 'Live stream unavailable.'
-		};
-	}
-
-	onMount(() => {
-		mounted = true;
-
-		return () => {
-			mounted = false;
-			unsubscribePreview?.();
-			unsubscribePreview = null;
-
-			if (video) {
-				video.pause();
-				video.srcObject = null;
-			}
-		};
-	});
 
 	$effect(() => {
-		const element = video;
-		const stream = snapshot.mediaStream;
+		streamUrl;
+		imageReady = false;
+		unavailable = false;
 
-		if (!element) {
-			return;
-		}
-
-		if (element.srcObject === stream) {
-			if (stream) {
-				void element.play().catch(() => {});
-			}
-			return;
-		}
-
-		videoReady = false;
-		element.pause();
-		element.srcObject = stream;
-
-		if (stream) {
-			void element.play().catch(() => {});
-		}
+		return stopStream;
 	});
 
-	$effect(() => {
-		if (!mounted) {
-			return;
-		}
-
-		unsubscribePreview?.();
-		resetPreview();
-		unsubscribePreview = subscribeToStreamPreview(source, (nextSnapshot) => {
-			snapshot = nextSnapshot;
-			if (nextSnapshot.phase !== 'live') {
-				videoReady = false;
-			}
-		});
-
-		return () => {
-			unsubscribePreview?.();
-			unsubscribePreview = null;
-		};
-	});
+	onDestroy(stopStream);
 </script>
 
 {#if showLoading && loading}
@@ -138,34 +74,26 @@
 						)
 					)}
 	>
-		<video
-			bind:this={video}
-			muted
-			playsinline
-			autoplay
+		<img
+			bind:this={image}
+			src={streamUrl}
+			alt={label}
 			class="block h-full w-full object-contain"
-			onloadeddata={handleLoadedData}
-			onplaying={handlePlaying}
-			onerror={handleVideoError}
-		></video>
+			onload={handleLoad}
+			onerror={handleError}
+		/>
 
 		{#if unavailable}
 			<div
 				class="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-white/70"
 			>
-				{errorMessage}
-			</div>
-		{:else if reconnecting}
-			<div
-				class="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-white/60"
-			>
-				Reconnecting...
+				Live stream unavailable.
 			</div>
 		{:else if loading && !showLoading}
 			<div
 				class="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-white/60"
 			>
-				Connecting...
+				Loading...
 			</div>
 		{/if}
 	</button>
