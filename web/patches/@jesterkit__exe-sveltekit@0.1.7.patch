@@ -12,7 +12,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 -import { execPath } from "process";
 +import { execPath, platform } from "process";
  
-@@ -102,10 +105,23 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
+@@ -102,6 +105,21 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
  process.on('SIGTERM', gracefulShutdown);
  process.on('SIGINT', gracefulShutdown);
  
