@@ -9,5 +9,8 @@ export default defineConfig({
 	define: {
 		__AI_DETECTOR_WEB_TARGET__: JSON.stringify(buildTarget)
 	},
+	server: {
+		allowedHosts: ['.local']
+	},
 	plugins: [tailwindcss(), sveltekit(), devtoolsJson()]
 });
