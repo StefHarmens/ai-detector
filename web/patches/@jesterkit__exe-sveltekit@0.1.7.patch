@@ -2,17 +2,20 @@ diff --git a/dist/server/index.ts b/dist/server/index.ts
 index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd8fd25666 100644
 --- a/dist/server/index.ts
 +++ b/dist/server/index.ts
-@@ -1,5 +1,8 @@
+@@ -1,7 +1,11 @@
 +import "reflect-metadata";
  ﻿// Libs
  import { file } from "bun";
++import { createSocket } from "node:dgram";
 +import { spawn } from "node:child_process";
-+import { hostname } from "node:os";
++import { hostname, networkInterfaces } from "node:os";
  import path from "node:path";
 -import { execPath } from "process";
 +import { execPath, platform } from "process";
  
-@@ -102,6 +105,21 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
+ // @ts-ignore
+ import { assetMap } from "./assets.generated.ts";
+@@ -104,8 +108,179 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
  process.on('SIGTERM', gracefulShutdown);
  process.on('SIGINT', gracefulShutdown);
  
@@ -31,11 +34,169 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +	}
 +}
 +
++function getLanAddresses() {
++	const addresses = new Set<string>();
++
++	for (const entries of Object.values(networkInterfaces())) {
++		for (const entry of entries ?? []) {
++			if (entry.family !== "IPv4" || entry.internal) continue;
++			addresses.add(entry.address);
++		}
++	}
++
++	return Array.from(addresses).sort(
++		(a, b) =>
++			Number(isPrivateAddress(b)) - Number(isPrivateAddress(a)) ||
++			a.localeCompare(b, undefined, { numeric: true })
++	);
++}
++
++function getLanUrls(portSuffix: string) {
++	return getLanAddresses().map((address) => `http://${address}${portSuffix}`);
++}
++
++function isPrivateAddress(address: string) {
++	return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address);
++}
++
++function startMdnsResponder(localHost: string) {
++	const mdnsHost = localHost.toLowerCase();
++	const socket = createSocket({ type: "udp4", reuseAddr: true });
++
++	socket.on("error", (error) => {
++		console.warn(`Could not start mDNS responder for ${localHost}:`, error);
++		socket.close();
++	});
++
++	socket.on("message", (message, remote) => {
++		const response = createMdnsResponse(message, mdnsHost);
++		if (!response) return;
++		socket.send(response, 0, response.length, remote.port, remote.address);
++		socket.send(response, 0, response.length, 5353, "224.0.0.251");
++	});
++
++	socket.bind(5353, () => {
++		try {
++			socket.addMembership("224.0.0.251");
++			socket.setMulticastTTL(255);
++			socket.setMulticastLoopback(false);
++			const announcement = createMdnsAnnouncement(mdnsHost);
++			if (announcement) socket.send(announcement, 0, announcement.length, 5353, "224.0.0.251");
++			console.log(`🏷️ mDNS responder: http://${localHost}`);
++		} catch (error) {
++			console.warn(`Could not announce ${localHost} over mDNS:`, error);
++		}
++	});
++}
++
++function createMdnsAnnouncement(hostname: string) {
++	const addresses = getLanAddresses();
++	if (!addresses.length) return null;
++
++	const name = encodeDnsName(hostname);
++	const answers = addresses.map((address) => createARecord(name, address, 120));
++	return createDnsMessage(0, Buffer.alloc(0), answers);
++}
++
++function createMdnsResponse(query: Buffer, hostname: string) {
++	if (query.length < 12) return null;
++
++	const questionCount = query.readUInt16BE(4);
++	let offset = 12;
++	const questions: { name: Buffer; type: number; raw: Buffer }[] = [];
++
++	for (let index = 0; index < questionCount; index += 1) {
++		const parsedName = readDnsName(query, offset);
++		if (!parsedName) return null;
++		offset = parsedName.offset;
++		if (offset + 4 > query.length) return null;
++
++		const type = query.readUInt16BE(offset);
++		const raw = query.subarray(parsedName.start, offset + 4);
++		offset += 4;
++		questions.push({ name: parsedName.nameBuffer, type, raw });
++	}
++
++	const addresses = getLanAddresses();
++	if (!addresses.length) return null;
++
++	const answers: Buffer[] = [];
++	for (const question of questions) {
++		const name = decodeDnsName(question.name).toLowerCase();
++		if (name !== hostname || (question.type !== 1 && question.type !== 255)) continue;
++		for (const address of addresses) answers.push(createARecord(question.name, address, 120));
++	}
++	if (!answers.length) return null;
++
++	const questionsBuffer = Buffer.concat(questions.map((question) => question.raw));
++	return createDnsMessage(query.readUInt16BE(0), questionsBuffer, answers, questions.length);
++}
++
++function createDnsMessage(id: number, questions: Buffer, answers: Buffer[], questionCount = 0) {
++	const header = Buffer.alloc(12);
++	header.writeUInt16BE(id, 0);
++	header.writeUInt16BE(0x8400, 2);
++	header.writeUInt16BE(questionCount, 4);
++	header.writeUInt16BE(answers.length, 6);
++	return Buffer.concat([header, questions, ...answers]);
++}
++
++function createARecord(name: Buffer, address: string, ttl: number) {
++	const record = Buffer.alloc(10);
++	record.writeUInt16BE(1, 0);
++	record.writeUInt16BE(0x8001, 2);
++	record.writeUInt32BE(ttl, 4);
++	record.writeUInt16BE(4, 8);
++	return Buffer.concat([name, record, Buffer.from(address.split(".").map(Number))]);
++}
++
++function encodeDnsName(name: string) {
++	const parts = name.replace(/\.$/, "").split(".");
++	return Buffer.concat([
++		...parts.map((part) => Buffer.concat([Buffer.from([Buffer.byteLength(part)]), Buffer.from(part)])),
++		Buffer.from([0])
++	]);
++}
++
++function readDnsName(message: Buffer, offset: number) {
++	const start = offset;
++	while (offset < message.length) {
++		const length = message[offset];
++		if ((length & 0xc0) !== 0) return null;
++		offset += 1;
++		if (length === 0) {
++			const nameBuffer = message.subarray(start, offset);
++			return { nameBuffer, offset, start };
++		}
++		if (offset + length > message.length) return null;
++		offset += length;
++	}
++
++	return null;
++}
++
++function decodeDnsName(name: Buffer) {
++	const parts: string[] = [];
++	let offset = 0;
++
++	while (offset < name.length) {
++		const length = name[offset];
++		offset += 1;
++		if (length === 0) break;
++		parts.push(name.subarray(offset, offset + length).toString("utf8"));
++		offset += length;
++	}
++
++	return parts.join(".");
++}
++
  const server = Bun.serve({
 -	port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
 +	port: process.env.PORT ? parseInt(process.env.PORT) : 80,
  	hostname: "0.0.0.0",
-@@ -132,4 +148,13 @@ const server = Bun.serve({
+ 	idleTimeout: process.env.BUN_IDLE_TIMEOUT ? parseInt(process.env.BUN_IDLE_TIMEOUT) : 255,
+ 	async fetch(req: Request, bunServer: Bun.Server) {
+@@ -131,4 +306,18 @@ const server = Bun.serve({
  	},
  });
  
@@ -43,10 +204,15 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +const localHostname = hostname().trim().replace(/\.$/, "");
 +const localHost = localHostname.toLowerCase().endsWith(".local") ? localHostname : `${localHostname}.local`;
 +const portSuffix = server.port === 80 ? "" : `:${server.port}`;
-+const localUrl = localHostname ? `http://${localHost}${portSuffix}` : null;
++const localNameUrl = localHostname ? `http://${localHost}${portSuffix}` : null;
++const lanUrls = getLanUrls(portSuffix);
 +
 +console.log(`💿 Listening on http://localhost${portSuffix}`);
-+if (localUrl) {
-+	console.log(`🌐 LAN URL: ${localUrl}`);
-+	openBrowser(localUrl);
++if (lanUrls.length) {
++	for (const url of lanUrls) console.log(`🌐 LAN URL: ${url}`);
++	openBrowser(localNameUrl ?? lanUrls[0]);
++} else if (localNameUrl) {
++	console.log(`🌐 LAN URL: ${localNameUrl}`);
++	openBrowser(localNameUrl);
 +}
++if (localNameUrl) startMdnsResponder(localHost);
