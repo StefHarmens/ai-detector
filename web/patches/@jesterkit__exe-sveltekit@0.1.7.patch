@@ -6,7 +6,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +import "reflect-metadata";
  ﻿// Libs
  import { file } from "bun";
-+import { createSocket } from "node:dgram";
++import { createSocket, type Socket } from "node:dgram";
 +import { spawn } from "node:child_process";
 +import { hostname, networkInterfaces } from "node:os";
  import path from "node:path";
@@ -15,7 +15,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
  
  // @ts-ignore
  import { assetMap } from "./assets.generated.ts";
-@@ -104,8 +108,179 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
+@@ -104,8 +108,249 @@ async function gracefulShutdown(reason: 'SIGINT' | 'SIGTERM') {
  process.on('SIGTERM', gracefulShutdown);
  process.on('SIGINT', gracefulShutdown);
  
@@ -34,20 +34,40 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +	}
 +}
 +
-+function getLanAddresses() {
-+	const addresses = new Set<string>();
++type LanAddress = {
++	address: string;
++	interfaceName: string;
++	netmask: string;
++};
 +
-+	for (const entries of Object.values(networkInterfaces())) {
-+		for (const entry of entries ?? []) {
++const MDNS_ADDRESS = "224.0.0.251";
++const MDNS_PORT = 5353;
++
++function getLanAddresses(peerAddress?: string) {
++	return getLanAddressEntries(peerAddress).map((entry) => entry.address);
++}
++
++function getLanAddressEntries(peerAddress?: string) {
++	const entries: LanAddress[] = [];
++
++	for (const [interfaceName, interfaceEntries] of Object.entries(networkInterfaces())) {
++		for (const entry of interfaceEntries ?? []) {
 +			if (entry.family !== "IPv4" || entry.internal) continue;
-+			addresses.add(entry.address);
++			if (entry.address.startsWith("169.254.")) continue;
++			entries.push({ address: entry.address, interfaceName, netmask: entry.netmask });
 +		}
 +	}
 +
-+	return Array.from(addresses).sort(
++	const physicalEntries = entries.filter((entry) => !isVirtualInterface(entry.interfaceName));
++	const candidates = physicalEntries.length ? physicalEntries : entries;
++	const sameSubnetEntries = peerAddress
++		? candidates.filter((entry) => isSameSubnet(entry.address, peerAddress, entry.netmask))
++		: [];
++
++	return (sameSubnetEntries.length ? sameSubnetEntries : candidates).sort(
 +		(a, b) =>
-+			Number(isPrivateAddress(b)) - Number(isPrivateAddress(a)) ||
-+			a.localeCompare(b, undefined, { numeric: true })
++			Number(isPrivateAddress(b.address)) - Number(isPrivateAddress(a.address)) ||
++			a.address.localeCompare(b.address, undefined, { numeric: true })
 +	);
 +}
 +
@@ -57,6 +77,28 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +
 +function isPrivateAddress(address: string) {
 +	return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address);
++}
++
++function isVirtualInterface(name: string) {
++	return /(?:loopback|docker|veth|vEthernet|virtual|vmware|virtualbox|vbox|hyper-v|wsl|tailscale|zerotier|vpn|tap|tunnel|utun|bridge|br-)/i.test(
++		name
++	);
++}
++
++function isSameSubnet(address: string, peerAddress: string, netmask: string) {
++	const addressNumber = ipv4ToNumber(address);
++	const peerNumber = ipv4ToNumber(peerAddress);
++	const maskNumber = ipv4ToNumber(netmask);
++	if (addressNumber === null || peerNumber === null || maskNumber === null) return false;
++	return (addressNumber & maskNumber) === (peerNumber & maskNumber);
++}
++
++function ipv4ToNumber(address: string) {
++	const parts = address.split(".").map(Number);
++	if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
++		return null;
++	}
++	return parts.reduce((value, part) => (value << 8) + part, 0) >>> 0;
 +}
 +
 +function startMdnsResponder(localHost: string) {
@@ -69,24 +111,52 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +	});
 +
 +	socket.on("message", (message, remote) => {
-+		const response = createMdnsResponse(message, mdnsHost);
++		const response = createMdnsResponse(message, mdnsHost, remote.address);
 +		if (!response) return;
 +		socket.send(response, 0, response.length, remote.port, remote.address);
-+		socket.send(response, 0, response.length, 5353, "224.0.0.251");
++		sendMdnsMulticast(socket, response);
 +	});
 +
-+	socket.bind(5353, () => {
++	socket.bind(MDNS_PORT, () => {
 +		try {
-+			socket.addMembership("224.0.0.251");
 +			socket.setMulticastTTL(255);
 +			socket.setMulticastLoopback(false);
++			const entries = getLanAddressEntries();
++			for (const entry of entries) {
++				try {
++					socket.addMembership(MDNS_ADDRESS, entry.address);
++				} catch (error) {
++					console.warn(`Could not join mDNS on ${entry.interfaceName} (${entry.address}):`, error);
++				}
++			}
++			if (!entries.length) socket.addMembership(MDNS_ADDRESS);
 +			const announcement = createMdnsAnnouncement(mdnsHost);
-+			if (announcement) socket.send(announcement, 0, announcement.length, 5353, "224.0.0.251");
++			if (announcement) sendMdnsMulticast(socket, announcement);
 +			console.log(`🏷️ mDNS responder: http://${localHost}`);
 +		} catch (error) {
 +			console.warn(`Could not announce ${localHost} over mDNS:`, error);
 +		}
 +	});
++}
++
++function sendMdnsMulticast(socket: Socket, message: Buffer) {
++	const entries = getLanAddressEntries();
++	if (!entries.length) {
++		socket.send(message, 0, message.length, MDNS_PORT, MDNS_ADDRESS);
++		return;
++	}
++
++	let sent = false;
++	for (const entry of entries) {
++		try {
++			socket.setMulticastInterface(entry.address);
++			socket.send(message, 0, message.length, MDNS_PORT, MDNS_ADDRESS);
++			sent = true;
++		} catch (error) {
++			console.warn(`Could not send mDNS on ${entry.interfaceName} (${entry.address}):`, error);
++		}
++	}
++	if (!sent) socket.send(message, 0, message.length, MDNS_PORT, MDNS_ADDRESS);
 +}
 +
 +function createMdnsAnnouncement(hostname: string) {
@@ -98,7 +168,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +	return createDnsMessage(0, Buffer.alloc(0), answers);
 +}
 +
-+function createMdnsResponse(query: Buffer, hostname: string) {
++function createMdnsResponse(query: Buffer, hostname: string, peerAddress: string) {
 +	if (query.length < 12) return null;
 +
 +	const questionCount = query.readUInt16BE(4);
@@ -117,7 +187,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +		questions.push({ name: parsedName.nameBuffer, type, raw });
 +	}
 +
-+	const addresses = getLanAddresses();
++	const addresses = getLanAddresses(peerAddress);
 +	if (!addresses.length) return null;
 +
 +	const answers: Buffer[] = [];
@@ -196,7 +266,7 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
  	hostname: "0.0.0.0",
  	idleTimeout: process.env.BUN_IDLE_TIMEOUT ? parseInt(process.env.BUN_IDLE_TIMEOUT) : 255,
  	async fetch(req: Request, bunServer: Bun.Server) {
-@@ -131,4 +306,18 @@ const server = Bun.serve({
+@@ -131,4 +376,21 @@ const server = Bun.serve({
  	},
  });
  
@@ -208,6 +278,9 @@ index 8eff4c4d353b96d9d7ee756f6ecbc2674aa84b89..09413a9ce47291a660e04976108921cd
 +const lanUrls = getLanUrls(portSuffix);
 +
 +console.log(`💿 Listening on http://localhost${portSuffix}`);
++if (platform === "win32") {
++	console.log(`🛡️ If another device cannot connect, allow this app through Windows Firewall on Private networks (TCP ${server.port}, UDP ${MDNS_PORT}).`);
++}
 +if (lanUrls.length) {
 +	for (const url of lanUrls) console.log(`🌐 LAN URL: ${url}`);
 +	openBrowser(localNameUrl ?? lanUrls[0]);
