@@ -26,6 +26,6 @@ docker compose up -d
 docker compose logs -f aidetector web
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to use the web UI.
+Open [http://localhost](http://localhost) to use the web UI.
 
 > See **[detector/README.md](detector/README.md)** for full configuration instructions.
