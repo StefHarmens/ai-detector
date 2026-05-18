@@ -23,6 +23,7 @@ export interface DetectorConfig {
 export interface TelegramConfig {
     token: string;
     chat: string;
+    alert_every?: number;
 }
 
 export interface Config {

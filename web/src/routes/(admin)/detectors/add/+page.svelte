@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import JsonEditor from '$lib/components/json-editor.svelte';
-	import type { DetectorConfig } from '$lib/schema';
+	import type { DetectorConfig, TelegramConfig } from '$lib/schema';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import {
@@ -31,7 +31,7 @@
 			model: '',
 			confidence: 0.8
 		},
-		exporters: {}
+		exporters: {} as { telegram?: TelegramConfig[] }
 	};
 	const INLINE_STREAM_PREVIEW_LIMIT = 5;
 
@@ -46,6 +46,10 @@
 			yolo: {
 				...EMPTY_DETECTOR.yolo,
 				...detector?.yolo
+			},
+			exporters: {
+				...EMPTY_DETECTOR.exporters,
+				...detector?.exporters
 			}
 		};
 	}
@@ -122,6 +126,11 @@
 		if (editorHasErrors) {
 			return;
 		}
+		detector.exporters.telegram?.forEach((telegram) => {
+			if (telegram.alert_every && telegram.alert_every <= 1) {
+				delete telegram.alert_every;
+			}
+		});
 
 		await saveDetector({
 			original: originalLabel || undefined,
@@ -245,10 +254,13 @@
 								telegrams.find((t) => t.token === telegram.token && t.chat === telegram.chat)?.label
 						),
 					(selectedTelegrams) => {
-						detector.exporters.telegram = selectedTelegrams
+						detector.exporters.telegram = (selectedTelegrams ?? [])
 							.map((telegram) => {
 								const t = telegrams.find((t) => t.label === telegram);
-								return { token: t?.token, chat: t?.chat };
+								const curr = detector.exporters.telegram?.find(
+									(t) => t.token === t.token && t.chat === t.chat
+								);
+								return { token: t!.token, chat: t!.chat, alert_every: curr?.alert_every ?? 1 };
 							})
 							.filter(Boolean);
 					}
@@ -262,20 +274,44 @@
 				</Select.Trigger>
 				<Select.Content>
 					{#each telegrams as telegram (telegram.label)}
+						{@const exporter = detector.exporters.telegram?.find(
+							(exporter) => exporter.token === telegram.token && exporter.chat === telegram.chat
+						)}
 						<Select.Item value={telegram.label} label={telegram.label} class="gap-6">
-							<Button
-								variant="outline"
-								class="w-xs"
-								onpointerdown={(e) => e.stopPropagation()}
-								onpointerup={(e) => e.stopPropagation()}
-								onclick={(e) => {
-									e.stopPropagation();
-									testTelegram({ token: telegram.token, chat: telegram.chat });
-								}}>Test notification</Button
-							>
-							<div class="flex flex-col">
+							<div class="flex flex-1 flex-col">
+								<Button
+									variant="outline"
+									onpointerdown={(e) => e.stopPropagation()}
+									onpointerup={(e) => e.stopPropagation()}
+									onkeydown={(e) => e.stopPropagation()}
+									onclick={(e) => {
+										e.stopPropagation();
+										testTelegram({ token: telegram.token, chat: telegram.chat });
+									}}>Test notification</Button
+								>
+							</div>
+							<div class="flex flex-1 flex-col">
 								<span>{telegram.label}</span>
 								<span class="text-xs text-muted-foreground">{telegram.chat}</span>
+							</div>
+							<div
+								role="presentation"
+								class="flex flex-1 flex-col"
+								onpointerdown={(e) => e.stopPropagation()}
+								onpointerup={(e) => e.stopPropagation()}
+								onclick={(e) => e.stopPropagation()}
+								onkeydown={(e) => e.stopPropagation()}
+							>
+								{#if exporter}
+									<Label for={`alert_every_${telegram.label}`} class="text-xs">Alert every</Label>
+									<Input
+										type="number"
+										min="1"
+										step="1"
+										id={`alert_every_${telegram.label}`}
+										bind:value={exporter.alert_every}
+									/>
+								{/if}
 							</div>
 						</Select.Item>
 					{/each}
