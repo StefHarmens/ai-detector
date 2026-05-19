@@ -1,8 +1,9 @@
 name: Detector
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "detector/v*"
   workflow_dispatch:
 
 concurrency:
@@ -63,6 +64,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/eschouten/ai-detector
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }},match=^detector/v(.*)$
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && !contains(github.ref_name, '-') }}
 
       - name: Build and push by digest
         id: build
@@ -127,12 +134,12 @@ jobs:
         with:
           images: ghcr.io/eschouten/ai-detector
           flavor: |
-            latest=auto
-            suffix=-jetpack6
+            latest=false
+            suffix=-jetpack6,onlatest=true
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ github.ref_name }},match=^detector/v(.*)$
             type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && !contains(github.ref_name, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -175,10 +182,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/eschouten/ai-detector
+          flavor: |
+            latest=false
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ github.ref_name }},match=^detector/v(.*)$
             type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && !contains(github.ref_name, '-') }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -223,10 +232,22 @@ jobs:
         working-directory: detector
         shell: pwsh
     env:
-      ARTIFACT_NAME: ${{ matrix.artifact_prefix }}-${{ github.ref_name }}
       PUBLISH_RELEASE_ASSET: ${{ matrix.publish_release_asset }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Version
+        id: version
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ($version.StartsWith("detector/")) {
+            $version = $version.Substring("detector/".Length)
+          } else {
+            $version = $version -replace "/", "-"
+          }
+          $artifactName = "${{ matrix.artifact_prefix }}-$version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "ARTIFACT_NAME=$artifactName" >> $env:GITHUB_ENV
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -244,36 +265,49 @@ jobs:
         run: |
           echo 'TYPE = "${{ matrix.type }}"' > ${{ env.VERSION_FILE }}
           echo 'REF_NAME = "${{ github.ref_name }}"' >> ${{ env.VERSION_FILE }}
-          uv run ${{ matrix.uv_run_args }} pyinstaller src/aidetector/__init__.py --name ${{ env.ARTIFACT_NAME }} ${{ env.PYINSTALLER_ARGS }}
+          uv run ${{ matrix.uv_run_args }} pyinstaller src/aidetector/__init__.py --name $env:ARTIFACT_NAME ${{ env.PYINSTALLER_ARGS }}
 
       - name: Upload Executable
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARTIFACT_NAME }}-exe
-          path: detector/dist/${{ env.ARTIFACT_NAME }}.exe
+          name: ${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}-exe
+          path: detector/dist/${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.exe
 
       - name: Zip Release Asset
-        if: github.ref_type == 'tag' && env.PUBLISH_RELEASE_ASSET == 'true'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && env.PUBLISH_RELEASE_ASSET == 'true'
         run: |
-          Compress-Archive -Path dist/${{ env.ARTIFACT_NAME }}.exe -DestinationPath dist/${{ env.ARTIFACT_NAME }}.zip
+          Compress-Archive -Path "dist\${env:ARTIFACT_NAME}.exe" -DestinationPath "dist\${env:ARTIFACT_NAME}.zip"
 
       - name: Release
-        if: github.ref_type == 'tag' && env.PUBLISH_RELEASE_ASSET == 'true'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && env.PUBLISH_RELEASE_ASSET == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: detector/dist/${{ env.ARTIFACT_NAME }}.zip
+          tag_name: ${{ github.ref_name }}
+          name: Detector ${{ steps.version.outputs.version }}
+          make_latest: false
+          files: detector/dist/${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.zip
 
   macos-default-exe:
     name: MacOS Default Executable
     runs-on: macos-latest
     timeout-minutes: 60
-    env:
-      ARTIFACT_NAME: aidetector-osx-${{ github.ref_name }}
     defaults:
       run:
         working-directory: detector
     steps:
       - uses: actions/checkout@v6
+
+      - name: Version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [[ "${version}" == detector/* ]]; then
+            version="${version#detector/}"
+          else
+            version="${version//\//-}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT_NAME=aidetector-osx-${version}" >> "$GITHUB_ENV"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -285,21 +319,24 @@ jobs:
         run: |
           echo 'TYPE = "default"' > ${{ env.VERSION_FILE }}
           echo 'REF_NAME = "${{ github.ref_name }}"' >> ${{ env.VERSION_FILE }}
-          uv run --extra default pyinstaller src/aidetector/__init__.py --name ${{ env.ARTIFACT_NAME }} ${{ env.PYINSTALLER_ARGS }}
+          uv run --extra default pyinstaller src/aidetector/__init__.py --name "$ARTIFACT_NAME" ${{ env.PYINSTALLER_ARGS }}
 
       - name: Upload Executable
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARTIFACT_NAME }}-exe
-          path: detector/dist/${{ env.ARTIFACT_NAME }}
+          name: aidetector-osx-${{ steps.version.outputs.version }}-exe
+          path: detector/dist/aidetector-osx-${{ steps.version.outputs.version }}
 
       - name: Zip Release Asset
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v')
         run: |
-          ditto -c -k dist/${{ env.ARTIFACT_NAME }} dist/${{ env.ARTIFACT_NAME }}.zip
+          ditto -c -k "dist/${ARTIFACT_NAME}" "dist/${ARTIFACT_NAME}.zip"
 
       - name: Release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: detector/dist/${{ env.ARTIFACT_NAME }}.zip
+          tag_name: ${{ github.ref_name }}
+          name: Detector ${{ steps.version.outputs.version }}
+          make_latest: false
+          files: detector/dist/aidetector-osx-${{ steps.version.outputs.version }}.zip

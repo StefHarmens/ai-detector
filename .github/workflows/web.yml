@@ -1,8 +1,9 @@
 name: Web
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "web/v*"
   workflow_dispatch:
 
 concurrency:
@@ -39,10 +40,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/eschouten/ai-detector-web
+          flavor: |
+            latest=false
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ github.ref_name }},match=^web/v(.*)$
             type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/web/v') && !contains(github.ref_name, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -111,14 +114,29 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Version exe
+        id: version
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ($version.StartsWith("web/")) {
+            $version = $version.Substring("web/".Length)
+          } else {
+            $version = $version -replace "/", "-"
+          }
+          Move-Item -Path "dist\ai-detector-web.exe" -Destination "dist\ai-detector-web-$version.exe" -Force
+          "version=$version" >> $env:GITHUB_OUTPUT
+
       - name: Upload exe
         uses: actions/upload-artifact@v7
         with:
-          name: ai-detector-web-${{ github.ref_name }}-exe
-          path: web/dist/ai-detector-web.exe
+          name: ai-detector-web-${{ steps.version.outputs.version }}-exe
+          path: web/dist/ai-detector-web-${{ steps.version.outputs.version }}.exe
 
       - name: Release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/web/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: web/dist/ai-detector-web-${{ github.ref_name }}.exe
+          tag_name: ${{ github.ref_name }}
+          name: Web ${{ steps.version.outputs.version }}
+          make_latest: false
+          files: web/dist/ai-detector-web-${{ steps.version.outputs.version }}.exe
