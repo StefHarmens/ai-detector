@@ -276,7 +276,10 @@ jobs:
       - name: Zip Release Asset
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && env.PUBLISH_RELEASE_ASSET == 'true'
         run: |
-          Compress-Archive -Path "dist\${env:ARTIFACT_NAME}.exe" -DestinationPath "dist\${env:ARTIFACT_NAME}.zip"
+          7z a -tzip -mx=1 "dist\${env:ARTIFACT_NAME}.zip" "dist\${env:ARTIFACT_NAME}.exe"
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z failed with exit code $LASTEXITCODE"
+          }
 
       - name: Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/detector/v') && env.PUBLISH_RELEASE_ASSET == 'true'
