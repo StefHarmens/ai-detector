@@ -1,11 +1,14 @@
 import logging
 import os
+import pickle
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from pathlib import Path
 from threading import BoundedSemaphore, Thread
 from time import sleep
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from aidetector.detection.validator import Validator
 from aidetector.exporters.disk import DiskExporter
@@ -69,22 +72,45 @@ class Detector:
         self.yolo_class_confidences = {}
         self.source_provider = SourceProvider(detection)
         if yolo_config is not None:
-            self.yolo = YOLO(
-                yolo_config.model
-                if yolo_config.model.endswith(".onnx") or TYPE == "cuda"
-                else (
-                    YOLO(yolo_config.model).export(
-                        format="engine" if TYPE == "tensorrt" else "onnx",
-                        batch=max(1, len(self.source_provider.sources)),
-                        dynamic=True,
-                        half=should_half(),
-                        imgsz=yolo_config.imgsz,
-                        simplify=True,
-                        opset=onnx_config.opset,
-                    )
-                ),
-                task="detect",
-            )
+            def init_yolo(model: str) -> YOLO:
+                return YOLO(
+                    model
+                    if model.endswith(".onnx") or TYPE == "cuda"
+                    else (
+                        YOLO(model).export(
+                            format="engine" if TYPE == "tensorrt" else "onnx",
+                            batch=max(1, len(self.source_provider.sources)),
+                            dynamic=True,
+                            half=should_half(),
+                            imgsz=yolo_config.imgsz,
+                            simplify=True,
+                            opset=onnx_config.opset,
+                        )
+                    ),
+                    task="detect",
+                )
+
+            def cached_weight_path(model: str) -> Path | None:
+                parsed = urlparse(model)
+                if parsed.scheme not in {"http", "https"}:
+                    return None
+                filename = Path(parsed.path).name
+                if not filename:
+                    return None
+                return Path("weights") / filename
+
+            try:
+                self.yolo = init_yolo(yolo_config.model)
+            except pickle.UnpicklingError:
+                cached_path = cached_weight_path(yolo_config.model)
+                if cached_path is None or not cached_path.exists():
+                    raise
+                self.logger.warning(
+                    "Cached model file appears corrupt, removing and retrying download: %s",
+                    cached_path,
+                )
+                cached_path.unlink(missing_ok=True)
+                self.yolo = init_yolo(yolo_config.model)
             if self.yolo.predictor is None:
                 self.yolo.predictor = self.yolo._smart_load("predictor")(
                     overrides=self.yolo.overrides,
