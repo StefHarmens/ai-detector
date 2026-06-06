@@ -1,6 +1,8 @@
 services:
   aidetector:
-    image: "ghcr.io/eschouten/ai-detector:latest"
+    build:
+      context: https://github.com/StefHarmens/ai-detector.git#main:detector
+    image: "ai-detector-fork:main"
     ipc: host
     ulimits:
       memlock: -1
@@ -11,13 +13,6 @@ services:
       - ./example/app.json:/app/app.json
       - ./example/sprong24.mp4:/app/sprong24.mp4
       - ./example/detections/:/app/detections
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
 
   web:
     image: "ghcr.io/eschouten/ai-detector-web:latest"
