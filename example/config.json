@@ -1,35 +1,35 @@
 {
-    "$schema": "https://raw.githubusercontent.com/ESchouten/ai-detector/main/config/config.schema.json",
+    "$schema": "https://raw.githubusercontent.com/StefHarmens/ai-detector/main/config/config.schema.json",
     "detectors": [
         {
             "detection": {
                 "source": [
-                    "sprong24.mp4"
-                ]
+                    "rtsp://192.168.1.124:7447/5Tpt6a2VoCGNMsAq"
+                ],
+                "interval": 0.2,
+                "frame_retention": 1
             },
             "yolo": {
-                "model": "https://github.com/CowCatcherAI/CowCatcherAI/releases/download/modelv-14/cowcatcherV15.pt",
-                "confidence": 0.8,
-                "time_max": 30,
+                "model": "https://github.com/CowCatcherAI/CowCatcherAI/releases/download/modelv-17/cowcatcherV17.pt",
+                "confidence": 0.85,
+                "frames_min": 5,
                 "timeout": 6,
-                "frames_min": 3
-            },
-            "vlm": {
-                "prompt": "Do you see cows that are mounting each other?",
-                "key": "<your_llm_api_key>",
-                "model": [
-                    "gemini/gemini-3-flash-preview",
-                    "gemini/gemini-2.5-flash-lite",
-                    "gemini/gemini-2.5-flash"
-                ]
+                "time_max": 60,
+                "include_trailing_time": 10
             },
             "exporters": {
                 "telegram": {
                     "token": "<your_bot_token>",
-                    "chat": "<your_chat_id>"
+                    "chat": "<your_chat_id>",
+                    "confidence": 0.85,
+                    "video_width": 1920,
+                    "include_crop": true,
+                    "include_plot": true,
+                    "include_video": true,
+                    "video_crf": 22
                 },
                 "disk": {
-                    "directory": "mounts"
+                    "directory": "cowcatcher"
                 }
             }
         }
