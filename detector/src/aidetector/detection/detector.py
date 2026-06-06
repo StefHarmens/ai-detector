@@ -1,8 +1,9 @@
 import logging
+import os
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 from time import sleep
 from typing import Any, cast
 
@@ -49,6 +50,7 @@ class Detector:
     exporters: list[Exporter]
     running: bool
     export_executor: ThreadPoolExecutor
+    export_slots: BoundedSemaphore
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
 
@@ -96,7 +98,12 @@ class Detector:
         self.validator = validator
         self.exporters = exporters
         self.running = True
-        self.export_executor = ThreadPoolExecutor()
+        workers = min(32, (os.cpu_count() or 1) + 4)
+        max_pending_exports = int(
+            os.getenv("AIDETECTOR_MAX_PENDING_EXPORTS", str(workers * 2))
+        )
+        self.export_executor = ThreadPoolExecutor(max_workers=workers)
+        self.export_slots = BoundedSemaphore(max(1, max_pending_exports))
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
 
@@ -351,24 +358,38 @@ class Detector:
                 max_confidence(best_detection.confidence),
             )
 
+            if not self.export_slots.acquire(blocking=False):
+                self.logger.warning(
+                    "Skipping export for %s because exporter queue is full", source
+                )
+                self.detections[source] = []
+                return
+
             def export_task():
-                validated = self.validator.validate(best_detection, detections)
+                try:
+                    validated = self.validator.validate(best_detection, detections)
 
-                if validated is not False and self.yolo_config:
-                    last_detection_time = self.last_detection_time.get(source, {})
-                    for class_name in matching_confs:
-                        last_detection_time[class_name] = best_detection.date
-                    self.last_detection_time[source] = last_detection_time
+                    if validated is not False and self.yolo_config:
+                        last_detection_time = self.last_detection_time.get(source, {})
+                        for class_name in matching_confs:
+                            last_detection_time[class_name] = best_detection.date
+                        self.last_detection_time[source] = last_detection_time
 
-                for exporter in self.exporters:
-                    try:
-                        exporter.export(best_detection, detections, validated)
-                    except Exception:
-                        self.logger.exception(
-                            f"Exporter {exporter.__class__.__name__} failed"
-                        )
+                    for exporter in self.exporters:
+                        try:
+                            exporter.export(best_detection, detections, validated)
+                        except Exception:
+                            self.logger.exception(
+                                f"Exporter {exporter.__class__.__name__} failed"
+                            )
+                finally:
+                    self.export_slots.release()
 
-            self.export_executor.submit(export_task)
+            try:
+                self.export_executor.submit(export_task)
+            except Exception:
+                self.export_slots.release()
+                raise
         self.detections[source] = []
 
     def _has_min_detections(self, source: str) -> bool:
