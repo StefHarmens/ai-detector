@@ -63,6 +63,7 @@ If memory usage grows too much during long or frequent detections, you can tune 
 | `AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA` | `false` | Controls ONNX Runtime CPU memory arena allocation strategy. Keeping this off reduces allocator growth under long-running CPU inference. |
 | `AIDETECTOR_ORT_INTRA_OP_THREADS` | *(unset)* | Optional override for ONNX intra-op thread count. Lower values reduce RAM pressure and thread contention. |
 | `AIDETECTOR_ORT_INTER_OP_THREADS` | *(unset)* | Optional override for ONNX inter-op thread count. |
+| `AIDETECTOR_FORCE_PLOT_BUFFER` | `false` | Force storing plotted YOLO overlay frames in memory. Leave disabled for lowest RAM usage unless you need plotted frames during export. |
 
 For lower RAM usage, start by reducing `AIDETECTOR_MAX_BUFFERED_DETECTIONS` (for example to `60`–`180`), setting `AIDETECTOR_MAX_BUFFERED_DETECTION_MB` between `128` and `384`, and increasing `detection.interval`.
 

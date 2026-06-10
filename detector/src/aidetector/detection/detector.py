@@ -59,6 +59,7 @@ class Detector:
     last_detection_time: dict[str, dict[str, datetime]]
     max_buffered_detections: int
     max_buffered_detection_bytes: int
+    requires_plot_frames: bool
 
     def __init__(
         self,
@@ -126,6 +127,15 @@ class Detector:
 
         self.validator = validator
         self.exporters = exporters
+        force_plot_buffer = os.getenv("AIDETECTOR_FORCE_PLOT_BUFFER", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.requires_plot_frames = force_plot_buffer or any(
+            bool(getattr(exporter, "include_plot", False)) for exporter in exporters
+        )
         self.running = True
         workers = min(32, (os.cpu_count() or 1) + 4)
         max_pending_exports = int(
@@ -288,7 +298,11 @@ class Detector:
         detections.append(
             Detection(
                 frames[-1][0],
-                ImageSet(frames[-1][1], result.plot(), Crop(x1, y1, x2, y2)),
+                ImageSet(
+                    frames[-1][1],
+                    result.plot() if self.requires_plot_frames else None,
+                    Crop(x1, y1, x2, y2),
+                ),
                 confidences,
             ),
         )
@@ -486,6 +500,7 @@ class Detector:
                                 f"Exporter {exporter.__class__.__name__} failed"
                             )
                 finally:
+                    detections.clear()
                     self.export_slots.release()
 
             try:

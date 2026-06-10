@@ -5,15 +5,17 @@
                 "source": [
                     "rtsp://192.168.1.124:7447/private"
                 ],
-                "interval": 0.3,
+                "interval": 0.5,
                 "frame_retention": 1
             },
             "yolo": {
                 "model": "/Users/cowcatcher/Desktop/aidetector/modellen/cowcatcherV17.pt",
                 "confidence": 0.85,
-                "time_max": 20,
+                "time_max": 12,
                 "timeout": 5,
-                "include_trailing_time": 0
+                "include_trailing_time": 0,
+                "imgsz": 512,
+                "strategy": "LATEST"
             },
             "exporters": {
                 "telegram": {
@@ -26,7 +28,9 @@
                 },
                 "disk": {
                     "directory": "/Users/cowcatcher/Desktop/aidetector/detections",
-                    "include_video": false
+                    "include_video": false,
+                    "strategy": "BEST",
+                    "export_rejected": false
                 }
             }
         }
