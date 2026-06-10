@@ -8,6 +8,10 @@ services:
       memlock: -1
       stack: 67108864
 
+    environment:
+      AIDETECTOR_MAX_BUFFERED_DETECTIONS: 240
+      AIDETECTOR_MAX_PENDING_EXPORTS: 8
+
     volumes:
       - ./example/config.json:/app/config.json
       - ./example/app.json:/app/app.json

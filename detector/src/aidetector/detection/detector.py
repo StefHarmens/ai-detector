@@ -56,6 +56,7 @@ class Detector:
     export_slots: BoundedSemaphore
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
+    max_buffered_detections: int
 
     def __init__(
         self,
@@ -127,6 +128,10 @@ class Detector:
         workers = min(32, (os.cpu_count() or 1) + 4)
         max_pending_exports = int(
             os.getenv("AIDETECTOR_MAX_PENDING_EXPORTS", str(workers * 2))
+        )
+        self.max_buffered_detections = max(
+            1,
+            int(os.getenv("AIDETECTOR_MAX_BUFFERED_DETECTIONS", "600")),
         )
         self.export_executor = ThreadPoolExecutor(max_workers=workers)
         self.export_slots = BoundedSemaphore(max(1, max_pending_exports))
@@ -309,6 +314,15 @@ class Detector:
         if detections:
             for detection in detections:
                 self.detections[source].append(detection)
+            overflow = len(self.detections[source]) - self.max_buffered_detections
+            if overflow > 0:
+                self.logger.warning(
+                    "Dropping %d buffered detection frame(s) for %s to stay within memory cap (%d)",
+                    overflow,
+                    source,
+                    self.max_buffered_detections,
+                )
+                self.detections[source] = self.detections[source][overflow:]
 
         if self._time_exceeded(source):
             self._export(source)

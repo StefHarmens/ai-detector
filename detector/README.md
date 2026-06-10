@@ -50,6 +50,17 @@ The example Compose stack also starts the web UI on [http://localhost:3000](http
 
 > **Don't have Docker?** [Download Docker Desktop](https://www.docker.com/products/docker-desktop/) — it's free.
 
+### Runtime tuning via environment variables
+
+If memory usage grows too much during long or frequent detections, you can tune these runtime caps:
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `AIDETECTOR_MAX_BUFFERED_DETECTIONS` | `600` | Maximum number of detection frames kept in memory per source while an event is being collected. Older frames are dropped when this cap is reached. |
+| `AIDETECTOR_MAX_PENDING_EXPORTS` | `workers*2` | Maximum number of queued/running export tasks. New exports are skipped when the queue is full. |
+
+For lower RAM usage, start by reducing `AIDETECTOR_MAX_BUFFERED_DETECTIONS` (for example to `120`–`300`) and increasing `detection.interval`.
+
 ### Option 3 — Development (advanced)
 
 ```bash

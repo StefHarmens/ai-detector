@@ -1,37 +1,26 @@
 {
-    "$schema": "https://raw.githubusercontent.com/StefHarmens/ai-detector/main/config/config.schema.json",
     "detectors": [
         {
             "detection": {
                 "source": [
-                    "rtsp://192.168.1.124:7447/5Tpt6a2VoCGNMsAq"
-                ],
-                "interval": 0.2,
-                "frame_retention": 1
+                    "rtsp://192.168.1.124:7447/private"
+                ]
             },
             "yolo": {
-                "model": "https://github.com/CowCatcherAI/CowCatcherAI/releases/download/modelv-17/cowcatcherV17.pt",
-                "confidence": 0.85,
-                "frames_min": 5,
-                "timeout": 6,
-                "time_max": 60,
-                "include_trailing_time": 10
+                "model": "/Users/cowcatcher/Desktop/aidetector/modellen/cowcatcherV17.pt",
+                "confidence": 0.85
             },
             "exporters": {
                 "telegram": {
-                    "token": "<your_bot_token>",
-                    "chat": "<your_chat_id>",
-                    "confidence": 0.85,
-                    "video_width": 1920,
-                    "include_crop": true,
-                    "include_plot": true,
-                    "include_video": true,
-                    "video_crf": 22
+                    "token": "private",
+                    "chat": "private",
+                    "confidence": 0.85
                 },
                 "disk": {
-                    "directory": "cowcatcher"
+                    "directory": "/Users/cowcatcher/Desktop/aidetector/detections"
                 }
             }
         }
-    ]
+    ],
+    "$schema": "https://raw.githubusercontent.com/ESchouten/ai-detector/v0.6.4/config/config.schema.json"
 }
