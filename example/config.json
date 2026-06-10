@@ -1,39 +1,37 @@
 {
+    "$schema": "https://raw.githubusercontent.com/ESchouten/ai-detector/main/config/config.schema.json",
     "detectors": [
         {
             "detection": {
                 "source": [
-                    "rtsp://192.168.1.124:7447/private"
-                ],
-                "interval": 0.5,
-                "frame_retention": 1
+                    "sprong24.mp4"
+                ]
             },
             "yolo": {
-                "model": "/Users/cowcatcher/Desktop/aidetector/modellen/cowcatcherV17.pt",
-                "confidence": 0.85,
-                "time_max": 12,
-                "timeout": 5,
-                "include_trailing_time": 0,
-                "imgsz": 512,
-                "strategy": "LATEST"
+                "model": "https://github.com/CowCatcherAI/CowCatcherAI/releases/download/modelv-14/cowcatcherV15.pt",
+                "confidence": 0.8,
+                "time_max": 30,
+                "timeout": 6,
+                "frames_min": 3
+            },
+            "vlm": {
+                "prompt": "Do you see cows that are mounting each other?",
+                "key": "<your_llm_api_key>",
+                "model": [
+                    "gemini/gemini-3-flash-preview",
+                    "gemini/gemini-2.5-flash-lite",
+                    "gemini/gemini-2.5-flash"
+                ]
             },
             "exporters": {
                 "telegram": {
-                    "token": "private",
-                    "chat": "private",
-                    "confidence": 0.85,
-                    "include_video": false,
-                    "include_plot": false,
-                    "include_crop": false
+                    "token": "<your_bot_token>",
+                    "chat": "<your_chat_id>"
                 },
                 "disk": {
-                    "directory": "/Users/cowcatcher/Desktop/aidetector/detections",
-                    "include_video": false,
-                    "strategy": "BEST",
-                    "export_rejected": false
+                    "directory": "mounts"
                 }
             }
         }
-    ],
-    "$schema": "https://raw.githubusercontent.com/ESchouten/ai-detector/v0.6.4/config/config.schema.json"
+    ]
 }

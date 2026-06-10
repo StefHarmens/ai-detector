@@ -1,9 +1,6 @@
 services:
   aidetector:
-    build:
-      context: ../detector
-    image: "ai-detector-local:dev"
-    restart: unless-stopped
+    image: "ghcr.io/eschouten/ai-detector:latest"
 
     ipc: host
     ulimits:

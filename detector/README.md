@@ -36,6 +36,19 @@ On first run with no `config.json` present, a template is generated automaticall
 
 > **Tip:** Keep the terminal window open while the detector is running. If it closes immediately, there is an error in your `config.json` — check for missing quotes `"` or commas `,`.
 
+You can also start the executable from a terminal with memory guards enabled:
+
+```bash
+AIDETECTOR_MAX_BUFFERED_DETECTIONS=60 \
+AIDETECTOR_MAX_BUFFERED_DETECTION_MB=256 \
+AIDETECTOR_MAX_PENDING_EXPORTS=1 \
+AIDETECTOR_ORT_ENABLE_MEM_PATTERN=false \
+AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA=false \
+AIDETECTOR_MAX_RSS_MB=2500 \
+OMP_NUM_THREADS=4 \
+./aidetector-osx-<version>
+```
+
 ### Option 2 — Docker
 
 Useful if you are on Linux, a NAS, or want the detector to restart automatically after a reboot. From the `example/` folder:
