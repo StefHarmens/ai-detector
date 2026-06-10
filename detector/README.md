@@ -64,6 +64,7 @@ If memory usage grows too much during long or frequent detections, you can tune 
 | `AIDETECTOR_ORT_INTRA_OP_THREADS` | *(unset)* | Optional override for ONNX intra-op thread count. Lower values reduce RAM pressure and thread contention. |
 | `AIDETECTOR_ORT_INTER_OP_THREADS` | *(unset)* | Optional override for ONNX inter-op thread count. |
 | `AIDETECTOR_FORCE_PLOT_BUFFER` | `false` | Force storing plotted YOLO overlay frames in memory. Leave disabled for lowest RAM usage unless you need plotted frames during export. |
+| `AIDETECTOR_MAX_RSS_MB` | `0` (disabled) | Hard process memory guard in MB. If RSS exceeds this limit, the detector stops and restarts (when supervised by Docker/systemd). |
 
 For lower RAM usage, start by reducing `AIDETECTOR_MAX_BUFFERED_DETECTIONS` (for example to `60`–`180`), setting `AIDETECTOR_MAX_BUFFERED_DETECTION_MB` between `128` and `384`, and increasing `detection.interval`.
 

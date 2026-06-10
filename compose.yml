@@ -1,8 +1,9 @@
 services:
   aidetector:
     build:
-      context: https://github.com/StefHarmens/ai-detector.git#main:detector
+      context: ./detector
     image: "ai-detector-fork:main"
+    restart: unless-stopped
     ipc: host
     ulimits:
       memlock: -1
@@ -14,6 +15,7 @@ services:
       AIDETECTOR_MAX_PENDING_EXPORTS: 1
       AIDETECTOR_ORT_ENABLE_MEM_PATTERN: "false"
       AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA: "false"
+      AIDETECTOR_MAX_RSS_MB: 2500
       OMP_NUM_THREADS: 4
 
     volumes:
