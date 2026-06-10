@@ -58,6 +58,7 @@ class Detector:
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
     max_buffered_detections: int
+    max_buffered_detection_bytes: int
 
     def __init__(
         self,
@@ -134,6 +135,11 @@ class Detector:
             1,
             int(os.getenv("AIDETECTOR_MAX_BUFFERED_DETECTIONS", "120")),
         )
+        max_buffered_detection_mb = max(
+            32,
+            int(os.getenv("AIDETECTOR_MAX_BUFFERED_DETECTION_MB", "256")),
+        )
+        self.max_buffered_detection_bytes = max_buffered_detection_mb * 1024 * 1024
         self.export_executor = ThreadPoolExecutor(max_workers=workers)
         self.export_slots = BoundedSemaphore(max(1, max_pending_exports))
         self.last_frame_time = datetime.min
@@ -333,18 +339,56 @@ class Detector:
         if detections:
             for detection in detections:
                 self.detections[source].append(detection)
-            overflow = len(self.detections[source]) - self.max_buffered_detections
-            if overflow > 0:
-                self.logger.warning(
-                    "Dropping %d buffered detection frame(s) for %s to stay within memory cap (%d)",
-                    overflow,
-                    source,
-                    self.max_buffered_detections,
-                )
-                self.detections[source] = self.detections[source][overflow:]
+            self._trim_buffer(source)
 
         if self._time_exceeded(source):
             self._export(source)
+
+    @staticmethod
+    def _image_bytes(image: ndarray | None) -> int:
+        return int(image.nbytes) if image is not None else 0
+
+    def _detection_bytes(self, detection: Detection) -> int:
+        return self._image_bytes(detection.images.jpg) + self._image_bytes(
+            detection.images.plot
+        )
+
+    def _trim_buffer(self, source: str) -> None:
+        detections = self.detections[source]
+        overflow = len(detections) - self.max_buffered_detections
+        if overflow > 0:
+            self.logger.warning(
+                "Dropping %d buffered detection frame(s) for %s to stay within frame cap (%d)",
+                overflow,
+                source,
+                self.max_buffered_detections,
+            )
+            detections = detections[overflow:]
+
+        if not detections:
+            self.detections[source] = []
+            return
+
+        estimated_bytes = sum(self._detection_bytes(detection) for detection in detections)
+        if estimated_bytes <= self.max_buffered_detection_bytes:
+            self.detections[source] = detections
+            return
+
+        removed = 0
+        while detections and estimated_bytes > self.max_buffered_detection_bytes:
+            removed_detection = detections.pop(0)
+            estimated_bytes -= self._detection_bytes(removed_detection)
+            removed += 1
+
+        if removed > 0:
+            self.logger.warning(
+                "Dropping %d buffered detection frame(s) for %s to stay within memory cap (%d MB)",
+                removed,
+                source,
+                self.max_buffered_detection_bytes // (1024 * 1024),
+            )
+
+        self.detections[source] = detections
 
     def _resolve_class_confidences(
         self, confidence: float | dict[str, float]

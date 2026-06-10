@@ -9,7 +9,11 @@ services:
 
     environment:
       AIDETECTOR_MAX_BUFFERED_DETECTIONS: 60
+      AIDETECTOR_MAX_BUFFERED_DETECTION_MB: 256
       AIDETECTOR_MAX_PENDING_EXPORTS: 1
+      AIDETECTOR_ORT_ENABLE_MEM_PATTERN: "false"
+      AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA: "false"
+      OMP_NUM_THREADS: 4
 
     volumes:
       - ./config.json:/app/config.json

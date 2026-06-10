@@ -56,10 +56,15 @@ If memory usage grows too much during long or frequent detections, you can tune 
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `AIDETECTOR_MAX_BUFFERED_DETECTIONS` | `600` | Maximum number of detection frames kept in memory per source while an event is being collected. Older frames are dropped when this cap is reached. |
+| `AIDETECTOR_MAX_BUFFERED_DETECTIONS` | `120` | Maximum number of detection frames kept in memory per source while an event is being collected. Older frames are dropped when this cap is reached. |
+| `AIDETECTOR_MAX_BUFFERED_DETECTION_MB` | `256` | Maximum estimated RAM (in MB) for buffered detection frames per source. Oldest frames are dropped once the source buffer exceeds this budget. |
 | `AIDETECTOR_MAX_PENDING_EXPORTS` | `workers*2` | Maximum number of queued/running export tasks. New exports are skipped when the queue is full. |
+| `AIDETECTOR_ORT_ENABLE_MEM_PATTERN` | `false` | Controls ONNX Runtime memory pattern optimization. Keeping this off reduces steady-state RAM growth at the cost of some throughput. |
+| `AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA` | `false` | Controls ONNX Runtime CPU memory arena allocation strategy. Keeping this off reduces allocator growth under long-running CPU inference. |
+| `AIDETECTOR_ORT_INTRA_OP_THREADS` | *(unset)* | Optional override for ONNX intra-op thread count. Lower values reduce RAM pressure and thread contention. |
+| `AIDETECTOR_ORT_INTER_OP_THREADS` | *(unset)* | Optional override for ONNX inter-op thread count. |
 
-For lower RAM usage, start by reducing `AIDETECTOR_MAX_BUFFERED_DETECTIONS` (for example to `120`–`300`) and increasing `detection.interval`.
+For lower RAM usage, start by reducing `AIDETECTOR_MAX_BUFFERED_DETECTIONS` (for example to `60`–`180`), setting `AIDETECTOR_MAX_BUFFERED_DETECTION_MB` between `128` and `384`, and increasing `detection.interval`.
 
 ### Option 3 — Development (advanced)
 

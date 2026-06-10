@@ -168,6 +168,28 @@ def setup_ort(config: Config) -> bool:
 
         _original_InferenceSession = ort.InferenceSession
 
+        def configure_session_options(sess_options):
+            intra_threads = _read_env_int("AIDETECTOR_ORT_INTRA_OP_THREADS")
+            if intra_threads is not None:
+                sess_options.intra_op_num_threads = intra_threads
+
+            inter_threads = _read_env_int("AIDETECTOR_ORT_INTER_OP_THREADS")
+            if inter_threads is not None:
+                sess_options.inter_op_num_threads = inter_threads
+
+            # Favor lower steady-state RAM usage by default. Override via env vars if needed.
+            enable_mem_pattern = _read_env_bool("AIDETECTOR_ORT_ENABLE_MEM_PATTERN")
+            sess_options.enable_mem_pattern = (
+                enable_mem_pattern if enable_mem_pattern is not None else False
+            )
+
+            enable_cpu_mem_arena = _read_env_bool("AIDETECTOR_ORT_ENABLE_CPU_MEM_ARENA")
+            sess_options.enable_cpu_mem_arena = (
+                enable_cpu_mem_arena
+                if enable_cpu_mem_arena is not None
+                else False
+            )
+
         def InferenceSession(path_or_bytes, sess_options=None, providers=None, **kwargs):
             if _STATE.devices:
                 LOGGER.info(
@@ -177,12 +199,17 @@ def setup_ort(config: Config) -> bool:
                 if sess_options is None:
                     sess_options = ort.SessionOptions()
 
+                configure_session_options(sess_options)
+
                 for device, options in _STATE.devices:
                     sess_options.add_provider_for_devices([device], options)
 
                 return _original_InferenceSession(path_or_bytes, sess_options=sess_options, **kwargs)
 
             LOGGER.info("ORT providers configured for session: %s", _STATE.providers)
+            if sess_options is None:
+                sess_options = ort.SessionOptions()
+            configure_session_options(sess_options)
             configured_providers = [(provider, get_provider_options(config, provider)) for provider in _STATE.providers]
             return _original_InferenceSession(
                 path_or_bytes,
@@ -304,3 +331,14 @@ def _read_env_bool(name: str) -> bool | None:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return None
+
+
+def _read_env_int(name: str) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    except ValueError:
+        return None
