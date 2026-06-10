@@ -131,7 +131,7 @@ class Detector:
         )
         self.max_buffered_detections = max(
             1,
-            int(os.getenv("AIDETECTOR_MAX_BUFFERED_DETECTIONS", "600")),
+            int(os.getenv("AIDETECTOR_MAX_BUFFERED_DETECTIONS", "120")),
         )
         self.export_executor = ThreadPoolExecutor(max_workers=workers)
         self.export_slots = BoundedSemaphore(max(1, max_pending_exports))

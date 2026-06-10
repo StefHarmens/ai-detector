@@ -4,11 +4,16 @@
             "detection": {
                 "source": [
                     "rtsp://192.168.1.124:7447/private"
-                ]
+                ],
+                "interval": 0.3,
+                "frame_retention": 1
             },
             "yolo": {
                 "model": "/Users/cowcatcher/Desktop/aidetector/modellen/cowcatcherV17.pt",
-                "confidence": 0.85
+                "confidence": 0.85,
+                "time_max": 20,
+                "timeout": 5,
+                "include_trailing_time": 0
             },
             "exporters": {
                 "telegram": {

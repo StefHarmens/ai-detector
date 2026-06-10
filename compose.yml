@@ -9,8 +9,8 @@ services:
       stack: 67108864
 
     environment:
-      AIDETECTOR_MAX_BUFFERED_DETECTIONS: 240
-      AIDETECTOR_MAX_PENDING_EXPORTS: 8
+      AIDETECTOR_MAX_BUFFERED_DETECTIONS: 60
+      AIDETECTOR_MAX_PENDING_EXPORTS: 2
 
     volumes:
       - ./example/config.json:/app/config.json
