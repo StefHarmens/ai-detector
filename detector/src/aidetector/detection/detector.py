@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 import pickle
@@ -221,6 +222,7 @@ class Detector:
                         self._handle_yolo_result(
                             source, result, batch[source][i : i + 1]
                         )
+            del results
             return
 
         for source, frames in batch.items():
@@ -285,6 +287,7 @@ class Detector:
     def start(self):
         def monitor_timeouts():
             self.logger.info("Starting timeout monitor")
+            _gc_ticks = [0]
             while self.running:
                 self.logger.info("Checking for timeouts")
                 try:
@@ -292,6 +295,18 @@ class Detector:
                         self._process(source)
                 except Exception:
                     self.logger.exception("Error in timeout monitor")
+                _gc_ticks[0] += 1
+                if _gc_ticks[0] >= 60:
+                    _gc_ticks[0] = 0
+                    gc.collect()
+                    try:
+                        import torch
+                        if torch.backends.mps.is_available():
+                            torch.mps.empty_cache()
+                        elif torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
                 sleep(1)
 
         def frame_producer():
