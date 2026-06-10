@@ -19,10 +19,14 @@
                 "telegram": {
                     "token": "private",
                     "chat": "private",
-                    "confidence": 0.85
+                    "confidence": 0.85,
+                    "include_video": false,
+                    "include_plot": false,
+                    "include_crop": false
                 },
                 "disk": {
-                    "directory": "/Users/cowcatcher/Desktop/aidetector/detections"
+                    "directory": "/Users/cowcatcher/Desktop/aidetector/detections",
+                    "include_video": false
                 }
             }
         }

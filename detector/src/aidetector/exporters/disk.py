@@ -23,6 +23,7 @@ from typing_extensions import Self
 class DiskExporter(Exporter[DiskConfig]):
     directory: Path | None
     strategy: Literal["ALL", "BEST"]
+    include_video: bool
 
     def __init__(
         self,
@@ -30,6 +31,7 @@ class DiskExporter(Exporter[DiskConfig]):
         confidence: float | Confidence,
         export_rejected: bool = True,
         strategy: Literal["ALL", "BEST"] = "BEST",
+        include_video: bool = True,
         crop_padding: float = 0.1,
     ):
         super().__init__(confidence, export_rejected, directory)
@@ -37,6 +39,7 @@ class DiskExporter(Exporter[DiskConfig]):
             self.directory = Path(os.path.join("detections", directory))
             os.makedirs(self.directory, exist_ok=True)
         self.strategy = strategy
+        self.include_video = include_video
         self.crop_padding = crop_padding
 
     @classmethod
@@ -46,6 +49,7 @@ class DiskExporter(Exporter[DiskConfig]):
             exporter.confidence or 0,
             exporter.export_rejected,
             exporter.strategy,
+            exporter.include_video,
             exporter.crop_padding,
         )
 
@@ -84,11 +88,12 @@ class DiskExporter(Exporter[DiskConfig]):
             clean_image_path = os.path.join(timestamped_directory, "clean.jpg")
             with open(clean_image_path, "wb") as f:
                 f.write(get_image(best_detection.images.jpg))
-        video = generate_mp4(detections, padding=self.crop_padding)
-        if video:
-            video_path = os.path.join(timestamped_directory, "video.mp4")
-            with open(video_path, "wb") as f:
-                f.write(video)
+        if self.include_video:
+            video = generate_mp4(detections, padding=self.crop_padding)
+            if video:
+                video_path = os.path.join(timestamped_directory, "video.mp4")
+                with open(video_path, "wb") as f:
+                    f.write(video)
         metadata: Metadata = Metadata(
             timestamp=timestamp,
             validated=validated,

@@ -118,6 +118,7 @@ class WebhookConfig(ExporterConfig):
 class DiskConfig(ExporterConfig):
     directory: Path | None = None
     strategy: Literal["ALL", "BEST"] = "BEST"
+    include_video: bool = True
     export_rejected: bool = True
 
 
