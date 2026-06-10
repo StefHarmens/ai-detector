@@ -10,7 +10,7 @@ services:
 
     environment:
       AIDETECTOR_MAX_BUFFERED_DETECTIONS: 60
-      AIDETECTOR_MAX_PENDING_EXPORTS: 2
+      AIDETECTOR_MAX_PENDING_EXPORTS: 1
 
     volumes:
       - ./example/config.json:/app/config.json

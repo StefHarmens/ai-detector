@@ -223,6 +223,10 @@ class Detector:
                             source, result, batch[source][i : i + 1]
                         )
             del results
+            # Prevent accumulation of Result objects (and their internal orig_img copies)
+            # across predict() calls in older ultralytics versions
+            if self.yolo.predictor is not None:
+                self.yolo.predictor.results = []
             return
 
         for source, frames in batch.items():
@@ -278,7 +282,7 @@ class Detector:
         detections.append(
             Detection(
                 frames[-1][0],
-                ImageSet(result.orig_img, result.plot(), Crop(x1, y1, x2, y2)),
+                ImageSet(frames[-1][1], result.plot(), Crop(x1, y1, x2, y2)),
                 confidences,
             ),
         )
@@ -296,7 +300,7 @@ class Detector:
                 except Exception:
                     self.logger.exception("Error in timeout monitor")
                 _gc_ticks[0] += 1
-                if _gc_ticks[0] >= 60:
+                if _gc_ticks[0] >= 10:
                     _gc_ticks[0] = 0
                     gc.collect()
                     try:
