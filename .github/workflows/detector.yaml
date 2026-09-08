@@ -16,6 +16,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
+  IMAGE_NAME: ghcr.io/stefharmens/ai-detector
   PYINSTALLER_ARGS: --onefile --hidden-import ultralytics --collect-all litellm --collect-all onnxruntime --collect-all onnx --hidden-import=tiktoken_ext.openai_public --hidden-import=tiktoken_ext --paths src --clean --noconfirm
   VERSION_FILE: src/aidetector/utils/version.py
 
@@ -63,7 +64,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/eschouten/ai-detector
+          images: ${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
           tags: |
@@ -80,7 +81,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             REF_NAME=${{ github.ref_name }}
-          outputs: type=image,name=ghcr.io/eschouten/ai-detector,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }},ignore-error=true
 
@@ -132,7 +133,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/eschouten/ai-detector
+          images: ${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
             suffix=-jetpack6,onlatest=true
@@ -181,7 +182,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/eschouten/ai-detector
+          images: ${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
           tags: |
@@ -193,11 +194,11 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/eschouten/ai-detector@sha256:%s ' *)
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ghcr.io/eschouten/ai-detector:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
 
   windows-exe:
     name: ${{ matrix.job_name }}
