@@ -6,7 +6,7 @@ import numpy as np
 
 from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.exporter import Exporter
-from aidetector.exporters.telegram import TelegramExporter
+from aidetector.exporters.telegram import TelegramExporter, TelegramFeedbackListener
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.utils.config import (
     ChatConfig,
@@ -64,7 +64,9 @@ def test_exporter_filters_by_confidence_and_rejected_state():
 
 def test_disk_exporter_writes_detection_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("aidetector.exporters.disk.generate_mp4", lambda *_args, **_kwargs: b"mp4")
+    monkeypatch.setattr(
+        "aidetector.exporters.disk.generate_mp4", lambda *_args, **_kwargs: b"mp4"
+    )
     detections = make_detections()
 
     exporter = DiskExporter(DiskConfig(directory=Path("events")))
@@ -141,7 +143,9 @@ def test_webhook_explicit_body_overrides_generated_payload(monkeypatch):
 
 
 def test_telegram_exporter_respects_alert_every(monkeypatch):
-    monkeypatch.setattr("aidetector.exporters.telegram.generate_mp4", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.generate_mp4", lambda *_args, **_kwargs: None
+    )
     detections = make_detections()
     exporter = TelegramExporter(
         ChatConfig(
@@ -161,3 +165,81 @@ def test_telegram_exporter_respects_alert_every(monkeypatch):
     assert second["disable_notification"] is False
     media = json.loads(second["media"])
     assert media[0]["caption"].startswith("90%")
+
+
+def test_telegram_exporter_adds_feedback_buttons(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"ok": True, "result": [{"message_id": 42}]}
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr("aidetector.exporters.telegram.requests.post", fake_post)
+    detections = make_detections()
+    exporter = TelegramExporter(
+        ChatConfig(
+            token="feedback-token",
+            chat="chat-id",
+            include_image=True,
+            include_video=False,
+        )
+    )
+    monkeypatch.setattr(exporter.feedback_listener, "start", lambda: None)
+
+    exporter.export(detections[-1], detections, True)
+
+    assert calls[0][0].endswith("/sendMediaGroup")
+    assert calls[1][0].endswith("/editMessageReplyMarkup")
+    assert calls[1][1]["data"]["message_id"] == 42
+    markup = json.loads(calls[1][1]["data"]["reply_markup"])
+    callback_data = [button["callback_data"] for button in markup["inline_keyboard"][0]]
+    assert callback_data[0].endswith(":good")
+    assert callback_data[1].endswith(":bad")
+    assert list(Path(".telegram-feedback").glob("*.jpg"))
+
+
+def test_telegram_feedback_moves_image_between_good_and_bad(monkeypatch):
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda *_args, **_kwargs: type("Response", (), {"status_code": 200})(),
+    )
+    detection = make_detections()[-1]
+    listener = TelegramFeedbackListener("token")
+    listener.register_chat("123")
+    feedback_id = listener.save_detection(detection)
+    filename = json.loads(
+        (Path(".telegram-feedback") / f"{feedback_id}.json").read_text()
+    )["filename"]
+
+    callback = {
+        "id": "callback-id",
+        "data": f"feedback:{feedback_id}:good",
+        "message": {"message_id": 42, "chat": {"id": 123}},
+    }
+    listener.process_callback(callback)
+
+    assert (Path("good") / filename).is_file()
+    good_metadata = json.loads(
+        (Path("good") / Path(filename).with_suffix(".json")).read_text()
+    )
+    assert good_metadata["width"] == 120
+    assert good_metadata["height"] == 80
+    assert good_metadata["boxes"] == [
+        {"x1": 12, "y1": 12, "x2": 42, "y2": 52, "label": "cow"}
+    ]
+    assert not (Path("bad") / filename).exists()
+
+    callback["data"] = f"feedback:{feedback_id}:bad"
+    listener.process_callback(callback)
+
+    assert not (Path("good") / filename).exists()
+    assert not (Path("good") / Path(filename).with_suffix(".json")).exists()
+    assert (Path("bad") / filename).is_file()
+    assert (Path("bad") / Path(filename).with_suffix(".json")).is_file()

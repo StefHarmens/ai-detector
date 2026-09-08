@@ -1,5 +1,6 @@
 services:
   aidetector:
+    build: ../detector
     image: "ghcr.io/eschouten/ai-detector:latest"
 
     ipc: host

@@ -35,6 +35,7 @@ build-backend = "hatchling.build"
 [project.scripts]
 main = "aidetector:main"
 generate-schema = "aidetector.utils.generate_schema:main"
+train-feedback = "aidetector.training:main"
 
 [dependency-groups]
 dev = [
