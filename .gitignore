@@ -1,5 +1,13 @@
 detections
+.venv/
+example/.telegram-feedback/
+example/good/
+example/bad/
+example/.training-dataset/
+example/.training-runs/
+example/models/
 config.json
+config.json.bak
 config.**.json
 yolo11**
 app.json

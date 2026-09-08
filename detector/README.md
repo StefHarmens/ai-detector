@@ -184,6 +184,32 @@ Saves detection images or frames to a folder on your machine.
 #### 📱 Telegram (`telegram`)
 
 Sends an alert to a Telegram chat. The bot can include images or a video clip.
+Every alert includes **Good** and **Bad** buttons. Clicking a button copies the original,
+unannotated detection image to `/data/good` or `/data/bad`. Selecting the other button
+later moves that generated training image to the other folder. You can also add your own
+images to these folders. The bot uses Telegram long polling, so do not configure a webhook
+for the same bot token.
+
+`Good` means that the YOLO detection was correct. The detected bounding boxes are stored
+with the image and become positive YOLO labels. `Bad` means false positive and becomes a
+hard-negative image with an empty YOLO label. A manually added image in `good` needs a
+matching YOLO label file with the same basename, for example `cow-1.jpg` and `cow-1.txt`.
+Each line uses `class_id center_x center_y width height`, with coordinates from `0` to `1`.
+Manually added images in `bad` do not need a label file.
+
+After collecting feedback, rebuild and activate the model from the directory containing
+`compose.yml`:
+
+```bash
+docker compose build aidetector
+docker compose run --rm aidetector train-feedback --epochs 50 --batch 16 --update-config
+docker compose up -d aidetector
+```
+
+Training starts from the model currently configured on the first detector, creates
+`/data/models/cowcatcher-feedback.pt`, updates `config.json`, and keeps the previous config
+as `config.json.bak`. Use `--detector-index N` for another detector. At least two `good`
+and two `bad` images are required; substantially more varied examples are recommended.
 
 > **How to get a bot token:** Talk to [@BotFather](https://t.me/BotFather) on Telegram and follow the steps to create a bot. It gives you a token.
 >
