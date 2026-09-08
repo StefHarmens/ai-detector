@@ -24,6 +24,19 @@ def _patch_windows_path_checkpoints() -> None:
         pathlib.WindowsPath = pathlib.PosixPath
 
 
+def _run_command() -> bool:
+    if len(sys.argv) < 2 or sys.argv[1] != "train-feedback":
+        return False
+
+    _set_working_directory()
+    _patch_windows_path_checkpoints()
+    sys.argv = [sys.argv[0], *sys.argv[2:]]
+    from aidetector.training import main as train_feedback
+
+    train_feedback()
+    return True
+
+
 def start() -> None:
     _set_working_directory()
     _patch_windows_path_checkpoints()
@@ -47,6 +60,8 @@ def start() -> None:
 
 
 def main():
+    if _run_command():
+        return
     while True:
         try:
             start()
