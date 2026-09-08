@@ -30,6 +30,7 @@ class StreamBatcher:
         def run_loader(index: int, source: str):
             logger.info("Stream loader started for %s", source)
             while self.running:
+                loader: LoadStreams | None = None
                 try:
                     loader = LoadStreams(source)
                     self.loaders[index] = loader
@@ -50,10 +51,11 @@ class StreamBatcher:
                     if self.running:
                         logger.exception("Stream loader crashed for %s", source)
                 finally:
-                    try:
-                        loader.close()
-                    except Exception:
-                        logger.info("Failed to close stream loader", exc_info=True)
+                    if loader is not None:
+                        try:
+                            loader.close()
+                        except Exception:
+                            logger.info("Failed to close stream loader", exc_info=True)
                 sleep(1)
             logger.info("Stream loader finished for %s", source)
 

@@ -8,7 +8,7 @@ verzamelt gecontroleerde voorbeelden om het YOLO-model verder te trainen.
 ```text
 /Users/cowcatcher/Desktop/
 ├── CowCatcher - Custom/
-│   ├── aidetector-osx-v0.7.4.command
+│   ├── aidetector-osx-v0.7.5.command
 │   ├── config.json
 │   └── models/
 │       ├── cowcatcherV17.pt
@@ -23,7 +23,7 @@ verzamelt gecontroleerde voorbeelden om het YOLO-model verder te trainen.
 
 Download de actuele macOS-build via de
 [releases](https://github.com/StefHarmens/ai-detector/releases). Gebruik het
-bestand `aidetector-osx-v0.7.4.zip`, niet het source-codearchief.
+bestand `aidetector-osx-v0.7.5.zip`, niet het source-codearchief.
 
 ## Configuratie
 
@@ -67,9 +67,9 @@ Een gewijzigde keuze ruimt de eerdere classificatie automatisch op.
 
 ```bash
 cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
-chmod +x aidetector-osx-v0.7.4.command
-xattr -dr com.apple.quarantine aidetector-osx-v0.7.4.command
-./aidetector-osx-v0.7.4.command
+chmod +x aidetector-osx-v0.7.5.command
+xattr -dr com.apple.quarantine aidetector-osx-v0.7.5.command
+./aidetector-osx-v0.7.5.command
 ```
 
 ## Model trainen
@@ -80,7 +80,7 @@ gecontroleerde afbeeldingen uit `data/good` en `data/bad`:
 ```bash
 cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
 
-./aidetector-osx-v0.7.4.command train-feedback \
+./aidetector-osx-v0.7.5.command train-feedback \
 	--config config.json \
 	--data-root "/Users/cowcatcher/Desktop/data" \
 	--model "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.pt" \

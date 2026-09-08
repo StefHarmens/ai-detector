@@ -212,7 +212,7 @@ release directory:
 ```
 
 This creates `data/.telegram-feedback`, `data/good`, and `data/bad`. The default is
-the directory containing the executable. Use `v0.7.4` or newer for configurable
+the directory containing the executable. Use `v0.7.5` or newer for configurable
 feedback storage and standalone training.
 
 Historical events should be reviewed before training, even when their metadata says
@@ -252,7 +252,7 @@ trainable `.pt` model explicitly:
 
 ```bash
 cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
-./aidetector-osx-v0.7.4.command train-feedback \
+./aidetector-osx-v0.7.5.command train-feedback \
   --config config.json \
   --data-root "/Users/cowcatcher/Desktop/data" \
   --model "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.pt" \
