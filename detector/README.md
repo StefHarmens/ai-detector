@@ -196,6 +196,9 @@ hard-negative image with an empty YOLO label. A manually added image in `good` n
 matching YOLO label file with the same basename, for example `cow-1.jpg` and `cow-1.txt`.
 Each line uses `class_id center_x center_y width height`, with coordinates from `0` to `1`.
 Manually added images in `bad` do not need a label file.
+Existing disk-export metadata is also supported: a matching `.json` containing `crop`
+and `confidences` is converted automatically, while image dimensions are read from the
+photo.
 
 After collecting feedback, rebuild and activate the model from the directory containing
 `compose.yml`:

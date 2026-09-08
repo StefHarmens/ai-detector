@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 
 from aidetector.training import build_feedback_dataset, train_feedback_model
@@ -55,6 +57,30 @@ def test_build_feedback_dataset_requires_labels_for_manual_good_images(tmp_path)
 
     with pytest.raises(ValueError, match="needs a matching"):
         build_feedback_dataset(tmp_path, tmp_path / "dataset", ["cow"])
+
+
+def test_build_feedback_dataset_accepts_disk_export_metadata(tmp_path):
+    for index in range(2):
+        _write_sample(tmp_path, "good", f"positive-{index}")
+        image_path = tmp_path / "good" / f"positive-{index}.jpg"
+        cv2.imwrite(str(image_path), np.zeros((200, 400, 3), dtype=np.uint8))
+        image_path.with_suffix(".json").write_text(
+            json.dumps(
+                {
+                    "timestamp": "2026-07-26T17-09-51",
+                    "validated": True,
+                    "confidences": {"mounting": 0.91796875},
+                    "crop": {"x1": 100, "y1": 20, "x2": 300, "y2": 180},
+                }
+            )
+        )
+        _write_sample(tmp_path, "bad", f"negative-{index}")
+
+    output = tmp_path / "dataset"
+    build_feedback_dataset(tmp_path, output, ["mounting"])
+
+    labels = [path.read_text() for path in (output / "labels").rglob("good_*.txt")]
+    assert labels == ["0 0.500000 0.500000 0.500000 0.800000\n"] * 2
 
 
 def test_train_feedback_model_saves_model_and_updates_config(tmp_path, monkeypatch):

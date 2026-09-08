@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import cv2
+
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
 
@@ -60,17 +62,41 @@ def _validate_yolo_labels(contents: str, class_count: int, source: Path) -> str:
 
 
 def _labels_from_metadata(
+    image_path: Path,
     metadata_path: Path,
     class_ids: dict[str, int],
 ) -> str:
     metadata = json.loads(metadata_path.read_text())
-    width = int(metadata["width"])
-    height = int(metadata["height"])
+    if "width" in metadata and "height" in metadata:
+        width = int(metadata["width"])
+        height = int(metadata["height"])
+    else:
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Could not read image dimensions from {image_path}")
+        height, width = image.shape[:2]
     if width <= 0 or height <= 0:
         raise ValueError(f"Invalid image dimensions in {metadata_path}")
 
+    boxes = metadata.get("boxes", [])
+    if not boxes and metadata.get("crop"):
+        confidences = metadata.get("confidences", {})
+        known_confidences = {
+            label: float(confidence)
+            for label, confidence in confidences.items()
+            if label in class_ids
+        }
+        if not known_confidences:
+            raise ValueError(f"No known class in {metadata_path}")
+        boxes = [
+            {
+                **metadata["crop"],
+                "label": max(known_confidences, key=known_confidences.get),
+            }
+        ]
+
     labels = []
-    for box in metadata.get("boxes", []):
+    for box in boxes:
         label = box.get("label")
         if label not in class_ids:
             raise ValueError(f"Unknown class '{label}' in {metadata_path}")
@@ -102,7 +128,7 @@ def _positive_labels(image_path: Path, class_ids: dict[str, int]) -> str:
 
     metadata_path = image_path.with_suffix(".json")
     if metadata_path.exists():
-        return _labels_from_metadata(metadata_path, class_ids)
+        return _labels_from_metadata(image_path, metadata_path, class_ids)
 
     raise ValueError(
         f"Positive sample {image_path} needs a matching .json or YOLO .txt label file"
