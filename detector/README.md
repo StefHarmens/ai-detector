@@ -200,6 +200,38 @@ Existing disk-export metadata is also supported: a matching `.json` containing `
 and `confidences` is converted automatically, while image dimensions are read from the
 photo.
 
+For a standalone macOS executable, configure a persistent location outside the downloaded
+release directory:
+
+```json
+"telegram": {
+  "token": "...",
+  "chat": "...",
+  "feedback_directory": "/Users/cowcatcher/CowCatcherData"
+}
+```
+
+This creates `CowCatcherData/.telegram-feedback`, `CowCatcherData/good`, and
+`CowCatcherData/bad`. The default is the directory containing the executable. The
+`feedback_directory` option requires a release containing this feature; the existing
+`aidetector-osx-v0.7.1.command` does not contain it.
+
+Historical events should be reviewed before training, even when their metadata says
+`validated: true`. Put the event folders in `example/import/`, then run:
+
+```bash
+cd "/Users/cowcatcher/Desktop/CowCatcher - Custom/ai-detector"
+docker compose build aidetector
+docker compose run --rm -p 8765:8765 aidetector review-feedback \
+  --source /data/import --data-root /data --host 0.0.0.0 --no-browser
+```
+
+Open [http://localhost:8765](http://localhost:8765). Review the video and clean frame,
+then choose **Good**, **Bad**, or **Skip**. The keyboard shortcuts are `G`, `B`, and `S`.
+Progress is stored in `example/import/.review-decisions.json`, so stopping and running
+the command again resumes the review. **Undo** removes the last generated training files
+and presents that event again. The source events are never changed.
+
 After collecting feedback, rebuild and activate the model from the directory containing
 `compose.yml`:
 
@@ -223,6 +255,7 @@ and two `bad` images are required; substantially more varied examples are recomm
 | :---------------- | :----------- | :---------- |
 | `token`           | **Required** | Your Telegram bot token. |
 | `chat`            | **Required** | The Telegram chat or user ID to send alerts to. |
+| `feedback_directory` | `.`       | Persistent root directory for `.telegram-feedback`, `good`, and `bad`. |
 | `confidence`      |              | Minimum confidence required to send. Leave empty to always send. |
 | `alert_every`     | `1`          | Only send a notification sound every Nth detection. `1` = every time, `5` = every 5th. |
 | `include_plot`    | `false`      | Include the full frame with a detection box drawn on it. |

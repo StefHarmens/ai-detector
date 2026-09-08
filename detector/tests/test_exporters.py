@@ -243,3 +243,19 @@ def test_telegram_feedback_moves_image_between_good_and_bad(monkeypatch):
     assert not (Path("good") / Path(filename).with_suffix(".json")).exists()
     assert (Path("bad") / filename).is_file()
     assert (Path("bad") / Path(filename).with_suffix(".json")).is_file()
+
+
+def test_telegram_feedback_uses_configured_directory(tmp_path, monkeypatch):
+    working_directory = tmp_path / "working"
+    feedback_directory = tmp_path / "persistent-feedback"
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
+
+    listener = TelegramFeedbackListener("token", feedback_directory)
+    feedback_id = listener.save_detection(make_detections()[-1])
+    listener._classify(feedback_id, "good")
+
+    assert list((feedback_directory / ".telegram-feedback").glob("*.jpg"))
+    assert list((feedback_directory / "good").glob("*.jpg"))
+    assert not (working_directory / ".telegram-feedback").exists()
+    assert not (working_directory / "good").exists()

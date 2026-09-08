@@ -1,5 +1,7 @@
 detections
 .venv/
+.DS_Store
+example/import/
 example/.telegram-feedback/
 example/good/
 example/bad/

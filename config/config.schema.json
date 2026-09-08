@@ -38,6 +38,12 @@
           "title": "Chat",
           "type": "string"
         },
+        "feedback_directory": {
+          "default": ".",
+          "format": "path",
+          "title": "Feedback Directory",
+          "type": "string"
+        },
         "alert_every": {
           "default": 1,
           "title": "Alert Every",
