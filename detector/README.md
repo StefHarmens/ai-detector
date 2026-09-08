@@ -201,6 +201,7 @@ After collecting feedback, rebuild and activate the model from the directory con
 `compose.yml`:
 
 ```bash
+cd "/Users/cowcatcher/Desktop/CowCatcher - Custom/ai-detector"
 docker compose build aidetector
 docker compose run --rm aidetector train-feedback --epochs 50 --batch 16 --update-config
 docker compose up -d aidetector
