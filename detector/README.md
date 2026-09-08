@@ -207,14 +207,13 @@ release directory:
 "telegram": {
   "token": "...",
   "chat": "...",
-  "feedback_directory": "/Users/cowcatcher/CowCatcherData"
+  "feedback_directory": "/Users/cowcatcher/Desktop/data"
 }
 ```
 
-This creates `CowCatcherData/.telegram-feedback`, `CowCatcherData/good`, and
-`CowCatcherData/bad`. The default is the directory containing the executable. The
-`feedback_directory` option requires a release containing this feature; the existing
-`aidetector-osx-v0.7.1.command` does not contain it.
+This creates `data/.telegram-feedback`, `data/good`, and `data/bad`. The default is
+the directory containing the executable. Use `v0.7.4` or newer for configurable
+feedback storage and standalone training.
 
 Historical events should be reviewed before training, even when their metadata says
 `validated: true`. Put the event folders in `example/import/`, then run:
@@ -247,17 +246,18 @@ Training starts from the model currently configured on the first detector, creat
 as `config.json.bak`. Use `--detector-index N` for another detector. At least two `good`
 and two `bad` images are required; substantially more varied examples are recommended.
 
-The standalone macOS executable can train directly on Apple Silicon. Keep the runtime
-configuration on the `.onnx` model and provide the trainable `.pt` model explicitly:
+The standalone macOS executable can train directly on Apple Silicon. Stop the running
+detector first. Keep the runtime configuration on the `.onnx` model and provide the
+trainable `.pt` model explicitly:
 
 ```bash
-cd "/Users/cowcatcher/Desktop"
-./aidetector-osx-v0.7.3.command train-feedback \
+cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
+./aidetector-osx-v0.7.4.command train-feedback \
   --config config.json \
   --data-root "/Users/cowcatcher/Desktop/data" \
-  --model "/Users/cowcatcher/Desktop/models/cowcatcherV17.pt" \
-  --output "/Users/cowcatcher/Desktop/models/cowcatcher-feedback.pt" \
-  --epochs 50 --batch 8 --device mps --update-config
+  --model "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.pt" \
+  --output "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcher-feedback.pt" \
+  --epochs 25 --batch 4 --device mps --update-config
 ```
 
 This backs up `config.json`, activates the trained `.pt` model, and the detector exports
