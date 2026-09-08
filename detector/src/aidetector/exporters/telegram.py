@@ -22,10 +22,11 @@ from aidetector.utils.config import (
 class TelegramFeedbackListener:
     logger = logging.getLogger("TelegramFeedbackListener")
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, feedback_directory: Path = Path(".")):
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.allowed_chats: set[str] = set()
-        self.feedback_directory = Path(".telegram-feedback")
+        self.data_root = feedback_directory.expanduser().resolve()
+        self.feedback_directory = self.data_root / ".telegram-feedback"
         self.offset = 0
         self.started = False
         self.start_lock = Lock()
@@ -150,8 +151,8 @@ class TelegramFeedbackListener:
         if not source.is_file() or not filename:
             raise FileNotFoundError("Feedback image not found")
 
-        destination = Path(label)
-        other = Path("bad" if label == "good" else "good")
+        destination = self.data_root / label
+        other = self.data_root / ("bad" if label == "good" else "good")
         destination.mkdir(parents=True, exist_ok=True)
         other.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination / filename)
@@ -195,14 +196,17 @@ class TelegramFeedbackListener:
         )
 
 
-_feedback_listeners: dict[str, TelegramFeedbackListener] = {}
+_feedback_listeners: dict[tuple[str, Path], TelegramFeedbackListener] = {}
 _feedback_listeners_lock = Lock()
 
 
-def get_feedback_listener(token: str, chat: str) -> TelegramFeedbackListener:
+def get_feedback_listener(
+    token: str, chat: str, feedback_directory: Path = Path(".")
+) -> TelegramFeedbackListener:
+    data_root = feedback_directory.expanduser().resolve()
     with _feedback_listeners_lock:
         listener = _feedback_listeners.setdefault(
-            token, TelegramFeedbackListener(token)
+            (token, data_root), TelegramFeedbackListener(token, data_root)
         )
         listener.register_chat(chat)
         return listener
@@ -233,7 +237,9 @@ class TelegramExporter(WebhookExporter):
             )
         )
         self.alert_count = 0
-        self.feedback_listener = get_feedback_listener(config.token, config.chat)
+        self.feedback_listener = get_feedback_listener(
+            config.token, config.chat, config.feedback_directory
+        )
 
     def filtered_export(
         self,

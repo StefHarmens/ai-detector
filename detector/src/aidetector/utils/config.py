@@ -117,6 +117,7 @@ class HttpConfig:
 class ChatConfig(ExporterConfig):
     token: str = field(repr=False)
     chat: str
+    feedback_directory: Path = Path(".")
     alert_every: int = 1
     include_image: bool = False
     include_plot: bool = False
