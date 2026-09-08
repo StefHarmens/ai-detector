@@ -91,7 +91,7 @@ def test_train_feedback_model_saves_model_and_updates_config(tmp_path, monkeypat
     _write_sample(tmp_path, "bad", "negative-2")
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"detectors": [{"yolo": {"model": "base.pt", "imgsz": 640}}]})
+        json.dumps({"detectors": [{"yolo": {"model": "runtime.onnx", "imgsz": 640}}]})
     )
     calls = []
 
@@ -120,14 +120,15 @@ def test_train_feedback_model_saves_model_and_updates_config(tmp_path, monkeypat
         batch=2,
         device="cpu",
         update_config=True,
+        model_path=tmp_path / "base.pt",
     )
 
     assert result == output_path
     assert output_path.read_bytes() == b"trained"
-    assert calls[0] == ("load", "base.pt")
+    assert calls[0] == ("load", str(tmp_path / "base.pt"))
     assert calls[1][1]["epochs"] == 5
     assert calls[1][1]["device"] == "cpu"
     updated_config = json.loads(config_path.read_text())
     assert updated_config["detectors"][0]["yolo"]["model"] == str(output_path)
     backup_config = json.loads((tmp_path / "config.json.bak").read_text())
-    assert backup_config["detectors"][0]["yolo"]["model"] == "base.pt"
+    assert backup_config["detectors"][0]["yolo"]["model"] == "runtime.onnx"

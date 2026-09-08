@@ -247,6 +247,22 @@ Training starts from the model currently configured on the first detector, creat
 as `config.json.bak`. Use `--detector-index N` for another detector. At least two `good`
 and two `bad` images are required; substantially more varied examples are recommended.
 
+The standalone macOS executable can train directly on Apple Silicon. Keep the runtime
+configuration on the `.onnx` model and provide the trainable `.pt` model explicitly:
+
+```bash
+cd "/Users/cowcatcher/Desktop"
+./aidetector-osx-v0.7.3.command train-feedback \
+  --config config.json \
+  --data-root "/Users/cowcatcher/Desktop/data" \
+  --model "/Users/cowcatcher/Desktop/models/cowcatcherV17.pt" \
+  --output "/Users/cowcatcher/Desktop/models/cowcatcher-feedback.pt" \
+  --epochs 50 --batch 8 --device mps --update-config
+```
+
+This backs up `config.json`, activates the trained `.pt` model, and the detector exports
+an optimized ONNX model on its next start.
+
 > **How to get a bot token:** Talk to [@BotFather](https://t.me/BotFather) on Telegram and follow the steps to create a bot. It gives you a token.
 >
 > **How to get your chat ID:** Add your bot to a chat, send it a message, then open `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in your browser — the `chat.id` field is your chat ID.

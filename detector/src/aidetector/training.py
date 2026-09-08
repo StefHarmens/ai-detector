@@ -227,11 +227,12 @@ def train_feedback_model(
     batch: int,
     device: str | None,
     update_config: bool,
+    model_path: Path | None = None,
 ) -> Path:
     from ultralytics import YOLO
 
     config_document, yolo_config = _read_detector_config(config_path, detector_index)
-    model_reference = str(yolo_config["model"])
+    model_reference = str(model_path or yolo_config["model"])
     if not model_reference.lower().endswith(".pt"):
         raise ValueError("Training must start from a PyTorch .pt model")
 
@@ -283,6 +284,11 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=Path("config.json"))
     parser.add_argument("--data-root", type=Path, default=Path("."))
     parser.add_argument(
+        "--model",
+        type=Path,
+        help="PyTorch .pt model to train from instead of the configured runtime model.",
+    )
+    parser.add_argument(
         "--output", type=Path, default=Path("models/cowcatcher-feedback.pt")
     )
     parser.add_argument("--detector-index", type=int, default=0)
@@ -301,6 +307,7 @@ def main() -> None:
         batch=args.batch,
         device=args.device,
         update_config=args.update_config,
+        model_path=args.model,
     )
     print(f"Saved trained model to {output}")
 
