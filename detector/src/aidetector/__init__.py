@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 import pathlib
 import sys
@@ -60,6 +61,7 @@ def start() -> None:
 
 
 def main():
+    multiprocessing.freeze_support()
     if _run_command():
         return
     while True:
