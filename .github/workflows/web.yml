@@ -39,7 +39,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/eschouten/ai-detector-web
+          images: ghcr.io/stefharmens/ai-detector-web
           flavor: |
             latest=false
           tags: |

@@ -9,7 +9,13 @@ from typing import Any
 import requests
 
 from aidetector.exporters.webhook import WebhookExporter
-from aidetector.media.video import generate_mp4, get_image
+from aidetector.media.video import (
+    compress_jpg,
+    generate_mp4,
+    get_crop,
+    get_image,
+    get_plot,
+)
 from aidetector.utils.config import (
     ChatConfig,
     Detection,
@@ -234,12 +240,139 @@ class TelegramExporter(WebhookExporter):
                 include_crop=config.include_crop,
                 video_width=config.video_width,
                 video_crf=config.video_crf,
+                timeout=getattr(config, "timeout", None) or 60,
             )
         )
         self.alert_count = 0
         self.feedback_listener = get_feedback_listener(
             config.token, config.chat, config.feedback_directory
         )
+
+    def get_media_and_files(
+        self,
+        best_detection: Detection,
+        detections: list[Detection],
+        validated: bool | None,
+    ):
+        files = {}
+        media = []
+
+        if self.telegram.include_image:
+            image = get_image(best_detection.images.jpg)
+            if self.config.data_max is not None:
+                compressed = compress_jpg(best_detection.images.jpg, self.config.data_max)
+                if compressed is not None:
+                    image = compressed
+            files["image"] = (
+                get_timestamped_filename(best_detection),
+                image,
+                "image/jpeg",
+            )
+            media.append(
+                {
+                    "type": "photo",
+                    "media": "attach://image",
+                }
+            )
+
+        if self.telegram.include_plot:
+            image = get_plot(best_detection)
+            photo = get_image(image)
+            if self.config.data_max is not None:
+                compressed = compress_jpg(image, self.config.data_max)
+                if compressed is not None:
+                    photo = compressed
+            files["photo"] = (
+                get_timestamped_filename(best_detection),
+                photo,
+                "image/jpeg",
+            )
+            media.append(
+                {
+                    "type": "photo",
+                    "media": "attach://photo",
+                }
+            )
+
+        if self.telegram.include_crop and best_detection.images.crop_region:
+            c = get_crop(best_detection)
+            if c is not None:
+                crop = get_image(c)
+                if self.config.data_max is not None:
+                    compressed = compress_jpg(c, self.config.data_max)
+                    if compressed is not None:
+                        crop = compressed
+                files["crop"] = (
+                    f"{get_timestamped_filename(best_detection).replace('.jpg', '_crop.jpg')}",
+                    crop,
+                    "image/jpeg",
+                )
+                media.append(
+                    {
+                        "type": "photo",
+                        "media": "attach://crop",
+                    }
+                )
+
+        if self.telegram.include_video:
+            video = generate_mp4(
+                detections,
+                width=self.telegram.video_width,
+                crf=self.telegram.video_crf,
+                data_max=self.config.data_max,
+                padding=self.telegram.crop_padding,
+            )
+            if video:
+                files["video"] = (
+                    f"{get_timestamped_filename(best_detection).replace('.jpg', '.mp4')}",
+                    video,
+                    "video/mp4",
+                )
+                media.append(
+                    {
+                        "type": "video",
+                        "media": "attach://video",
+                    }
+                )
+
+        if not media:
+            fallback = get_plot(best_detection) if self.telegram.include_plot else best_detection.images.jpg
+            files["image"] = (
+                get_timestamped_filename(best_detection),
+                get_image(fallback),
+                "image/jpeg",
+            )
+            media.append(
+                {
+                    "type": "photo",
+                    "media": "attach://image",
+                }
+            )
+
+        self.alert_count += 1
+        media[0]["caption"] = (
+            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{round((detections[-1].date - detections[0].date).total_seconds())} second(s)"
+        )
+
+        payload = {
+            "chat_id": self.telegram.chat,
+            "disable_notification": self.alert_count % self.telegram.alert_every != 0,
+            "media": json.dumps(media),
+        }
+        return payload, files
+
+    def get_payload(
+        self,
+        best_detection: Detection,
+        detections: list[Detection],
+        validated: bool | None,
+    ):
+        payload, _ = self.get_media_and_files(best_detection, detections, validated)
+        return payload
+
+    def get_file(self, detection: Detection, detections: list[Detection]):
+        _, files = self.get_media_and_files(detection, detections, None)
+        return files
 
     def filtered_export(
         self,
@@ -248,9 +381,10 @@ class TelegramExporter(WebhookExporter):
         validated: bool | None,
     ):
         try:
-            payload = self.get_payload(best_detection, detections, validated)
-            files = self.get_file(best_detection, detections)
-            if not files:
+            payload, files = self.get_media_and_files(
+                best_detection, detections, validated
+            )
+            if not files or not payload:
                 self.logger.error("Telegram notification has no media to send")
                 return
 
@@ -259,11 +393,13 @@ class TelegramExporter(WebhookExporter):
                 data=payload,
                 files=files,
                 headers=self.get_headers(),
-                timeout=self.config.timeout,
+                timeout=self.config.timeout or 60,
             )
             if response.status_code >= 400:
                 self.logger.error(
-                    "Failed to send Telegram notification: %s", response.text
+                    "Failed to send Telegram notification (%s): %s",
+                    response.status_code,
+                    response.text,
                 )
                 return
 
@@ -276,58 +412,3 @@ class TelegramExporter(WebhookExporter):
                 self.feedback_listener.start()
         except Exception:
             self.logger.exception("Failed to send Telegram notification")
-
-    def get_payload(
-        self,
-        best_detection: Detection,
-        detections: list[Detection],
-        validated: bool | None,
-    ):
-        self.alert_count += 1
-        media = []
-        if self.telegram.include_image:
-            media.append(
-                {
-                    "type": "photo",
-                    "media": "attach://image",
-                }
-            )
-        if self.telegram.include_plot:
-            media.append(
-                {
-                    "type": "photo",
-                    "media": "attach://photo",
-                }
-            )
-        if self.telegram.include_crop and best_detection.images.crop_region:
-            media.append(
-                {
-                    "type": "photo",
-                    "media": "attach://crop",
-                }
-            )
-
-        if self.telegram.include_video:
-            video = generate_mp4(
-                detections,
-                width=self.telegram.video_width,
-                crf=self.telegram.video_crf,
-                padding=self.telegram.crop_padding,
-            )
-            if video:
-                media.append(
-                    {
-                        "type": "video",
-                        "media": "attach://video",
-                    }
-                )
-
-        media[0]["caption"] = (
-            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{round((detections[-1].date - detections[0].date).total_seconds())} second(s)"
-        )
-
-        return {
-            "chat_id": self.telegram.chat,
-            "disable_notification": self.alert_count % self.telegram.alert_every != 0,
-            "media": json.dumps(media),
-        }

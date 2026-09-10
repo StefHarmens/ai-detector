@@ -14,7 +14,7 @@ Confirmed detections can be sent to **Telegram**, saved to **disk**, or posted t
 
 ### Option 1 — Windows Executable (recommended for most users)
 
-👉 **[Download from the Releases page](https://github.com/ESchouten/ai-detector/releases)**
+👉 **[Download from the Releases page](https://github.com/StefHarmens/ai-detector/releases)**
 
 Pick the right file for your hardware:
 

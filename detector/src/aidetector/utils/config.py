@@ -183,8 +183,8 @@ class Config:
     health: HealthcheckConfig | None = None
 
 
-template_url = f"https://raw.githubusercontent.com/ESchouten/ai-detector/{REF_NAME}/config/config.template.json"
-schema_url = f"https://raw.githubusercontent.com/ESchouten/ai-detector/{REF_NAME}/config/config.schema.json"
+template_url = f"https://raw.githubusercontent.com/StefHarmens/ai-detector/{REF_NAME}/config/config.template.json"
+schema_url = f"https://raw.githubusercontent.com/StefHarmens/ai-detector/{REF_NAME}/config/config.schema.json"
 
 
 def get_template() -> Any | None:
@@ -267,7 +267,7 @@ def load_config() -> Config:
             raise FileNotFoundError(f"Configure before running: {config_path}")
         else:
             logger.error(f"Configuration file not found: {config_path}")
-            logger.error("Create a config.json file. See: https://github.com/ESchouten/ai-detector")
+            logger.error("Create a config.json file. See: https://github.com/StefHarmens/ai-detector")
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
     try:

@@ -22,3 +22,10 @@ def test_confidence_helpers_support_global_and_per_class_thresholds():
     assert not confidence_matches(confidence, 0.9)
     assert confidence_matches(confidence, {"horse": 0.2})
     assert matching_confidences(confidence, {"cow": 0.7, "horse": 0.7}) == ["cow"]
+
+
+def test_schema_urls_use_own_repository():
+    from aidetector.utils.config import schema_url, template_url
+
+    assert "StefHarmens/ai-detector" in schema_url
+    assert "StefHarmens/ai-detector" in template_url

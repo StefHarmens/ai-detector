@@ -118,6 +118,14 @@ def test_export_validates_exports_and_clears_detections():
     assert validated is True
 
 
+def test_validator_without_vlms_defaults_to_validated_true():
+    from aidetector.detection.validator import Validator
+
+    validator = Validator.from_config([])
+    detection = make_detection(datetime(2026, 1, 1, 12, 0, 0), {"cow": 0.9})
+    assert validator.validate(detection, [detection]) is True
+
+
 def test_trailing_frames_are_included_after_latest_detection():
     source = "camera"
     detector = make_detector()

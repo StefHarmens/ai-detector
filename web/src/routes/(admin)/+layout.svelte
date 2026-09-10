@@ -58,7 +58,7 @@
 			items: [
 				{
 					title: 'Github',
-					url: 'https://github.com/ESchouten/ai-detector',
+					url: 'https://github.com/StefHarmens/ai-detector',
 					icon: GithubIcon
 				}
 			]

@@ -24,6 +24,9 @@ class Validator:
     def validate(
         self, detection: Detection, detections: list[Detection]
     ) -> bool | None:
+        if not self.vlms:
+            return True
+
         for vlm_config in self.vlms:
             crop = get_crop(detection)
             image_url = f"data:image/jpeg;base64,{base64.b64encode(get_image(crop if crop is not None else detection.images.jpg)).decode('utf-8')}"

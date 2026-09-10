@@ -1,7 +1,7 @@
 services:
   aidetector:
     build: ../detector
-    image: "ghcr.io/eschouten/ai-detector:latest"
+    image: "ghcr.io/stefharmens/ai-detector:latest"
 
     ipc: host
     ulimits:
@@ -20,7 +20,7 @@ services:
               capabilities: [ gpu ]
 
   web:
-    image: "ghcr.io/eschouten/ai-detector-web:latest"
+    image: "ghcr.io/stefharmens/ai-detector-web:latest"
     depends_on:
       - aidetector
     environment:

@@ -1,7 +1,7 @@
 export const STAGES = ['approved', 'rejected', 'unvalidated'] as const;
 export type Stage = (typeof STAGES)[number];
 
-export const DEFAULT_SCHEMA_URL = 'https://raw.githubusercontent.com/ESchouten/ai-detector/main/config/config.schema.json';
+export const DEFAULT_SCHEMA_URL = 'https://raw.githubusercontent.com/StefHarmens/ai-detector/main/config/config.schema.json';
 
 export interface DetectorConfig {
     detection: {
