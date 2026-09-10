@@ -397,7 +397,8 @@ class TelegramExporter(WebhookExporter):
             )
             if response.status_code >= 400:
                 self.logger.error(
-                    "Failed to send Telegram notification (%s): %s",
+                    "Failed to send Telegram notification to chat %s (%s): %s",
+                    self.telegram.chat,
                     response.status_code,
                     response.text,
                 )
@@ -405,6 +406,11 @@ class TelegramExporter(WebhookExporter):
 
             messages = response.json().get("result", [])
             if messages:
+                self.logger.info(
+                    "Successfully sent Telegram notification to chat %s (message_id=%s)",
+                    self.telegram.chat,
+                    messages[0].get("message_id"),
+                )
                 feedback_id = self.feedback_listener.save_detection(best_detection)
                 self.feedback_listener.add_buttons(
                     self.telegram.chat, messages[0]["message_id"], feedback_id

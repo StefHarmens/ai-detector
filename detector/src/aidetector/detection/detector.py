@@ -174,7 +174,7 @@ class Detector:
         def monitor_timeouts():
             self.logger.info("Starting timeout monitor")
             while self.running:
-                self.logger.info("Checking for timeouts")
+                self.logger.debug("Checking for timeouts")
                 try:
                     for source in list(self.detections.keys()):
                         self._process(source)
