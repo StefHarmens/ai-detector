@@ -19,8 +19,12 @@ ARG REF_NAME=main
 RUN echo "TYPE = \"cuda\"" > /app/src/aidetector/utils/version.py
 RUN echo "REF_NAME = \"${REF_NAME}\"" >> /app/src/aidetector/utils/version.py
 
-# Lock torch versions to prevent replacement by system packages
-RUN pip freeze | grep -E "^(torch|torchvision|torchaudio)" > constraints.txt
+# Lock torch versions to prevent replacement by system packages.
+# Strip any "@ file://..." source reference: some NVIDIA base images report an
+# installed torch build as a local wheel path that no longer exists in the
+# final image, which makes uv fail to re-resolve it. Keeping just the version
+# pin is enough to prevent replacement without requiring that file to exist.
+RUN pip freeze | grep -E "^(torch|torchvision|torchaudio)" | sed -E 's/ @ .*//' > constraints.txt
 
 # Install the application directly into the ultralytics Python environment.
 # amd64 images install the project NVIDIA extra explicitly; arm64 / Jetson images
