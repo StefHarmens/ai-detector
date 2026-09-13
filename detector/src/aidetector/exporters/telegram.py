@@ -71,11 +71,16 @@ class TelegramFeedbackListener:
         return feedback_id
 
     def add_buttons(self, chat: str, message_id: int, feedback_id: str) -> None:
+        # Telegram does not allow a reply markup on a message that is part of a
+        # media group (sendMediaGroup output), so the buttons are sent as a
+        # separate message replying to the album instead of editing it in place.
         response = requests.post(
-            f"{self.api_url}/editMessageReplyMarkup",
+            f"{self.api_url}/sendMessage",
             data={
                 "chat_id": chat,
-                "message_id": message_id,
+                "reply_to_message_id": message_id,
+                "allow_sending_without_reply": True,
+                "text": "Was this detection correct?",
                 "reply_markup": self._reply_markup(feedback_id),
             },
             timeout=10,

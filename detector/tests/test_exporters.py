@@ -196,8 +196,8 @@ def test_telegram_exporter_adds_feedback_buttons(monkeypatch):
     exporter.export(detections[-1], detections, True)
 
     assert calls[0][0].endswith("/sendMediaGroup")
-    assert calls[1][0].endswith("/editMessageReplyMarkup")
-    assert calls[1][1]["data"]["message_id"] == 42
+    assert calls[1][0].endswith("/sendMessage")
+    assert calls[1][1]["data"]["reply_to_message_id"] == 42
     markup = json.loads(calls[1][1]["data"]["reply_markup"])
     callback_data = [button["callback_data"] for button in markup["inline_keyboard"][0]]
     assert callback_data[0].endswith(":good")

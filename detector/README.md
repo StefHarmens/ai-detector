@@ -184,11 +184,13 @@ Saves detection images or frames to a folder on your machine.
 #### 📱 Telegram (`telegram`)
 
 Sends an alert to a Telegram chat. The bot can include images or a video clip.
-Every alert includes **Good** and **Bad** buttons. Clicking a button copies the original,
-unannotated detection image to `/data/good` or `/data/bad`. Selecting the other button
-later moves that generated training image to the other folder. You can also add your own
-images to these folders. The bot uses Telegram long polling, so do not configure a webhook
-for the same bot token.
+Every alert is followed by a reply with **Good** and **Bad** buttons (Telegram does not
+allow reply markup on the media group message itself, so the buttons arrive as a separate
+message replying to the album). Clicking a button copies the original, unannotated
+detection image to `/data/good` or `/data/bad`. Selecting the other button later moves
+that generated training image to the other folder. You can also add your own images to
+these folders. The bot uses Telegram long polling, so do not configure a webhook for the
+same bot token.
 
 `Good` means that the YOLO detection was correct. The detected bounding boxes are stored
 with the image and become positive YOLO labels. `Bad` means false positive and becomes a
