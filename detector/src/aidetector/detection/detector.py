@@ -250,6 +250,19 @@ class Detector:
                         )
 
             self.export_executor.submit(export_task)
+        elif detections:
+            confidences = [
+                max_confidence(detection.confidence)
+                for detection in detections
+                if detection.confidence
+            ]
+            self.logger.info(
+                "Not exporting, only %s/%s confident frame(s) (need %s): confidences %s",
+                len(confidences),
+                len(detections),
+                self.yolo_config.frames_min if self.yolo_config else 0,
+                confidences,
+            )
         self.detections[source] = []
 
     def _has_min_detections(self, source: str) -> bool:
