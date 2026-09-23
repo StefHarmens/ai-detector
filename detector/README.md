@@ -296,18 +296,23 @@ cameras at once. With `summary` enabled, detections are grouped into one *mount 
 - **Another camera:** a detection belongs to the event when both cameras saw it within
   `camera_merge_seconds` of each other.
 
+Cows are not recognised yet, so this is based on time and place only: jumps by
+different cows at the same spot shortly after each other form one event too.
+
 Only the first detection of an event is sent as a Telegram alert (with the Goed/Fout
-buttons); repeats are only counted. At every time in `times` the chat receives an
-overview of the events since the previous summary:
+buttons); later detections in the event are only counted. At every time in `times` the
+chat receives an overview of the events since the previous summary. Each line is one
+event; `4x` is the number of jumps in it, where another camera seeing the same jump does
+not count again:
 
 ```text
 🐄 Overzicht sprongen
 22-09 16:00 – 23-09 08:00
 
-2 sprongen (5 detecties)
+5 sprongen op 2 momenten
 
-• 03:12–03:20 · Stal Rechts Achterin + Stal Links · 4x
-• 05:40 · Stal Rechts Achterin
+• 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x
+• 05:40 · Stal Links PTZ Voorin
 ```
 
 Events are stored in `<feedback_directory>/.telegram-summary/<chat>/events.jsonl`, so a

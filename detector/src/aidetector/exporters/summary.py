@@ -58,7 +58,7 @@ class MountEvent:
     start: datetime
     end: datetime
     cameras: list[str]
-    detections: int
+    jumps: int
 
 
 def parse_times(times: list[str]) -> list[time]:
@@ -154,6 +154,18 @@ class SummaryService:
             camera in group and other in group for group in self.config.camera_groups
         )
 
+    def _count_jumps(self, records: list[MountRecord]) -> int:
+        """Counts jumps, not detections: another camera seeing the same jump at
+        the same moment does not add one."""
+        counted: list[MountRecord] = []
+        for record in records:
+            if not any(
+                other.source != record.source and self._same_event(record, other)
+                for other in counted
+            ):
+                counted.append(record)
+        return len(counted)
+
     def events_between(self, start: datetime, end: datetime) -> list[MountEvent]:
         with self.lock:
             records = list(self.records)
@@ -165,7 +177,7 @@ class SummaryService:
                 start=group[0].start,
                 end=max(record.end for record in group),
                 cameras=list(dict.fromkeys(record.camera for record in group)),
-                detections=len(group),
+                jumps=self._count_jumps(group),
             )
             for group in grouped.values()
         ]
@@ -180,18 +192,18 @@ class SummaryService:
         if not events:
             return header + "Geen sprongen gezien."
 
-        detections = sum(event.detections for event in events)
+        jumps = sum(event.jumps for event in events)
         text = header + (
-            f"{len(events)} {'sprong' if len(events) == 1 else 'sprongen'}"
-            f" ({detections} {'detectie' if detections == 1 else 'detecties'})\n"
+            f"{jumps} {'sprong' if jumps == 1 else 'sprongen'} op {len(events)}"
+            f" {'moment' if len(events) == 1 else 'momenten'}\n"
         )
         for index, event in enumerate(events):
             period = f"{event.start:%H:%M}"
             if f"{event.end:%H:%M}" != period:
                 period += f"–{event.end:%H:%M}"
             line = f"\n• {period} · {' + '.join(event.cameras)}"
-            if event.detections > 1:
-                line += f" · {event.detections}x"
+            if event.jumps > 1:
+                line += f" · {event.jumps}x"
             remaining = len(events) - index
             if len(text) + len(line) + 30 > MESSAGE_LIMIT:
                 return text + f"\n… en nog {remaining} meer"

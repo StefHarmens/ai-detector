@@ -127,8 +127,9 @@ def test_summary_lists_events_with_cameras_and_counts(tmp_path):
 
     text = service.build_summary(START - timedelta(hours=8), START + timedelta(hours=4))
 
-    assert "2 sprongen (4 detecties)" in text
-    assert "• 03:00–03:02 · Stal Rechts + Stal Links · 3x" in text
+    # Stal Links saw the second jump at the same moment, so it is not counted twice.
+    assert "3 sprongen op 2 momenten" in text
+    assert "• 03:00–03:02 · Stal Rechts + Stal Links · 2x" in text
     assert text.endswith("• 05:00 · Stal Rechts")
 
 
@@ -169,7 +170,7 @@ def test_summary_is_sent_once_per_scheduled_time(tmp_path, monkeypatch):
     service.send_due(datetime(2026, 9, 23, 8, 1))
     assert len(sent) == 1
     assert "22-09 16:00 – 23-09 08:00" in sent[0]["text"]
-    assert "1 sprong (1 detectie)" in sent[0]["text"]
+    assert "1 sprong op 1 moment" in sent[0]["text"]
 
     service.send_due(datetime(2026, 9, 23, 16, 0))
     assert len(sent) == 2

@@ -106,10 +106,25 @@ Let op:
   inclusief hoofdletters en spaties.
 - De naam mag hetzelfde zijn als de naam in UniFi, maar dat hoeft niet.
 
-Met `summary` worden herhaalde detecties van dezelfde sprong samengevoegd: kort na
-elkaar op dezelfde plek, of tegelijk gezien door twee camera's. Alleen de eerste
-detectie van een sprong komt als melding binnen; om 08:00 en 16:00 volgt een overzicht
-van alle sprongen. Zet `"send_events": false` om alleen het overzicht te krijgen. Met
+Met `summary` worden detecties samengevoegd die kort na elkaar (binnen 2 minuten) op
+dezelfde plek in beeld zijn, of die tegelijk door twee camera's gezien worden. Koeien
+worden nog niet herkend: het gaat alleen om tijd en plek. Alleen de eerste detectie komt
+als melding binnen; om 08:00 en 16:00 volgt een overzicht, bijvoorbeeld:
+
+```text
+🐄 Overzicht sprongen
+23-09 16:00 – 24-09 08:00
+
+7 sprongen op 4 momenten
+
+• 21:05 · Stal Links Achterin + Stal Achterin Centraal
+• 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x
+• 05:40 · Stal Links PTZ Voorin
+• 05:51 · Stal Links PTZ Voorin
+```
+
+Elke regel is één moment; `4x` betekent dat er op dat moment 4 keer kort na elkaar op
+dezelfde plek gesprongen is. Een tweede camera die dezelfde sprong ziet, telt niet mee. Zet `"send_events": false` om alleen het overzicht te krijgen. Met
 `camera_groups` geef je aan welke camera's hetzelfde deel van de stal zien (op
 `name`); alleen die worden samengevoegd, zodat een sprong links en een sprong rechts op
 hetzelfde moment als twee sprongen tellen. Alle teksten in Telegram zijn Nederlands. Zie
