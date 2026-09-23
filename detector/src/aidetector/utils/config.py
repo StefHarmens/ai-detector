@@ -63,6 +63,8 @@ class Detection:
     date: datetime
     images: ImageSet
     confidence: Confidence
+    source: str | None = None
+    camera: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -82,6 +84,7 @@ class YoloConfig:
 @dataclass(kw_only=True)
 class DetectionConfig:
     source: str | list[str]
+    name: str | list[str] | None = None
     interval: float = 0
     frame_retention: int = 15
     frames_width: int = 1280
@@ -114,6 +117,15 @@ class HttpConfig:
 
 
 @dataclass(kw_only=True)
+class SummaryConfig:
+    times: list[str] = field(default_factory=lambda: ["07:00"])
+    merge_seconds: int = 300
+    merge_distance: float = 0.25
+    camera_merge_seconds: int = 30
+    send_events: bool = True
+
+
+@dataclass(kw_only=True)
 class ChatConfig(ExporterConfig):
     token: str = field(repr=False)
     chat: str
@@ -125,6 +137,7 @@ class ChatConfig(ExporterConfig):
     include_video: bool = True
     video_width: int | None = 1280
     video_crf: int = 28
+    summary: SummaryConfig | None = None
 
 
 @dataclass(kw_only=True)

@@ -103,6 +103,7 @@ You can run multiple independent detectors in the same file — useful if you ha
 | Field             | Default      | Description |
 | :---------------- | :----------- | :---------- |
 | `source`          | **Required** | Path to a video file, or an RTSP/HTTP stream URL. Use a list `[ ]` for multiple sources. |
+| `name`            |              | Display name per source, in the same order as `source`, e.g. `["Stal Rechts Achterin"]`. Used in Telegram summaries. Unnamed stream URLs are shown as `Camera 1`, `Camera 2`, … so credentials in the URL are never sent. |
 | `interval`        | `0`          | How many seconds to wait between processed frames. Set to `0` to process every frame. Useful to reduce load on slow machines. |
 | `frame_retention` | `30`         | How many recent frames to keep in memory per source so detections can include earlier context. |
 
@@ -282,6 +283,55 @@ an optimized ONNX model on its next start.
 | `video_width`     | `1280`       | Width of the video clip in pixels. Height is calculated automatically. |
 | `video_crf`       | `28`         | Video quality (0–51). Lower = better quality, larger file. `28` is a good default. |
 | `export_rejected` | `false`      | Whether to also send detections rejected by the VLM. |
+| `summary`         |              | Group repeated detections of the same mount and send a periodic overview. See below. |
+
+##### Mount summaries (`summary`)
+
+A cow in heat is often mounted many times in a row, and one jump can be seen by two
+cameras at once. With `summary` enabled, detections are grouped into one *mount event*:
+
+- **Same camera:** a detection belongs to the previous event when it starts within
+  `merge_seconds` of it and the detection box is at roughly the same place in the image
+  (`merge_distance`, as a fraction of the image size).
+- **Another camera:** a detection belongs to the event when both cameras saw it within
+  `camera_merge_seconds` of each other.
+
+Only the first detection of an event is sent as a Telegram alert (with the Good/Bad
+buttons); repeats are only counted. At every time in `times` the chat receives an
+overview of the events since the previous summary:
+
+```text
+🐄 Overzicht sprongen
+22-09 19:00 – 23-09 07:00
+
+2 sprongen (5 detecties)
+
+• 03:12–03:20 · Stal Rechts Achterin + Stal Links · 4x
+• 05:40 · Stal Rechts Achterin
+```
+
+Events are stored in `<feedback_directory>/.telegram-summary/<chat>/events.jsonl`, so a
+restart does not lose them. Cameras from every detector that report to the same chat are
+grouped together.
+
+```json
+"telegram": {
+  "token": "...",
+  "chat": "...",
+  "feedback_directory": "/Users/cowcatcher/Desktop/data",
+  "summary": {
+    "times": ["07:00", "19:00"]
+  }
+}
+```
+
+| Field                  | Default     | Description |
+| :--------------------- | :---------- | :---------- |
+| `times`                | `["07:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time. |
+| `merge_seconds`        | `300`       | Maximum gap between detections on the same camera to count as the same event. |
+| `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
+| `camera_merge_seconds` | `30`        | Maximum gap between detections on different cameras to count as the same jump. |
+| `send_events`          | `true`      | Send an alert for the first detection of each event. `false` sends only the overview. |
 
 #### 🔗 Webhook (`webhook`)
 

@@ -74,6 +74,7 @@ def make_detector() -> Detector:
     detector.export_executor = ImmediateExecutor()
     detector.last_detection_time = {}
     detector.last_frame_time = datetime.min
+    detector.camera_names = {}
     return detector
 
 

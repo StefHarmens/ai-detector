@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
     compress_jpg,
@@ -227,6 +228,7 @@ class TelegramExporter(WebhookExporter):
     telegram: ChatConfig
     alert_count: int
     feedback_listener: TelegramFeedbackListener
+    summary: SummaryService | None
 
     def __init__(self, config: ChatConfig):
         self.telegram = config
@@ -252,6 +254,15 @@ class TelegramExporter(WebhookExporter):
         self.feedback_listener = get_feedback_listener(
             config.token, config.chat, config.feedback_directory
         )
+        self.summary = (
+            get_summary_service(
+                config.token, config.chat, config.feedback_directory, config.summary
+            )
+            if config.summary
+            else None
+        )
+        if self.summary:
+            self.summary.start()
 
     def get_media_and_files(
         self,
@@ -385,6 +396,16 @@ class TelegramExporter(WebhookExporter):
         detections: list[Detection],
         validated: bool | None,
     ):
+        if self.summary and validated is not False:
+            is_new_event = self.summary.register(best_detection, detections)
+            if not is_new_event or not self.summary.config.send_events:
+                self.logger.info(
+                    "Not sending Telegram notification, %s",
+                    "counted for the summary only"
+                    if is_new_event
+                    else "detection belongs to an earlier mounting event",
+                )
+                return
         try:
             payload, files = self.get_media_and_files(
                 best_detection, detections, validated

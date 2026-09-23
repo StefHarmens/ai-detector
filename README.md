@@ -35,7 +35,8 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 	"detectors": [
 		{
 			"detection": {
-				"source": ["rtsps://camera-adres"]
+				"source": ["rtsps://camera-adres"],
+				"name": ["Stal Rechts Achterin"]
 			},
 			"yolo": {
 				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
@@ -48,7 +49,10 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 				"telegram": {
 					"token": "<bot-token>",
 					"chat": "<chat-id>",
-					"feedback_directory": "/Users/cowcatcher/Desktop/data"
+					"feedback_directory": "/Users/cowcatcher/Desktop/data",
+					"summary": {
+						"times": ["07:00", "19:00"]
+					}
 				},
 				"disk": {
 					"directory": "/Users/cowcatcher/Desktop/video"
@@ -58,6 +62,12 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 	]
 }
 ```
+
+Met `summary` worden herhaalde detecties van dezelfde sprong samengevoegd: kort na
+elkaar op dezelfde plek, of tegelijk gezien door twee camera's. Alleen de eerste
+detectie van een sprong komt als melding binnen; om 07:00 en 19:00 volgt een overzicht
+van alle sprongen. Zet `"send_events": false` om alleen het overzicht te krijgen. Zie
+[detector/README.md](detector/README.md) voor alle opties.
 
 Iedere Telegram-melding bevat **Good**- en **Bad**-knoppen. Good bewaart de
 schone afbeelding en metadata in `data/good`; Bad bewaart ze in `data/bad`.

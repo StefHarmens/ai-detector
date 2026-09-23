@@ -44,6 +44,7 @@ class Detector:
     export_executor: ThreadPoolExecutor
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
+    camera_names: dict[str, str]
 
     def __init__(
         self,
@@ -68,6 +69,7 @@ class Detector:
         self.export_executor = ThreadPoolExecutor()
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
+        self.camera_names = camera_names(detection)
 
     @classmethod
     def from_config(cls, config: Config, detector: DetectorConfig) -> list[Self]:
@@ -208,6 +210,9 @@ class Detector:
 
     def _export(self, source: str):
         detections = self.detections[source]
+        for detection in detections:
+            detection.source = source
+            detection.camera = self.camera_names.get(source, source)
         if self._has_min_detections(source):
             best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
 
@@ -323,3 +328,19 @@ class Detector:
             if self.yolo_config and self.yolo_config.timeout
             else False
         )
+
+
+def camera_names(detection: DetectionConfig) -> dict[str, str]:
+    sources = (
+        [detection.source] if isinstance(detection.source, str) else detection.source
+    )
+    names = [detection.name] if isinstance(detection.name, str) else detection.name or []
+    # Stream URLs often embed credentials, so they never double as a display name.
+    return {
+        source: names[index]
+        if index < len(names)
+        else source
+        if "://" not in source
+        else f"Camera {index + 1}"
+        for index, source in enumerate(sources)
+    }

@@ -85,6 +85,17 @@
           "default": 28,
           "title": "Video Crf",
           "type": "integer"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SummaryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -109,6 +120,24 @@
             }
           ],
           "title": "Source"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         },
         "interval": {
           "default": 0,
@@ -389,6 +418,39 @@
         }
       },
       "title": "OnnxConfig",
+      "type": "object"
+    },
+    "SummaryConfig": {
+      "properties": {
+        "times": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "merge_seconds": {
+          "default": 300,
+          "title": "Merge Seconds",
+          "type": "integer"
+        },
+        "merge_distance": {
+          "default": 0.25,
+          "title": "Merge Distance",
+          "type": "number"
+        },
+        "camera_merge_seconds": {
+          "default": 30,
+          "title": "Camera Merge Seconds",
+          "type": "integer"
+        },
+        "send_events": {
+          "default": true,
+          "title": "Send Events",
+          "type": "boolean"
+        }
+      },
+      "title": "SummaryConfig",
       "type": "object"
     },
     "VLMConfig": {
