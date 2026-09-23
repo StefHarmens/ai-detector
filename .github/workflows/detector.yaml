@@ -291,6 +291,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Detector ${{ steps.version.outputs.version }}
           make_latest: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: detector/dist/${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.zip
 
   macos-default-exe:
@@ -346,4 +347,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Detector ${{ steps.version.outputs.version }}
           make_latest: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: detector/dist/aidetector-osx-${{ steps.version.outputs.version }}.zip

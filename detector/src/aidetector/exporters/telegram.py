@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
     compress_jpg,
@@ -23,6 +24,10 @@ from aidetector.utils.config import (
     get_timestamped_filename,
     max_confidence,
 )
+
+
+# Button texts shown to the farmer; the callback data and folders stay good/bad.
+FEEDBACK_LABELS = {"good": "Goed", "bad": "Fout"}
 
 
 class TelegramFeedbackListener:
@@ -80,7 +85,7 @@ class TelegramFeedbackListener:
                 "chat_id": chat,
                 "reply_to_message_id": message_id,
                 "allow_sending_without_reply": True,
-                "text": "Was this detection correct?",
+                "text": "Klopt deze melding?",
                 "reply_markup": self._reply_markup(feedback_id),
             },
             timeout=10,
@@ -139,11 +144,15 @@ class TelegramFeedbackListener:
                 },
                 timeout=10,
             )
-            self._answer_callback(callback_id, f"Saved to {label}")
-        except Exception as error:
+            self._answer_callback(
+                callback_id, f"Opgeslagen als {FEEDBACK_LABELS[label].lower()}"
+            )
+        except Exception:
             self.logger.exception("Failed to process Telegram feedback")
             self._answer_callback(
-                callback_id, f"Could not save feedback: {error}", alert=True
+                callback_id,
+                "Opslaan mislukt, kijk in het log van de detector.",
+                alert=True,
             )
 
     def _classify(self, feedback_id: str, label: str) -> None:
@@ -193,8 +202,8 @@ class TelegramFeedbackListener:
 
     @staticmethod
     def _reply_markup(feedback_id: str, selected: str | None = None) -> str:
-        good = "✅ Good" if selected == "good" else "👍 Good"
-        bad = "✅ Bad" if selected == "bad" else "👎 Bad"
+        good = f"{'✅' if selected == 'good' else '👍'} {FEEDBACK_LABELS['good']}"
+        bad = f"{'✅' if selected == 'bad' else '👎'} {FEEDBACK_LABELS['bad']}"
         return json.dumps(
             {
                 "inline_keyboard": [
@@ -227,6 +236,7 @@ class TelegramExporter(WebhookExporter):
     telegram: ChatConfig
     alert_count: int
     feedback_listener: TelegramFeedbackListener
+    summary: SummaryService | None
 
     def __init__(self, config: ChatConfig):
         self.telegram = config
@@ -252,6 +262,15 @@ class TelegramExporter(WebhookExporter):
         self.feedback_listener = get_feedback_listener(
             config.token, config.chat, config.feedback_directory
         )
+        self.summary = (
+            get_summary_service(
+                config.token, config.chat, config.feedback_directory, config.summary
+            )
+            if config.summary
+            else None
+        )
+        if self.summary:
+            self.summary.start()
 
     def get_media_and_files(
         self,
@@ -355,8 +374,9 @@ class TelegramExporter(WebhookExporter):
             )
 
         self.alert_count += 1
+        seconds = round((detections[-1].date - detections[0].date).total_seconds())
         media[0]["caption"] = (
-            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{round((detections[-1].date - detections[0].date).total_seconds())} second(s)"
+            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{seconds} {'seconde' if seconds == 1 else 'seconden'}"
         )
 
         payload = {
@@ -385,6 +405,21 @@ class TelegramExporter(WebhookExporter):
         detections: list[Detection],
         validated: bool | None,
     ):
+        if self.summary and validated is not False:
+            try:
+                is_new_event = self.summary.register(best_detection, detections)
+            except Exception:
+                # An alert must never be lost because the summary log is unavailable.
+                self.logger.exception("Failed to register detection for the summary")
+                is_new_event = True
+            if not is_new_event or not self.summary.config.send_events:
+                self.logger.info(
+                    "Not sending Telegram notification, %s",
+                    "counted for the summary only"
+                    if is_new_event
+                    else "detection belongs to an earlier mounting event",
+                )
+                return
         try:
             payload, files = self.get_media_and_files(
                 best_detection, detections, validated

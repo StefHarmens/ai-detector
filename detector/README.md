@@ -103,6 +103,7 @@ You can run multiple independent detectors in the same file — useful if you ha
 | Field             | Default      | Description |
 | :---------------- | :----------- | :---------- |
 | `source`          | **Required** | Path to a video file, or an RTSP/HTTP stream URL. Use a list `[ ]` for multiple sources. |
+| `name`            |              | Display name per source, in the same order as `source`, e.g. `["Stal Rechts Achterin"]`. Used in Telegram summaries. Unnamed stream URLs are shown as `Camera 1`, `Camera 2`, … so credentials in the URL are never sent. |
 | `interval`        | `0`          | How many seconds to wait between processed frames. Set to `0` to process every frame. Useful to reduce load on slow machines. |
 | `frame_retention` | `30`         | How many recent frames to keep in memory per source so detections can include earlier context. |
 
@@ -184,9 +185,9 @@ Saves detection images or frames to a folder on your machine.
 #### 📱 Telegram (`telegram`)
 
 Sends an alert to a Telegram chat. The bot can include images or a video clip.
-Every alert is followed by a reply with **Good** and **Bad** buttons (Telegram does not
-allow reply markup on the media group message itself, so the buttons arrive as a separate
-message replying to the album). Clicking a button copies the original, unannotated
+All Telegram texts are in Dutch. Every alert is followed by a reply with **Goed** (good)
+and **Fout** (bad) buttons (Telegram does not allow reply markup on the media group
+message itself, so the buttons arrive as a separate message replying to the album). Clicking a button copies the original, unannotated
 detection image to `/data/good` or `/data/bad`. Selecting the other button later moves
 that generated training image to the other folder. You can also add your own images to
 these folders. The bot uses Telegram long polling, so do not configure a webhook for the
@@ -282,6 +283,61 @@ an optimized ONNX model on its next start.
 | `video_width`     | `1280`       | Width of the video clip in pixels. Height is calculated automatically. |
 | `video_crf`       | `28`         | Video quality (0–51). Lower = better quality, larger file. `28` is a good default. |
 | `export_rejected` | `false`      | Whether to also send detections rejected by the VLM. |
+| `summary`         |              | Group repeated detections of the same mount and send a periodic overview. See below. |
+
+##### Mount summaries (`summary`)
+
+A cow in heat is often mounted many times in a row, and one jump can be seen by two
+cameras at once. With `summary` enabled, detections are grouped into one *mount event*:
+
+- **Same camera:** a detection belongs to the previous event when it starts within
+  `merge_seconds` of it and the detection box is at roughly the same place in the image
+  (`merge_distance`, as a fraction of the image size).
+- **Another camera:** a detection belongs to the event when both cameras saw it within
+  `camera_merge_seconds` of each other.
+
+Cows are not recognised yet, so this is based on time and place only: jumps by
+different cows at the same spot shortly after each other form one event too.
+
+Only the first detection of an event is sent as a Telegram alert (with the Goed/Fout
+buttons); later detections in the event are only counted. At every time in `times` the
+chat receives an overview of the events since the previous summary. Each line is one
+event; `4x` is the number of jumps in it, where another camera seeing the same jump does
+not count again:
+
+```text
+🐄 Overzicht sprongen
+22-09 16:00 – 23-09 08:00
+
+5 sprongen op 2 momenten
+
+• 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x
+• 05:40 · Stal Links PTZ Voorin
+```
+
+Events are stored in `<feedback_directory>/.telegram-summary/<chat>/events.jsonl`, so a
+restart does not lose them. Cameras from every detector that report to the same chat are
+grouped together.
+
+```json
+"telegram": {
+  "token": "...",
+  "chat": "...",
+  "feedback_directory": "/Users/cowcatcher/Desktop/data",
+  "summary": {
+    "times": ["08:00", "16:00"]
+  }
+}
+```
+
+| Field                  | Default     | Description |
+| :--------------------- | :---------- | :---------- |
+| `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. |
+| `merge_seconds`        | `120`       | Maximum gap between detections on the same camera to count as the same event, measured from the end of the previous detection. Covers a jump that arrives in parts and cows mounting again right away. |
+| `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
+| `camera_merge_seconds` | `10`        | Maximum gap between detections on different cameras to count as the same jump. Detections of the same jump overlap in time (gap 0), so this only absorbs small timing differences. |
+| `camera_groups`        |             | Which cameras see the same area, by `detection.name`, e.g. `[["Stal Links Voorin", "Stal Achterin Centraal"], ["Stal Rechts Voorin", "Stal Achterin Centraal"]]`. Detections on different cameras are only merged when both are in one group; a camera may be in several groups. Leave empty to treat all cameras as overlapping. |
+| `send_events`          | `true`      | Send an alert for the first detection of each event. `false` sends only the overview. |
 
 #### 🔗 Webhook (`webhook`)
 
