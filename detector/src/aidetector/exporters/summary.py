@@ -63,7 +63,7 @@ class MountEvent:
 
 def parse_times(times: list[str]) -> list[time]:
     if not times:
-        raise ValueError('summary.times needs at least one time, e.g. "07:00"')
+        raise ValueError('summary.times needs at least one time, e.g. "08:00"')
     try:
         return sorted(time.fromisoformat(value) for value in times)
     except ValueError as error:

@@ -137,19 +137,19 @@ def test_summary_is_sent_once_per_scheduled_time(tmp_path, monkeypatch):
         "post",
         lambda url, **kwargs: sent.append(kwargs["data"]) or Response(),
     )
-    service = make_service(tmp_path, times=["07:00", "19:00"])
+    service = make_service(tmp_path)  # defaults to 08:00 and 16:00
     service.register(*make_mount("cam-a", datetime(2026, 9, 23, 3, 0)))
 
     service.send_due(datetime(2026, 9, 23, 6, 0))
     assert sent == []  # first start only records the schedule
 
-    service.send_due(datetime(2026, 9, 23, 7, 0, 30))
-    service.send_due(datetime(2026, 9, 23, 7, 1))
+    service.send_due(datetime(2026, 9, 23, 8, 0, 30))
+    service.send_due(datetime(2026, 9, 23, 8, 1))
     assert len(sent) == 1
-    assert "22-09 19:00 – 23-09 07:00" in sent[0]["text"]
+    assert "22-09 16:00 – 23-09 08:00" in sent[0]["text"]
     assert "1 sprong (1 detectie)" in sent[0]["text"]
 
-    service.send_due(datetime(2026, 9, 23, 19, 0))
+    service.send_due(datetime(2026, 9, 23, 16, 0))
     assert len(sent) == 2
     assert "Geen sprongen gezien." in sent[1]["text"]
 

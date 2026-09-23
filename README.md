@@ -51,7 +51,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 					"chat": "<chat-id>",
 					"feedback_directory": "/Users/cowcatcher/Desktop/data",
 					"summary": {
-						"times": ["07:00", "19:00"]
+						"times": ["08:00", "16:00"]
 					}
 				},
 				"disk": {
@@ -65,7 +65,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 
 Met `summary` worden herhaalde detecties van dezelfde sprong samengevoegd: kort na
 elkaar op dezelfde plek, of tegelijk gezien door twee camera's. Alleen de eerste
-detectie van een sprong komt als melding binnen; om 07:00 en 19:00 volgt een overzicht
+detectie van een sprong komt als melding binnen; om 08:00 en 16:00 volgt een overzicht
 van alle sprongen. Zet `"send_events": false` om alleen het overzicht te krijgen. Alle teksten in Telegram zijn Nederlands. Zie
 [detector/README.md](detector/README.md) voor alle opties.
 

@@ -118,7 +118,7 @@ class HttpConfig:
 
 @dataclass(kw_only=True)
 class SummaryConfig:
-    times: list[str] = field(default_factory=lambda: ["07:00"])
+    times: list[str] = field(default_factory=lambda: ["08:00", "16:00"])
     merge_seconds: int = 300
     merge_distance: float = 0.25
     camera_merge_seconds: int = 30

@@ -302,7 +302,7 @@ overview of the events since the previous summary:
 
 ```text
 🐄 Overzicht sprongen
-22-09 19:00 – 23-09 07:00
+22-09 16:00 – 23-09 08:00
 
 2 sprongen (5 detecties)
 
@@ -320,14 +320,14 @@ grouped together.
   "chat": "...",
   "feedback_directory": "/Users/cowcatcher/Desktop/data",
   "summary": {
-    "times": ["07:00", "19:00"]
+    "times": ["08:00", "16:00"]
   }
 }
 ```
 
 | Field                  | Default     | Description |
 | :--------------------- | :---------- | :---------- |
-| `times`                | `["07:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time. |
+| `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. |
 | `merge_seconds`        | `300`       | Maximum gap between detections on the same camera to count as the same event. |
 | `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
 | `camera_merge_seconds` | `30`        | Maximum gap between detections on different cameras to count as the same jump. |
