@@ -328,7 +328,7 @@ grouped together.
 | Field                  | Default     | Description |
 | :--------------------- | :---------- | :---------- |
 | `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. |
-| `merge_seconds`        | `300`       | Maximum gap between detections on the same camera to count as the same event. |
+| `merge_seconds`        | `120`       | Maximum gap between detections on the same camera to count as the same event, measured from the end of the previous detection. Covers a jump that arrives in parts and cows mounting again right away. |
 | `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
 | `camera_merge_seconds` | `10`        | Maximum gap between detections on different cameras to count as the same jump. Detections of the same jump overlap in time (gap 0), so this only absorbs small timing differences. |
 | `camera_groups`        |             | Which cameras see the same area, by `detection.name`, e.g. `[["Stal Links Voorin", "Stal Achterin Centraal"], ["Stal Rechts Voorin", "Stal Achterin Centraal"]]`. Detections on different cameras are only merged when both are in one group; a camera may be in several groups. Leave empty to treat all cameras as overlapping. |

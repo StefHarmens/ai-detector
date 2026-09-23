@@ -56,12 +56,16 @@ class Response:
 
 
 def test_repeated_mount_on_same_camera_and_place_is_one_event(tmp_path):
-    service = make_service(tmp_path, merge_seconds=300)
+    service = make_service(tmp_path)  # merge_seconds defaults to 120
 
+    # Each mount lasts 20 s; the gap is measured from the end of the previous one.
     assert service.register(*make_mount("cam-a", START)) is True
+    assert (
+        service.register(*make_mount("cam-a", START + timedelta(seconds=90))) is False
+    )
     assert service.register(*make_mount("cam-a", START + timedelta(minutes=3))) is False
-    assert service.register(*make_mount("cam-a", START + timedelta(minutes=6))) is False
-    assert service.register(*make_mount("cam-a", START + timedelta(minutes=20))) is True
+    # More than two minutes after the previous mount ended: a new event.
+    assert service.register(*make_mount("cam-a", START + timedelta(minutes=6))) is True
 
 
 def test_mount_elsewhere_in_the_same_camera_is_a_new_event(tmp_path):
@@ -114,17 +118,17 @@ def test_summary_lists_events_with_cameras_and_counts(tmp_path):
     service = make_service(tmp_path)
     service.register(*make_mount("a", START, camera="Stal Rechts"))
     service.register(
-        *make_mount("a", START + timedelta(minutes=4), camera="Stal Rechts")
+        *make_mount("a", START + timedelta(minutes=2), camera="Stal Rechts")
     )
     service.register(
-        *make_mount("b", START + timedelta(minutes=4), camera="Stal Links")
+        *make_mount("b", START + timedelta(minutes=2), camera="Stal Links")
     )
     service.register(*make_mount("a", START + timedelta(hours=2), camera="Stal Rechts"))
 
     text = service.build_summary(START - timedelta(hours=8), START + timedelta(hours=4))
 
     assert "2 sprongen (4 detecties)" in text
-    assert "• 03:00–03:04 · Stal Rechts + Stal Links · 3x" in text
+    assert "• 03:00–03:02 · Stal Rechts + Stal Links · 3x" in text
     assert text.endswith("• 05:00 · Stal Rechts")
 
 
@@ -138,7 +142,7 @@ def test_summary_without_events_says_so(tmp_path):
 
 def test_events_are_reloaded_after_restart(tmp_path):
     first = make_service(tmp_path)
-    first.register(*make_mount("cam-a", datetime.now() - timedelta(minutes=5)))
+    first.register(*make_mount("cam-a", datetime.now() - timedelta(minutes=3)))
 
     second = make_service(tmp_path)
 
