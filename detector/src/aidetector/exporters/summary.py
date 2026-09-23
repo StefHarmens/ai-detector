@@ -138,12 +138,21 @@ class SummaryService:
     def _same_event(self, record: MountRecord, other: MountRecord) -> bool:
         gap = _gap_seconds(record, other)
         if record.source != other.source:
-            return gap <= self.config.camera_merge_seconds
+            return gap <= self.config.camera_merge_seconds and self._cameras_overlap(
+                record.camera, other.camera
+            )
         if gap > self.config.merge_seconds:
             return False
         if record.center is None or other.center is None:
             return True
         return math.dist(record.center, other.center) <= self.config.merge_distance
+
+    def _cameras_overlap(self, camera: str, other: str) -> bool:
+        if self.config.camera_groups is None:
+            return True
+        return any(
+            camera in group and other in group for group in self.config.camera_groups
+        )
 
     def events_between(self, start: datetime, end: datetime) -> list[MountEvent]:
         with self.lock:

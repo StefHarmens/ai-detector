@@ -92,6 +92,24 @@ def test_same_mount_seen_by_two_cameras_is_one_event(tmp_path):
     )
 
 
+def test_camera_groups_only_merge_cameras_that_see_the_same_area(tmp_path):
+    service = make_service(
+        tmp_path,
+        camera_groups=[
+            ["Links Voorin", "Links Achterin", "Centraal"],
+            ["Rechts Voorin", "Rechts Achterin", "Centraal"],
+        ],
+    )
+    at = START + timedelta(seconds=5)
+
+    assert service.register(*make_mount("1", START, camera="Links Voorin")) is True
+    # A jump on the right side at the same moment is a different jump.
+    assert service.register(*make_mount("2", at, camera="Rechts Voorin")) is True
+    # Cameras in a shared group see the same jump.
+    assert service.register(*make_mount("3", at, camera="Links Achterin")) is False
+    assert service.register(*make_mount("4", at, camera="Centraal")) is False
+
+
 def test_summary_lists_events_with_cameras_and_counts(tmp_path):
     service = make_service(tmp_path)
     service.register(*make_mount("a", START, camera="Stal Rechts"))

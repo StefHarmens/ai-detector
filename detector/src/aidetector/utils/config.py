@@ -122,6 +122,7 @@ class SummaryConfig:
     merge_seconds: int = 300
     merge_distance: float = 0.25
     camera_merge_seconds: int = 10
+    camera_groups: list[list[str]] | None = None
     send_events: bool = True
 
 

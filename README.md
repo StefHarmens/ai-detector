@@ -51,7 +51,11 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 					"chat": "<chat-id>",
 					"feedback_directory": "/Users/cowcatcher/Desktop/data",
 					"summary": {
-						"times": ["08:00", "16:00"]
+						"times": ["08:00", "16:00"],
+						"camera_groups": [
+							["Stal Links PTZ Voorin", "Stal Links Achterin", "Stal Achterin Centraal"],
+							["Stal Rechts Voorin", "Stal Rechts Achterin", "Stal Achterin Centraal"]
+						]
 					}
 				},
 				"disk": {
@@ -66,7 +70,10 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 Met `summary` worden herhaalde detecties van dezelfde sprong samengevoegd: kort na
 elkaar op dezelfde plek, of tegelijk gezien door twee camera's. Alleen de eerste
 detectie van een sprong komt als melding binnen; om 08:00 en 16:00 volgt een overzicht
-van alle sprongen. Zet `"send_events": false` om alleen het overzicht te krijgen. Alle teksten in Telegram zijn Nederlands. Zie
+van alle sprongen. Zet `"send_events": false` om alleen het overzicht te krijgen. Met
+`camera_groups` geef je aan welke camera's hetzelfde deel van de stal zien (op
+`name`); alleen die worden samengevoegd, zodat een sprong links en een sprong rechts op
+hetzelfde moment als twee sprongen tellen. Alle teksten in Telegram zijn Nederlands. Zie
 [detector/README.md](detector/README.md) voor alle opties.
 
 Iedere Telegram-melding bevat **Goed**- en **Fout**-knoppen. Goed bewaart de

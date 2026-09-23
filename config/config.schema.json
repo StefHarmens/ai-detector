@@ -440,9 +440,27 @@
           "type": "number"
         },
         "camera_merge_seconds": {
-          "default": 30,
+          "default": 10,
           "title": "Camera Merge Seconds",
           "type": "integer"
+        },
+        "camera_groups": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Camera Groups"
         },
         "send_events": {
           "default": true,
