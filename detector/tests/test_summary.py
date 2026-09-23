@@ -209,6 +209,36 @@ def test_telegram_sends_only_the_first_detection_of_an_event(tmp_path, monkeypat
     assert len({json.loads(line)["event"] for line in records.splitlines()}) == 1
 
 
+def test_telegram_still_alerts_when_the_summary_log_fails(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, **kwargs: calls.append(url) or Response(),
+    )
+    monkeypatch.setattr(SummaryService, "start", lambda self: None)
+    monkeypatch.setattr(summary_module, "_summary_services", {})
+    exporter = TelegramExporter(
+        ChatConfig(
+            token="summary-token",
+            chat="chat-id",
+            feedback_directory=tmp_path,
+            include_image=True,
+            include_video=False,
+            summary=SummaryConfig(),
+        )
+    )
+    monkeypatch.setattr(exporter.feedback_listener, "start", lambda: None)
+
+    def fail(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(exporter.summary, "register", fail)
+
+    exporter.export(*make_mount("cam-a", START), True)
+
+    assert calls[0].endswith("/sendMediaGroup")
+
+
 def test_telegram_summary_only_mode_sends_no_event_messages(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(

@@ -406,7 +406,12 @@ class TelegramExporter(WebhookExporter):
         validated: bool | None,
     ):
         if self.summary and validated is not False:
-            is_new_event = self.summary.register(best_detection, detections)
+            try:
+                is_new_event = self.summary.register(best_detection, detections)
+            except Exception:
+                # An alert must never be lost because the summary log is unavailable.
+                self.logger.exception("Failed to register detection for the summary")
+                is_new_event = True
             if not is_new_event or not self.summary.config.send_events:
                 self.logger.info(
                     "Not sending Telegram notification, %s",
