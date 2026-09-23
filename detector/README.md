@@ -330,7 +330,7 @@ grouped together.
 | `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. |
 | `merge_seconds`        | `300`       | Maximum gap between detections on the same camera to count as the same event. |
 | `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
-| `camera_merge_seconds` | `30`        | Maximum gap between detections on different cameras to count as the same jump. |
+| `camera_merge_seconds` | `10`        | Maximum gap between detections on different cameras to count as the same jump. Detections of the same jump overlap in time (gap 0), so this only absorbs small timing differences. |
 | `send_events`          | `true`      | Send an alert for the first detection of each event. `false` sends only the overview. |
 
 #### 🔗 Webhook (`webhook`)

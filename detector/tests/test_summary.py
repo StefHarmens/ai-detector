@@ -77,7 +77,7 @@ def test_mount_elsewhere_in_the_same_camera_is_a_new_event(tmp_path):
 
 
 def test_same_mount_seen_by_two_cameras_is_one_event(tmp_path):
-    service = make_service(tmp_path, camera_merge_seconds=30)
+    service = make_service(tmp_path)
 
     assert service.register(*make_mount("cam-a", START, x=100)) is True
     # Another camera sees the jump at the same time, at a different spot in its image.
