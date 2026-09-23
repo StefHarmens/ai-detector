@@ -35,8 +35,20 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 	"detectors": [
 		{
 			"detection": {
-				"source": ["rtsps://camera-adres"],
-				"name": ["Stal Rechts Achterin"]
+				"source": [
+					"rtsps://<nvr-ip>:7441/<sleutel-camera-1>",
+					"rtsps://<nvr-ip>:7441/<sleutel-camera-2>",
+					"rtsps://<nvr-ip>:7441/<sleutel-camera-3>",
+					"rtsps://<nvr-ip>:7441/<sleutel-camera-4>",
+					"rtsps://<nvr-ip>:7441/<sleutel-camera-5>"
+				],
+				"name": [
+					"Stal Links PTZ Voorin",
+					"Stal Rechts Voorin",
+					"Stal Links Achterin",
+					"Stal Rechts Achterin",
+					"Stal Achterin Centraal"
+				]
 			},
 			"yolo": {
 				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
@@ -66,6 +78,33 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 	]
 }
 ```
+
+### Camera's en namen
+
+`source` en `name` zijn twee lijsten die op volgorde bij elkaar horen: de eerste naam
+hoort bij de eerste camera, de tweede naam bij de tweede camera, enzovoort. In het
+voorbeeld hierboven:
+
+| Plek | `source`                  | `name`                   |
+| :--- | :------------------------ | :----------------------- |
+| 1    | `...<sleutel-camera-1>`   | `Stal Links PTZ Voorin`  |
+| 2    | `...<sleutel-camera-2>`   | `Stal Rechts Voorin`     |
+| 3    | `...<sleutel-camera-3>`   | `Stal Links Achterin`    |
+| 4    | `...<sleutel-camera-4>`   | `Stal Rechts Achterin`   |
+| 5    | `...<sleutel-camera-5>`   | `Stal Achterin Centraal` |
+
+Let op:
+
+- Zet de namen in **dezelfde volgorde** als de camera's, anders krijgt een sprong de
+  naam van een andere camera.
+- Het RTSPS-adres zet je in UniFi Protect per camera aan en kopieer je daar, bij de
+  camera-instellingen onder *Advanced* (de precieze plek verschilt per versie). Het
+  adres bevat een geheime sleutel; die komt nooit in Telegram.
+- Geef je minder namen dan camera's, dan heten de overige camera's `Camera 4`,
+  `Camera 5`, enzovoort (het nummer is de plek in de lijst).
+- De namen in `camera_groups` moeten **precies** gelijk zijn aan die in `name`,
+  inclusief hoofdletters en spaties.
+- De naam mag hetzelfde zijn als de naam in UniFi, maar dat hoeft niet.
 
 Met `summary` worden herhaalde detecties van dezelfde sprong samengevoegd: kort na
 elkaar op dezelfde plek, of tegelijk gezien door twee camera's. Alleen de eerste
