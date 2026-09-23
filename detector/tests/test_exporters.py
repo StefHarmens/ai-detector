@@ -202,6 +202,11 @@ def test_telegram_exporter_adds_feedback_buttons(monkeypatch):
     callback_data = [button["callback_data"] for button in markup["inline_keyboard"][0]]
     assert callback_data[0].endswith(":good")
     assert callback_data[1].endswith(":bad")
+    assert calls[1][1]["data"]["text"] == "Klopt deze melding?"
+    assert [button["text"] for button in markup["inline_keyboard"][0]] == [
+        "👍 Goed",
+        "👎 Fout",
+    ]
     assert list(Path(".telegram-feedback").glob("*.jpg"))
 
 

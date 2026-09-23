@@ -26,6 +26,10 @@ from aidetector.utils.config import (
 )
 
 
+# Button texts shown to the farmer; the callback data and folders stay good/bad.
+FEEDBACK_LABELS = {"good": "Goed", "bad": "Fout"}
+
+
 class TelegramFeedbackListener:
     logger = logging.getLogger("TelegramFeedbackListener")
 
@@ -81,7 +85,7 @@ class TelegramFeedbackListener:
                 "chat_id": chat,
                 "reply_to_message_id": message_id,
                 "allow_sending_without_reply": True,
-                "text": "Was this detection correct?",
+                "text": "Klopt deze melding?",
                 "reply_markup": self._reply_markup(feedback_id),
             },
             timeout=10,
@@ -140,11 +144,15 @@ class TelegramFeedbackListener:
                 },
                 timeout=10,
             )
-            self._answer_callback(callback_id, f"Saved to {label}")
-        except Exception as error:
+            self._answer_callback(
+                callback_id, f"Opgeslagen als {FEEDBACK_LABELS[label].lower()}"
+            )
+        except Exception:
             self.logger.exception("Failed to process Telegram feedback")
             self._answer_callback(
-                callback_id, f"Could not save feedback: {error}", alert=True
+                callback_id,
+                "Opslaan mislukt, kijk in het log van de detector.",
+                alert=True,
             )
 
     def _classify(self, feedback_id: str, label: str) -> None:
@@ -194,8 +202,8 @@ class TelegramFeedbackListener:
 
     @staticmethod
     def _reply_markup(feedback_id: str, selected: str | None = None) -> str:
-        good = "✅ Good" if selected == "good" else "👍 Good"
-        bad = "✅ Bad" if selected == "bad" else "👎 Bad"
+        good = f"{'✅' if selected == 'good' else '👍'} {FEEDBACK_LABELS['good']}"
+        bad = f"{'✅' if selected == 'bad' else '👎'} {FEEDBACK_LABELS['bad']}"
         return json.dumps(
             {
                 "inline_keyboard": [
@@ -366,8 +374,9 @@ class TelegramExporter(WebhookExporter):
             )
 
         self.alert_count += 1
+        seconds = round((detections[-1].date - detections[0].date).total_seconds())
         media[0]["caption"] = (
-            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{round((detections[-1].date - detections[0].date).total_seconds())} second(s)"
+            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{seconds} {'seconde' if seconds == 1 else 'seconden'}"
         )
 
         payload = {

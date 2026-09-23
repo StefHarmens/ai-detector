@@ -185,9 +185,9 @@ Saves detection images or frames to a folder on your machine.
 #### 📱 Telegram (`telegram`)
 
 Sends an alert to a Telegram chat. The bot can include images or a video clip.
-Every alert is followed by a reply with **Good** and **Bad** buttons (Telegram does not
-allow reply markup on the media group message itself, so the buttons arrive as a separate
-message replying to the album). Clicking a button copies the original, unannotated
+All Telegram texts are in Dutch. Every alert is followed by a reply with **Goed** (good)
+and **Fout** (bad) buttons (Telegram does not allow reply markup on the media group
+message itself, so the buttons arrive as a separate message replying to the album). Clicking a button copies the original, unannotated
 detection image to `/data/good` or `/data/bad`. Selecting the other button later moves
 that generated training image to the other folder. You can also add your own images to
 these folders. The bot uses Telegram long polling, so do not configure a webhook for the
@@ -296,7 +296,7 @@ cameras at once. With `summary` enabled, detections are grouped into one *mount 
 - **Another camera:** a detection belongs to the event when both cameras saw it within
   `camera_merge_seconds` of each other.
 
-Only the first detection of an event is sent as a Telegram alert (with the Good/Bad
+Only the first detection of an event is sent as a Telegram alert (with the Goed/Fout
 buttons); repeats are only counted. At every time in `times` the chat receives an
 overview of the events since the previous summary:
 
