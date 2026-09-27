@@ -95,7 +95,7 @@ def _center(detection: Detection) -> tuple[float, float] | None:
     region = detection.images.crop_region
     if region is None:
         return None
-    height, width = detection.images.jpg.shape[:2]
+    height, width = detection.images.height, detection.images.width
     return ((region.x1 + region.x2) / 2 / width, (region.y1 + region.y2) / 2 / height)
 
 

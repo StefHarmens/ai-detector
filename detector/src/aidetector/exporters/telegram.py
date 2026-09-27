@@ -52,7 +52,7 @@ class TelegramFeedbackListener:
 
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)
-        image_height, image_width = detection.images.jpg.shape[:2]
+        image_height, image_width = detection.images.height, detection.images.width
         self.feedback_directory.mkdir(parents=True, exist_ok=True)
         (self.feedback_directory / f"{feedback_id}.jpg").write_bytes(
             get_image(detection.images.jpg)

@@ -292,13 +292,12 @@ class Detector:
         return [
             Detection(
                 detection.date,
-                ImageSet(
-                    detection.images.jpg,
+                detection.images.with_crops(
                     [
                         crop
                         for crop in detection.images.crops
                         if matches(crop.label, crop.confidence)
-                    ],
+                    ]
                 ),
                 {
                     label: confidence

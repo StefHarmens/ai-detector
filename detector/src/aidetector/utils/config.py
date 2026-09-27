@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import cv2
+import numpy as np
 import requests
 from aidetector.utils.version import REF_NAME
 from numpy import ndarray
@@ -39,10 +41,38 @@ class Crop:
     confidence: float | None = None
 
 
-@dataclass(config=ConfigDict(arbitrary_types_allowed=True))
+# Frames wait in memory until their event ends, which can take a minute per
+# camera. As JPEG a 1280x720 barn frame is about 10 times smaller (2.8 MB → 0.3 MB).
+STORED_FRAME_QUALITY = 90
+
+
 class ImageSet:
-    jpg: ndarray
-    crops: list[Crop] = field(default_factory=list)
+    """A frame with its detected crops. The pixels are stored as JPEG and only
+    decoded when they are needed."""
+
+    def __init__(self, jpg: ndarray, crops: list[Crop] | None = None):
+        self.height, self.width = jpg.shape[:2]
+        success, encoded = cv2.imencode(
+            ".jpg", jpg, (int(cv2.IMWRITE_JPEG_QUALITY), STORED_FRAME_QUALITY)
+        )
+        if not success:
+            raise ValueError("Failed to encode frame")
+        self.jpeg = encoded.tobytes()
+        self.crops = list(crops or [])
+
+    @property
+    def jpg(self) -> ndarray:
+        image = cv2.imdecode(np.frombuffer(self.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("Failed to decode frame")
+        return image
+
+    def with_crops(self, crops: list[Crop]) -> "ImageSet":
+        """Returns the same frame with other crops, without encoding it again."""
+        copy = object.__new__(ImageSet)
+        copy.height, copy.width, copy.jpeg = self.height, self.width, self.jpeg
+        copy.crops = list(crops)
+        return copy
 
     @property
     def crop_region(self) -> Crop | None:

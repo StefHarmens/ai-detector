@@ -69,7 +69,7 @@ class DiskExporter(Exporter[DiskConfig]):
             with open(video_path, "wb") as f:
                 f.write(video)
         crop_region = best_detection.images.crop_region
-        height, width = best_detection.images.jpg.shape[:2]
+        height, width = best_detection.images.height, best_detection.images.width
         metadata: Metadata = Metadata(
             timestamp=timestamp,
             validated=validated,
