@@ -125,6 +125,7 @@ This is the fast first-pass AI that scans every frame. Without a YOLO model, the
 | `model`                 | **Required** | URL or local path to a YOLO model file (`.pt` or `.onnx`). |
 | `task`                  | `"detect"`   | YOLO task to run: `"detect"` for detection models or `"segment"` for segmentation models. |
 | `confidence`            | `0`          | How confident YOLO must be (0–1) before counting something as a detection. `0.8` means 80% sure. You can also set different thresholds per class — see tip below. |
+| `review_confidence`     |              | Lower threshold for manual review. Boxes between this and `confidence` never make an alert and do not count towards `frames_min`, but the event is sent to exporters with `review: true`. |
 | `time_max`              | `60`         | Maximum duration in seconds to group frames into one event. If a detection runs longer than this, a new event starts. |
 | `timeout`               | `5`          | Seconds of no detections before the current event is considered over. |
 | `cooldown`              | `0`          | Seconds to wait after finishing one event before starting a new one. Prevents repeat alerts for the same ongoing situation. Can be set per class. |
@@ -181,6 +182,7 @@ Saves detection images or frames to a folder on your machine.
 | `strategy`        | `"BEST"`     | `"BEST"` saves only the highest-confidence frame. `"ALL"` saves every frame from the event. |
 | `confidence`      |              | Minimum confidence required to save. Leave empty to save everything. |
 | `export_rejected` | `true`       | Whether to also save detections that were rejected by the VLM. |
+| `review`          | `false`      | Only save events that did not become an alert: below `yolo.confidence` (down to `yolo.review_confidence`) or with fewer than `frames_min` frames. Each event gets one flat folder named after its time and camera, which `review-feedback --source` reads directly. |
 
 #### 📱 Telegram (`telegram`)
 

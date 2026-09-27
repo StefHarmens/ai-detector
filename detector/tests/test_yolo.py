@@ -144,3 +144,18 @@ def test_yolo_runner_tracks_latest_sources_as_stream_batch():
     assert second_source.sources == ["source-0", "source-1"]
     assert second_source.images[0] is frame_1
     assert second_source.images[1] is frame_2
+
+
+def test_review_confidence_lowers_the_yolo_thresholds():
+    runner = make_runner()
+    runner.config = YoloConfig(
+        model="model.pt", confidence={"cow": 0.85, "bull": 0.6}, review_confidence=0.7
+    )
+    runner.model.names = {0: "cow", 1: "bull"}
+
+    thresholds = runner._resolve_class_confidences(
+        runner.config.confidence, runner.config.review_confidence
+    )
+
+    assert thresholds == {0: ("cow", 0.7), 1: ("bull", 0.6)}
+    assert runner._predict_kwargs("source", 1)["conf"] == 0.6

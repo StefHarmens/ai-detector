@@ -24,6 +24,7 @@ from aidetector.utils.config import (
     VLMConfig,
     WebhookConfig,
     YoloConfig,
+    confidence_matches,
     matching_confidences,
     max_confidence,
 )
@@ -209,11 +210,12 @@ class Detector:
             self._export(source)
 
     def _export(self, source: str):
-        detections = self.detections[source]
-        for detection in detections:
+        all_detections = self.detections[source]
+        for detection in all_detections:
             detection.source = source
             detection.camera = self.camera_names.get(source, source)
-        if self._has_min_detections(source):
+        detections = self._alert_detections(all_detections)
+        if self._has_min_detections(detections):
             best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
 
             matching_confs = (
@@ -247,6 +249,8 @@ class Detector:
                     self.last_detection_time[source] = last_detection_time
 
                 for exporter in self.exporters:
+                    if _is_review(exporter):
+                        continue
                     try:
                         exporter.export(best_detection, detections, validated)
                     except Exception:
@@ -268,11 +272,72 @@ class Detector:
                 self.yolo_config.frames_min if self.yolo_config else 0,
                 confidences,
             )
+            if any(detection.confidence for detection in all_detections):
+                self._export_review(all_detections)
         self.detections[source] = []
 
-    def _has_min_detections(self, source: str) -> bool:
+    def _alert_detections(self, detections: list[Detection]) -> list[Detection]:
+        """Drops the boxes below yolo.confidence, which only count for review."""
+        if self.yolo_config is None or self.yolo_config.review_confidence is None:
+            return detections
+        threshold = self.yolo_config.confidence
+
+        def matches(label: str | None, confidence: float | None) -> bool:
+            return (
+                label is not None
+                and confidence is not None
+                and confidence_matches({label: confidence}, threshold)
+            )
+
+        return [
+            Detection(
+                detection.date,
+                ImageSet(
+                    detection.images.jpg,
+                    [
+                        crop
+                        for crop in detection.images.crops
+                        if matches(crop.label, crop.confidence)
+                    ],
+                ),
+                {
+                    label: confidence
+                    for label, confidence in detection.confidence.items()
+                    if matches(label, confidence)
+                },
+                source=detection.source,
+                camera=detection.camera,
+            )
+            for detection in detections
+        ]
+
+    def _export_review(self, detections: list[Detection]) -> None:
+        """Sends an event that did not become an alert to the review exporters,
+        so it can be sorted into good or bad by hand."""
+        exporters = [exporter for exporter in self.exporters if _is_review(exporter)]
+        if not exporters:
+            return
+        best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
+        self.logger.info(
+            "Exporting for review: %s detections with max confidence %s",
+            len(detections),
+            max_confidence(best_detection.confidence),
+        )
+
+        def export_task():
+            for exporter in exporters:
+                try:
+                    exporter.export(best_detection, detections, None)
+                except Exception:
+                    self.logger.exception(
+                        f"Exporter {exporter.__class__.__name__} failed"
+                    )
+
+        self.export_executor.submit(export_task)
+
+    def _has_min_detections(self, detections: list[Detection]) -> bool:
         detections_with_confidence = [
-            detection for detection in self.detections[source] if detection.confidence
+            detection for detection in detections if detection.confidence
         ]
         return len(detections_with_confidence) >= (
             self.yolo_config.frames_min if self.yolo_config else 0
@@ -328,6 +393,10 @@ class Detector:
             if self.yolo_config and self.yolo_config.timeout
             else False
         )
+
+
+def _is_review(exporter: Exporter) -> bool:
+    return getattr(getattr(exporter, "config", None), "review", False)
 
 
 def camera_names(detection: DetectionConfig) -> dict[str, str]:

@@ -1,5 +1,7 @@
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -8,9 +10,11 @@ from aidetector.detection.yolo import TrackedSourceResult
 from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.telegram import TelegramExporter
 from aidetector.exporters.webhook import WebhookExporter
+from aidetector.review import ReviewSession
 from aidetector.utils.config import (
     ChatConfig,
     Config,
+    Crop,
     Detection,
     DetectionConfig,
     DetectorConfig,
@@ -47,6 +51,34 @@ class RecordingExporter:
 
     def export(self, best_detection, detections, validated):
         self.calls.append((best_detection, detections, validated))
+
+
+class ReviewExporter(RecordingExporter):
+    config = SimpleNamespace(review=True)
+
+
+def make_review_detection(date: datetime, *confidences: float) -> Detection:
+    image = np.zeros((80, 120, 3), dtype=np.uint8)
+    crops = [
+        Crop(10 * i, 10, 10 * i + 20, 40, label="cow", confidence=confidence)
+        for i, confidence in enumerate(confidences)
+    ]
+    return Detection(date, ImageSet(image, crops), {"cow": max(confidences)})
+
+
+def make_review_detector(
+    frames_min: int = 2,
+) -> tuple[Detector, RecordingExporter, RecordingExporter]:
+    alert, review = RecordingExporter(), ReviewExporter()
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(
+        model="model.onnx",
+        confidence=0.85,
+        review_confidence=0.7,
+        frames_min=frames_min,
+    )
+    detector.exporters = [alert, review]
+    return detector, alert, review
 
 
 class RecordingYoloRunner:
@@ -208,3 +240,78 @@ def test_detector_tracks_sources_as_stream_batch_when_tracking_is_enabled():
         ("camera-1", "camera-1-tracked", 2),
         ("camera-2", "camera-2-tracked", 1),
     ]
+
+
+def test_event_below_the_alert_confidence_goes_to_review():
+    detector, alert, review = make_review_detector()
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.75),
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.8),
+    ]
+
+    detector._export("camera")
+
+    assert alert.calls == []
+    [(best, detections, validated)] = review.calls
+    assert best.confidence == {"cow": 0.8}
+    assert len(detections) == 2
+    assert validated is None
+
+
+def test_event_with_too_few_frames_goes_to_review():
+    detector, alert, review = make_review_detector(frames_min=3)
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.9),
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.95),
+    ]
+
+    detector._export("camera")
+
+    assert alert.calls == []
+    assert len(review.calls) == 1
+
+
+def test_alert_only_counts_and_shows_boxes_above_the_alert_confidence():
+    detector, alert, review = make_review_detector(frames_min=2)
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.9, 0.72),
+        # A doubtful frame does not count towards frames_min.
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.75),
+        make_review_detection(START_REVIEW + timedelta(seconds=2), 0.88),
+    ]
+
+    detector._export("camera")
+
+    assert review.calls == []
+    [(best, detections, _)] = alert.calls
+    assert best.confidence == {"cow": 0.9}
+    assert [crop.confidence for crop in best.images.crops] == [0.9]
+    assert [detection.confidence for detection in detections] == [
+        {"cow": 0.9},
+        {},
+        {"cow": 0.88},
+    ]
+
+
+def test_review_folder_can_be_sorted_with_review_feedback(tmp_path):
+    exporter = DiskExporter(DiskConfig(directory=tmp_path / "twijfel", review=True))
+    detection = make_review_detection(START_REVIEW, 0.75)
+    detection.camera = "Stal Rechts"
+
+    exporter.export(detection, [detection], None)
+
+    [folder] = (tmp_path / "twijfel").iterdir()
+    assert folder.name == "2026-01-01T12-00-00 Stal Rechts"
+    metadata = json.loads((folder / "metadata.json").read_text())
+    assert metadata["camera"] == "Stal Rechts"
+    assert metadata["boxes"] == [
+        {"x1": 0, "y1": 10, "x2": 20, "y2": 40, "label": "cow"}
+    ]
+
+    session = ReviewSession(tmp_path / "twijfel", tmp_path)
+    session.decide(folder.name, "good")
+
+    assert (tmp_path / "good" / f"{folder.name}.jpg").is_file()
+
+
+START_REVIEW = datetime(2026, 1, 1, 12, 0, 0)

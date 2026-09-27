@@ -30,6 +30,11 @@
           "title": "Export Rejected",
           "type": "boolean"
         },
+        "review": {
+          "default": false,
+          "title": "Review",
+          "type": "boolean"
+        },
         "token": {
           "title": "Token",
           "type": "string"
@@ -243,6 +248,11 @@
           "title": "Export Rejected",
           "type": "boolean"
         },
+        "review": {
+          "default": false,
+          "title": "Review",
+          "type": "boolean"
+        },
         "directory": {
           "anyOf": [
             {
@@ -430,7 +440,7 @@
           "type": "array"
         },
         "merge_seconds": {
-          "default": 300,
+          "default": 120,
           "title": "Merge Seconds",
           "type": "integer"
         },
@@ -623,6 +633,11 @@
           "title": "Export Rejected",
           "type": "boolean"
         },
+        "review": {
+          "default": false,
+          "title": "Review",
+          "type": "boolean"
+        },
         "token": {
           "anyOf": [
             {
@@ -730,6 +745,18 @@
           ],
           "default": 0,
           "title": "Confidence"
+        },
+        "review_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Confidence"
         },
         "tracking": {
           "default": false,

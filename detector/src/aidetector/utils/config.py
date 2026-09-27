@@ -72,6 +72,9 @@ class YoloConfig:
     model: str
     task: Literal["detect", "segment"] = "detect"
     confidence: float | Confidence = 0
+    # Boxes between review_confidence and confidence never make an alert, but
+    # are kept so the event can go to exporters with review enabled.
+    review_confidence: float | None = None
     tracking: bool = False
     time_max: int = 60
     timeout: int = 5
@@ -105,6 +108,8 @@ class ExporterConfig:
     confidence: float | Confidence | None = None
     crop_padding: float = 0.1
     export_rejected: bool = False
+    # Only receive events that did not become an alert, for manual review.
+    review: bool = False
 
 
 @dataclass(kw_only=True)

@@ -43,7 +43,12 @@ class DiskExporter(Exporter[DiskConfig]):
         directory = self.directory or Path("detections") / confidence_max[0]
         directory.mkdir(parents=True, exist_ok=True)
 
-        timestamped_directory = directory / subfolder / timestamp
+        timestamped_directory = (
+            # One flat folder per event, which review-feedback reads directly.
+            directory / f"{timestamp} {best_detection.camera or ''}".strip()
+            if self.config.review
+            else directory / subfolder / timestamp
+        )
         timestamped_directory.mkdir(parents=True, exist_ok=True)
         if self.config.strategy == "ALL":
             for result in detections:
@@ -64,6 +69,7 @@ class DiskExporter(Exporter[DiskConfig]):
             with open(video_path, "wb") as f:
                 f.write(video)
         crop_region = best_detection.images.crop_region
+        height, width = best_detection.images.jpg.shape[:2]
         metadata: Metadata = Metadata(
             timestamp=timestamp,
             validated=validated,
@@ -81,6 +87,20 @@ class DiskExporter(Exporter[DiskConfig]):
             }
             if crop_region
             else None,
+            camera=best_detection.camera,
+            width=width,
+            height=height,
+            boxes=[
+                {
+                    "x1": crop.x1,
+                    "y1": crop.y1,
+                    "x2": crop.x2,
+                    "y2": crop.y2,
+                    "label": crop.label,
+                }
+                for crop in best_detection.images.crops
+                if crop.label
+            ],
         )
         metadata_path = timestamped_directory / "metadata.json"
         with open(metadata_path, "w") as f:
@@ -98,3 +118,7 @@ class Metadata:
     end: str
     duration: float
     crop: dict[str, int] | None = None
+    camera: str | None = None
+    width: int | None = None
+    height: int | None = None
+    boxes: list[dict[str, int | str]] | None = None

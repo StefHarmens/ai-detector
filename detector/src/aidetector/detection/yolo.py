@@ -119,7 +119,9 @@ class YoloRunner:
         self.model = YOLO(self.model_path, task=config.task)
         self._setup_predictor()
         self.tracking_last_frames = {}
-        self.class_confidences = self._resolve_class_confidences(config.confidence)
+        self.class_confidences = self._resolve_class_confidences(
+            config.confidence, config.review_confidence
+        )
         self.mapper = YoloResultMapper(self.class_confidences)
 
     def _model_path(
@@ -227,9 +229,12 @@ class YoloRunner:
         batch: int,
         stream: bool = False,
     ) -> dict[str, Any]:
+        confidence = min_confidence(self.config.confidence)
+        if self.config.review_confidence is not None:
+            confidence = min(confidence, self.config.review_confidence)
         return {
             "source": source,
-            "conf": min_confidence(self.config.confidence),
+            "conf": confidence,
             "stream": stream,
             "classes": list(self.class_confidences.keys()) or None,
             "imgsz": self.config.imgsz,
@@ -264,6 +269,19 @@ class YoloRunner:
         return self.mapper.detections_from_result(result, frames)
 
     def _resolve_class_confidences(
+        self,
+        confidence: float | dict[str, float],
+        review_confidence: float | None = None,
+    ) -> dict[int, tuple[str, float]]:
+        thresholds = self._class_thresholds(confidence)
+        if review_confidence is None:
+            return thresholds
+        return {
+            class_id: (class_name, min(threshold, review_confidence))
+            for class_id, (class_name, threshold) in thresholds.items()
+        }
+
+    def _class_thresholds(
         self, confidence: float | dict[str, float]
     ) -> dict[int, tuple[str, float]]:
         yolo_names = self.model.names
