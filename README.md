@@ -117,20 +117,21 @@ als melding binnen; om 08:00 en 16:00 volgt een overzicht, bijvoorbeeld:
 
 7 sprongen op 4 momenten
 
-• 21:05 · Stal Links Achterin + Stal Achterin Centraal
-• 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x
-• 05:40 · Stal Links PTZ Voorin
-• 05:51 · Stal Links PTZ Voorin
+Tik op een moment om de melding te zien.
 
-[▶️ 21:05] [▶️ 03:12–03:16] [▶️ 05:40]
-[▶️ 05:51]
+[ ▶️ 21:05 · Stal Links Achterin + Stal Achterin Centraal ]
+[ ▶️ 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x ]
+[ ▶️ 05:40 · Stal Links PTZ Voorin ]
+[ ▶️ 05:51 · Stal Links PTZ Voorin ]
 ```
 
-Onder het overzicht staat per moment een knop. Tik je erop, dan antwoordt de bot op de
-melding van dat moment; tik op het citaat in dat antwoord om naar de melding met de
-video te springen. Een moment waarvan geen melding verstuurd is, krijgt geen knop.
+Elk moment is een knop. Tik je erop, dan antwoordt de bot op de melding van dat moment;
+tik op het citaat in dat antwoord om naar de melding met de video te springen. Op een
+telefoon kort Telegram een lange knop in het midden af met `…`. Een moment waarvan geen
+melding verstuurd is (bijvoorbeeld met `"send_events": false`), staat als gewone regel in
+de tekst.
 
-Elke regel is één moment; `4x` betekent dat er op dat moment 4 keer kort na elkaar op
+Elke regel of knop is één moment; `4x` betekent dat er op dat moment 4 keer kort na elkaar op
 dezelfde plek gesprongen is. Een tweede camera die dezelfde sprong ziet, telt niet mee. Zet `"send_events": false` om alleen het overzicht te krijgen. Met
 `camera_groups` geef je aan welke camera's hetzelfde deel van de stal zien (op
 `name`); alleen die worden samengevoegd, zodat een sprong links en een sprong rechts op

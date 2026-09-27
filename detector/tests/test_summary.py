@@ -267,7 +267,7 @@ def test_telegram_summary_only_mode_sends_no_event_messages(tmp_path, monkeypatc
     assert calls == []
 
 
-def test_summary_has_a_button_per_alerted_event(tmp_path, monkeypatch):
+def test_summary_shows_alerted_events_as_buttons(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(
         summary_module.requests,
@@ -275,22 +275,49 @@ def test_summary_has_a_button_per_alerted_event(tmp_path, monkeypatch):
         lambda url, **kwargs: sent.append(kwargs["data"]) or Response(),
     )
     service = make_service(tmp_path)
-    first = service.register(*make_mount("cam-a", datetime(2026, 9, 23, 3, 0)))
-    service.register(*make_mount("cam-a", datetime(2026, 9, 23, 5, 0)))
+    first = service.register(
+        *make_mount("a", datetime(2026, 9, 23, 3, 0), camera="Stal Rechts")
+    )
+    service.register(
+        *make_mount("a", datetime(2026, 9, 23, 3, 2), camera="Stal Rechts")
+    )
+    service.register(*make_mount("a", datetime(2026, 9, 23, 5, 0), camera="Stal Links"))
     service.set_message(first, 42)  # the second event's alert was not sent
 
     service.send_due(datetime(2026, 9, 23, 6, 0))
     service.send_due(datetime(2026, 9, 23, 8, 0))
 
+    assert sent[0]["text"].endswith(
+        "3 sprongen op 2 momenten\n"
+        "\n• 05:00 · Stal Links"
+        "\n\nTik op een moment om de melding te zien."
+    )
     keyboard = json.loads(sent[0]["reply_markup"])["inline_keyboard"]
-    assert keyboard == [[{"text": "▶️ 03:00", "callback_data": f"summary:{first}"}]]
+    assert keyboard == [
+        [
+            {
+                "text": "▶️ 03:00–03:02 · Stal Rechts · 2x",
+                "callback_data": f"summary:{first}",
+            }
+        ]
+    ]
 
 
-def test_summary_without_alerts_has_no_buttons(tmp_path):
+def test_summary_without_alerts_has_no_buttons(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        summary_module.requests,
+        "post",
+        lambda url, **kwargs: sent.append(kwargs["data"]) or Response(),
+    )
     service = make_service(tmp_path)
-    service.register(*make_mount("cam-a", START))
+    service.register(*make_mount("cam-a", datetime(2026, 9, 23, 3, 0)))
 
-    assert service.reply_markup(service.events()) is None
+    service.send_due(datetime(2026, 9, 23, 6, 0))
+    service.send_due(datetime(2026, 9, 23, 8, 0))
+
+    assert "reply_markup" not in sent[0]
+    assert sent[0]["text"].endswith("• 03:00 · cam-a")
 
 
 def test_alert_messages_are_reloaded_after_restart(tmp_path):

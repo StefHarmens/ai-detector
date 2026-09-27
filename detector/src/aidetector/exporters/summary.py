@@ -14,7 +14,6 @@ from aidetector.utils.config import Detection, SummaryConfig, max_confidence
 RETENTION = timedelta(days=8)
 MESSAGE_LIMIT = 4096
 BUTTON_LIMIT = 100
-BUTTONS_PER_ROW = 3
 
 
 @dataclass
@@ -70,6 +69,13 @@ class MountEvent:
         if f"{self.end:%H:%M}" != period:
             period += f"–{self.end:%H:%M}"
         return period
+
+    @property
+    def line(self) -> str:
+        line = f"{self.period} · {' + '.join(self.cameras)}"
+        if self.jumps > 1:
+            line += f" · {self.jumps}x"
+        return line
 
 
 def parse_times(times: list[str]) -> list[time]:
@@ -219,7 +225,12 @@ class SummaryService:
         return self._summary(start, end)[0]
 
     def _summary(self, start: datetime, end: datetime) -> tuple[str, list[MountEvent]]:
-        """Returns the summary text and the events listed in it."""
+        """Returns the summary text and the events shown as buttons below it.
+
+        An event with an alert becomes a button with its line as label; pressing
+        it replies to that alert, so the farmer can jump to it. Private chats have
+        no message links, and buttons cannot be placed inside the text. Events
+        without an alert stay lines in the text."""
         events = self.events_between(start, end)
         header = f"🐄 Overzicht sprongen\n{start:%d-%m %H:%M} – {end:%d-%m %H:%M}\n\n"
         if not events:
@@ -230,33 +241,33 @@ class SummaryService:
             f"{jumps} {'sprong' if jumps == 1 else 'sprongen'} op {len(events)}"
             f" {'moment' if len(events) == 1 else 'momenten'}\n"
         )
-        for index, event in enumerate(events):
-            line = f"\n• {event.period} · {' + '.join(event.cameras)}"
-            if event.jumps > 1:
-                line += f" · {event.jumps}x"
-            remaining = len(events) - index
+        buttons = [event for event in events if event.message_id is not None][
+            :BUTTON_LIMIT
+        ]
+        lines = [event for event in events if event not in buttons]
+        for index, event in enumerate(lines):
+            line = f"\n• {event.line}"
             if len(text) + len(line) + 30 > MESSAGE_LIMIT:
-                return text + f"\n… en nog {remaining} meer", events[:index]
+                return text + f"\n… en nog {len(lines) - index} meer", buttons
             text += line
-        return text, events
+        if buttons:
+            text += "\n\nTik op een moment om de melding te zien."
+        return text.rstrip("\n"), buttons
 
     @staticmethod
     def reply_markup(events: list[MountEvent]) -> str | None:
-        """One button per event that has an alert message; pressing it replies to
-        that alert, so the farmer can jump to it. Private chats have no message
-        links, so buttons are the only way to point at a message."""
-        buttons = [
-            {"text": f"▶️ {event.period}", "callback_data": f"summary:{event.event}"}
-            for event in events
-            if event.message_id is not None
-        ][:BUTTON_LIMIT]
-        if not buttons:
+        if not events:
             return None
         return json.dumps(
             {
                 "inline_keyboard": [
-                    buttons[index : index + BUTTONS_PER_ROW]
-                    for index in range(0, len(buttons), BUTTONS_PER_ROW)
+                    [
+                        {
+                            "text": f"▶️ {event.line}",
+                            "callback_data": f"summary:{event.event}",
+                        }
+                    ]
+                    for event in events
                 ]
             }
         )
