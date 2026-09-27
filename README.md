@@ -158,6 +158,19 @@ xattr -dr com.apple.quarantine aidetector-osx-v0.7.5.command
 ./aidetector-osx-v0.7.5.command
 ```
 
+### Automatisch herstarten
+
+De detector start zichzelf opnieuw:
+
+- als je `config.json` opslaat; wijzigingen gelden dus direct, zonder handmatige
+  herstart;
+- 5 seconden na een crash, ook als de config ongeldig is. Zodra je de fout in
+  `config.json` herstelt, start hij weer normaal.
+
+Bij een herstart worden meldingen die op dat moment worden verstuurd eerst afgemaakt.
+Een sprong die op dat moment nog bezig is, telt niet mee. Stoppen doe je nog steeds
+met `Ctrl+C`.
+
 ## Twijfelgevallen controleren
 
 Een sprong wordt alleen een melding in Telegram als YOLO minstens `confidence` (0.85)

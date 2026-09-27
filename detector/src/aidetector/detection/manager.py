@@ -31,6 +31,11 @@ class Manager:
             threads.append(self.health.start())
         return threads
 
+    def is_streaming(self) -> bool:
+        return any(detector.source_provider.is_stream() for detector in self.detectors)
+
     def stop(self):
+        for detector in self.detectors:
+            detector.stop()
         if self.health:
             self.health.stop()

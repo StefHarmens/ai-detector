@@ -13,6 +13,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 _RESTART_DELAY_SECONDS = 5
+_WATCH_SECONDS = 2
 
 
 def _set_working_directory() -> None:
@@ -44,10 +45,22 @@ def _run_command() -> bool:
     return True
 
 
-def start() -> None:
+def _config_revision(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def start() -> bool:
+    """Runs the detectors until config.json changes (returns True), all file
+    sources are done (returns False) or a detector thread stops (raises)."""
     _set_working_directory()
     _patch_windows_path_checkpoints()
 
+    config_path = Path("config.json").resolve()
+    revision = _config_revision(config_path)
     from aidetector.utils.config import config
     from aidetector.utils.onnx import setup_ort
 
@@ -56,32 +69,64 @@ def start() -> None:
     from aidetector.detection.manager import Manager
 
     manager = Manager.from_config(config)
-    threads = manager.start()
+    # The healthcheck thread comes last and never stops by itself.
+    threads = manager.start()[: len(manager.detectors)]
     try:
-        for thread in threads:
-            thread.join()
-    except KeyboardInterrupt:
-        logger.info("Shutdown requested")
+        while True:
+            time.sleep(_WATCH_SECONDS)
+            if _config_revision(config_path) != revision:
+                logger.info("config.json changed, restarting the detector")
+                return True
+            stopped = [thread for thread in threads if not thread.is_alive()]
+            if stopped and not manager.is_streaming():
+                if len(stopped) == len(threads):
+                    logger.info("All sources are done")
+                    return False
+                continue
+            if stopped:
+                # Stream loaders reconnect by themselves, so a stopped detector
+                # thread means it crashed.
+                raise RuntimeError(
+                    f"Detector stopped unexpectedly: {[t.name for t in stopped]}"
+                )
     finally:
         manager.stop()
+
+
+def _restart() -> None:
+    """Starts the program again as a new process, so the new config, models and
+    Telegram services start from a clean state."""
+    if getattr(sys, "frozen", False):
+        # A PyInstaller onefile build keeps its environment, so the new process
+        # reuses the unpacked files instead of extracting them again.
+        arguments = [sys.executable, *sys.argv[1:]]
+    else:
+        arguments = [sys.executable, *sys.orig_argv[1:]]
+    logger.info("Restarting: %s", " ".join(arguments))
+    logging.shutdown()
+    os.execv(sys.executable, arguments)
 
 
 def main():
     multiprocessing.freeze_support()
     if _run_command():
         return
-    while True:
-        try:
-            start()
+    try:
+        if not start():
             return
+    except KeyboardInterrupt:
+        logger.info("Shutdown requested")
+        return
+    except Exception:
+        logger.exception(
+            "Application crashed, restarting in %ss", _RESTART_DELAY_SECONDS
+        )
+        try:
+            time.sleep(_RESTART_DELAY_SECONDS)
         except KeyboardInterrupt:
             logger.info("Shutdown requested")
             return
-        except Exception:
-            logger.exception(
-                "Application crashed, restarting in %ss", _RESTART_DELAY_SECONDS
-            )
-            time.sleep(_RESTART_DELAY_SECONDS)
+    _restart()
 
 
 if __name__ == "__main__":

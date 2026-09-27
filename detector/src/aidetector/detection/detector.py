@@ -200,6 +200,12 @@ class Detector:
         thread.start()
         return thread
 
+    def stop(self) -> None:
+        """Stops reading frames and waits until running exports are sent."""
+        self.running = False
+        self.source_provider.close()
+        self.export_executor.shutdown(wait=True)
+
     def _process(self, source: str, detections: list[Detection] | None = None):
         with self.lock:
             if self._timeout_exceeded(source):
