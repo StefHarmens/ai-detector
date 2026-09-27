@@ -32,6 +32,7 @@ def run(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.json").write_text("{}")
     monkeypatch.setattr(aidetector, "_WATCH_SECONDS", 0.01)
+    monkeypatch.setattr(aidetector, "_SETTLE_SECONDS", 0.05)
     monkeypatch.setattr("aidetector.utils.onnx.setup_ort", lambda config: None)
 
     def run(manager):
@@ -84,13 +85,25 @@ def test_crash_restarts_as_a_new_process(monkeypatch):
     assert calls and calls[0][0] == sys.executable
 
 
-def test_saving_the_same_config_does_not_restart(run, tmp_path):
-    manager = FakeManager([Thread(target=lambda: None)], streaming=False)
-    config_path = tmp_path / "config.json"
-    content = config_path.read_bytes()
-    Thread(target=lambda: config_path.write_bytes(content)).start()
+def test_saving_the_same_config_does_not_restart(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    path.write_bytes(b"{}")
+    revision = path.read_bytes()
+    # The editor has emptied the file and writes it again while we wait.
+    path.write_bytes(b"")
+    monkeypatch.setattr(aidetector.time, "sleep", lambda _: path.write_bytes(b"{}"))
 
-    assert run(manager) is False
+    assert not aidetector._config_changed(path, revision)
+
+
+def test_a_real_config_change_restarts(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    path.write_bytes(b"{}")
+    revision = path.read_bytes()
+    path.write_bytes(b'{"detectors": []}')
+    monkeypatch.setattr(aidetector.time, "sleep", lambda _: None)
+
+    assert aidetector._config_changed(path, revision)
 
 
 def test_loading_a_config_with_schema_leaves_the_file_alone(tmp_path, monkeypatch):

@@ -14,6 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 _RESTART_DELAY_SECONDS = 5
 _WATCH_SECONDS = 2
+_SETTLE_SECONDS = 1
 
 
 def _set_working_directory() -> None:
@@ -54,6 +55,16 @@ def _config_revision(path: Path) -> bytes | None:
         return None
 
 
+def _config_changed(path: Path, revision: bytes | None) -> bool:
+    current = _config_revision(path)
+    if current == revision:
+        return False
+    # An editor may be halfway through saving, so only count a change that is
+    # still the same a moment later.
+    time.sleep(_SETTLE_SECONDS)
+    return _config_revision(path) == current
+
+
 def start() -> bool:
     """Runs the detectors until config.json changes (returns True), all file
     sources are done (returns False) or a detector thread stops (raises)."""
@@ -77,7 +88,7 @@ def start() -> bool:
     try:
         while True:
             time.sleep(_WATCH_SECONDS)
-            if _config_revision(config_path) != revision:
+            if _config_changed(config_path, revision):
                 logger.info("config.json changed, restarting the detector")
                 return True
             stopped = [thread for thread in threads if not thread.is_alive()]
