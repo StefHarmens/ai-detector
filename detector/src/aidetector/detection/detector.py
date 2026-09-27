@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from threading import Thread
+from threading import Lock, Thread
 from time import sleep
 
 from aidetector.detection.validator import Validator
@@ -71,6 +71,8 @@ class Detector:
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
         self.camera_names = camera_names(detection)
+        # The frame thread and the timeout monitor both finish events.
+        self.lock = Lock()
 
     @classmethod
     def from_config(cls, config: Config, detector: DetectorConfig) -> list[Self]:
@@ -199,15 +201,16 @@ class Detector:
         return thread
 
     def _process(self, source: str, detections: list[Detection] | None = None):
-        if self._timeout_exceeded(source):
-            self._export(source)
+        with self.lock:
+            if self._timeout_exceeded(source):
+                self._export(source)
 
-        if detections:
-            for detection in detections:
-                self.detections[source].append(detection)
+            if detections:
+                for detection in detections:
+                    self.detections[source].append(detection)
 
-        if self._time_exceeded(source):
-            self._export(source)
+            if self._time_exceeded(source):
+                self._export(source)
 
     def _export(self, source: str):
         all_detections = self.detections[source]

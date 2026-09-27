@@ -1,6 +1,8 @@
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
+from threading import Lock
+from time import sleep
 from types import SimpleNamespace
 
 import numpy as np
@@ -107,6 +109,7 @@ def make_detector() -> Detector:
     detector.last_detection_time = {}
     detector.last_frame_time = datetime.min
     detector.camera_names = {}
+    detector.lock = Lock()
     return detector
 
 
@@ -315,3 +318,22 @@ def test_review_folder_can_be_sorted_with_review_feedback(tmp_path):
 
 
 START_REVIEW = datetime(2026, 1, 1, 12, 0, 0)
+
+
+def test_timeout_monitor_and_frames_do_not_export_an_event_twice():
+    from concurrent.futures import ThreadPoolExecutor as Pool
+
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(model="model.onnx", frames_min=1, timeout=1)
+    detector.exporters = [exporter]
+    detector.detections["camera"] = [
+        make_detection(datetime.now() - timedelta(seconds=5), {"cow": 0.9})
+    ]
+    # Widen the window between checking the timeout and clearing the event.
+    detector._cooldown_exceeded = lambda source, confidences: sleep(0.05) or True
+
+    with Pool(8) as pool:
+        list(pool.map(lambda _: detector._process("camera"), range(8)))
+
+    assert len(exporter.calls) == 1
