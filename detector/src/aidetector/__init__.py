@@ -45,12 +45,13 @@ def _run_command() -> bool:
     return True
 
 
-def _config_revision(path: Path) -> tuple[int, int] | None:
+def _config_revision(path: Path) -> bytes | None:
+    # The content, not the modification time, so saving without changes does
+    # not restart.
     try:
-        stat = path.stat()
+        return path.read_bytes()
     except FileNotFoundError:
         return None
-    return stat.st_mtime_ns, stat.st_size
 
 
 def start() -> bool:
@@ -60,9 +61,11 @@ def start() -> bool:
     _patch_windows_path_checkpoints()
 
     config_path = Path("config.json").resolve()
-    revision = _config_revision(config_path)
     from aidetector.utils.config import config
     from aidetector.utils.onnx import setup_ort
+
+    # Read after loading, which may add "$schema" to the file.
+    revision = _config_revision(config_path)
 
     logger.info(f"Starting application with config: {config}")
     setup_ort(config)

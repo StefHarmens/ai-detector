@@ -331,9 +331,11 @@ def load_config() -> Config:
         raise ValueError(f"Config file is empty: {config_path}")
 
     try:
-        config_json["$schema"] = schema_url
-        with open(config_path, "w") as f:
-            json.dump(config_json, f, indent=4)
+        # Only write when needed: the detector restarts when config.json changes.
+        if config_json.get("$schema") != schema_url:
+            config_json["$schema"] = schema_url
+            with open(config_path, "w") as f:
+                json.dump(config_json, f, indent=4)
     except Exception as e:
         logger.warning(f"Failed to update schema in {config_path}: {e}")
 

@@ -191,9 +191,7 @@ class Detector:
             try:
                 self._generate_frames()
             finally:
-                self.running = False
-                self.source_provider.close()
-                self.export_executor.shutdown(wait=True)
+                self.stop()
 
         Thread(target=monitor_timeouts, daemon=True).start()
         thread = Thread(target=frame_producer)
@@ -201,13 +199,28 @@ class Detector:
         return thread
 
     def stop(self) -> None:
-        """Stops reading frames and waits until running exports are sent."""
+        """Stops reading frames, finishes the events that are still being
+        collected and waits until all exports are sent."""
         self.running = False
         self.source_provider.close()
+        with self.lock:
+            for source in list(self.detections):
+                if self.detections[source]:
+                    self._export(source)
         self.export_executor.shutdown(wait=True)
+
+    def _submit(self, task) -> None:
+        try:
+            self.export_executor.submit(task)
+        except RuntimeError:
+            # A batch that was already being processed when the detector stopped.
+            self.logger.warning("Detector is stopping, event is not exported")
 
     def _process(self, source: str, detections: list[Detection] | None = None):
         with self.lock:
+            if not self.running:
+                # stop() already finished the events; drop late frames.
+                return
             if self._timeout_exceeded(source):
                 self._export(source)
 
@@ -267,7 +280,7 @@ class Detector:
                             f"Exporter {exporter.__class__.__name__} failed"
                         )
 
-            self.export_executor.submit(export_task)
+            self._submit(export_task)
         elif detections:
             confidences = [
                 max_confidence(detection.confidence)
@@ -341,7 +354,7 @@ class Detector:
                         f"Exporter {exporter.__class__.__name__} failed"
                     )
 
-        self.export_executor.submit(export_task)
+        self._submit(export_task)
 
     def _has_min_detections(self, detections: list[Detection]) -> bool:
         detections_with_confidence = [

@@ -38,6 +38,9 @@ class ImmediateExecutor:
     def submit(self, fn):
         fn()
 
+    def shutdown(self, wait=True):
+        pass
+
 
 class FakeValidator:
     def __init__(self, value):
@@ -110,6 +113,7 @@ def make_detector() -> Detector:
     detector.last_frame_time = datetime.min
     detector.camera_names = {}
     detector.lock = Lock()
+    detector.running = True
     return detector
 
 
@@ -337,3 +341,30 @@ def test_timeout_monitor_and_frames_do_not_export_an_event_twice():
         list(pool.map(lambda _: detector._process("camera"), range(8)))
 
     assert len(exporter.calls) == 1
+
+
+def test_stop_exports_the_event_that_is_still_being_collected():
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    detector.source_provider = SimpleNamespace(close=lambda: None)
+    detector.running = True
+    detector.detections["camera"] = [make_detection(datetime.now(), {"cow": 0.9})]
+
+    detector.stop()
+
+    assert len(exporter.calls) == 1
+    assert detector.detections["camera"] == []
+
+
+def test_frames_after_stop_are_dropped():
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    detector.source_provider = SimpleNamespace(close=lambda: None)
+    detector.stop()
+
+    detector._process("camera", [make_detection(datetime.now(), {"cow": 0.9})])
+    detector.stop()
+
+    assert exporter.calls == []

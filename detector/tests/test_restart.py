@@ -1,3 +1,4 @@
+import json
 import sys
 from threading import Event, Thread
 
@@ -81,3 +82,32 @@ def test_crash_restarts_as_a_new_process(monkeypatch):
     aidetector.main()
 
     assert calls and calls[0][0] == sys.executable
+
+
+def test_saving_the_same_config_does_not_restart(run, tmp_path):
+    manager = FakeManager([Thread(target=lambda: None)], streaming=False)
+    config_path = tmp_path / "config.json"
+    content = config_path.read_bytes()
+    Thread(target=lambda: config_path.write_bytes(content)).start()
+
+    assert run(manager) is False
+
+
+def test_loading_a_config_with_schema_leaves_the_file_alone(tmp_path, monkeypatch):
+    from aidetector.utils import config as config_module
+
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "$schema": config_module.schema_url,
+                "detectors": [{"detection": {"source": "clip.mp4"}}],
+            }
+        )
+    )
+    before = config_path.stat().st_mtime_ns
+
+    config_module.load_config()
+
+    assert config_path.stat().st_mtime_ns == before
