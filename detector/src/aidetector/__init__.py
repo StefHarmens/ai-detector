@@ -26,15 +26,21 @@ def _patch_windows_path_checkpoints() -> None:
 
 
 def _run_command() -> bool:
-    if len(sys.argv) < 2 or sys.argv[1] != "train-feedback":
+    if len(sys.argv) < 2 or sys.argv[1] not in ("train-feedback", "review-feedback"):
         return False
 
+    command = sys.argv[1]
     _set_working_directory()
     _patch_windows_path_checkpoints()
     sys.argv = [sys.argv[0], *sys.argv[2:]]
-    from aidetector.training import main as train_feedback
+    if command == "review-feedback":
+        from aidetector.review import main as review_feedback
 
-    train_feedback()
+        review_feedback()
+    else:
+        from aidetector.training import main as train_feedback
+
+        train_feedback()
     return True
 
 
