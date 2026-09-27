@@ -128,6 +128,7 @@ def test_train_feedback_model_saves_model_and_updates_config(tmp_path, monkeypat
     assert calls[0] == ("load", str(tmp_path / "base.pt"))
     assert calls[1][1]["epochs"] == 5
     assert calls[1][1]["device"] == "cpu"
+    assert calls[1][1]["workers"] == 2
     updated_config = json.loads(config_path.read_text())
     assert updated_config["detectors"][0]["yolo"]["model"] == str(output_path)
     backup_config = json.loads((tmp_path / "config.json.bak").read_text())
