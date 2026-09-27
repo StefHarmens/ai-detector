@@ -36,6 +36,7 @@ class TelegramFeedbackListener:
     def __init__(self, token: str, feedback_directory: Path = Path(".")):
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.allowed_chats: set[str] = set()
+        self.summaries: dict[str, SummaryService] = {}
         self.data_root = feedback_directory.expanduser().resolve()
         self.feedback_directory = self.data_root / ".telegram-feedback"
         self.offset = 0
@@ -45,6 +46,9 @@ class TelegramFeedbackListener:
 
     def register_chat(self, chat: str) -> None:
         self.allowed_chats.add(str(chat))
+
+    def register_summary(self, chat: str, summary: SummaryService) -> None:
+        self.summaries[str(chat)] = summary
 
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)
@@ -130,7 +134,20 @@ class TelegramFeedbackListener:
             if chat not in self.allowed_chats:
                 raise ValueError("Feedback came from an unconfigured chat")
 
-            prefix, feedback_id, label = str(callback.get("data", "")).split(":")
+            data = str(callback.get("data", ""))
+            if data.startswith("summary:"):
+                summary = self.summaries.get(chat)
+                if summary is None:
+                    raise ValueError("Summary button came from a chat without summary")
+                if summary.show_event(data.removeprefix("summary:")):
+                    self._answer_callback(callback_id)
+                else:
+                    self._answer_callback(
+                        callback_id, "Deze melding is niet meer te vinden."
+                    )
+                return
+
+            prefix, feedback_id, label = data.split(":")
             if prefix != "feedback" or label not in ("good", "bad"):
                 raise ValueError("Invalid feedback data")
 
@@ -183,19 +200,16 @@ class TelegramFeedbackListener:
         (other / Path(filename).with_suffix(".json")).unlink(missing_ok=True)
 
     def _answer_callback(
-        self, callback_id: Any, text: str, alert: bool = False
+        self, callback_id: Any, text: str = "", alert: bool = False
     ) -> None:
         if not callback_id:
             return
+        data = {"callback_query_id": callback_id, "show_alert": json.dumps(alert)}
+        if text:
+            data["text"] = text
         try:
             requests.post(
-                f"{self.api_url}/answerCallbackQuery",
-                data={
-                    "callback_query_id": callback_id,
-                    "text": text,
-                    "show_alert": json.dumps(alert),
-                },
-                timeout=10,
+                f"{self.api_url}/answerCallbackQuery", data=data, timeout=10
             )
         except Exception:
             self.logger.exception("Failed to answer Telegram callback")
@@ -271,6 +285,9 @@ class TelegramExporter(WebhookExporter):
         )
         if self.summary:
             self.summary.start()
+            # The summary buttons need the listener even before the first alert.
+            self.feedback_listener.register_summary(config.chat, self.summary)
+            self.feedback_listener.start()
 
     def get_media_and_files(
         self,
@@ -405,9 +422,11 @@ class TelegramExporter(WebhookExporter):
         detections: list[Detection],
         validated: bool | None,
     ):
+        event = None
         if self.summary and validated is not False:
             try:
-                is_new_event = self.summary.register(best_detection, detections)
+                event = self.summary.register(best_detection, detections)
+                is_new_event = event is not None
             except Exception:
                 # An alert must never be lost because the summary log is unavailable.
                 self.logger.exception("Failed to register detection for the summary")
@@ -451,6 +470,11 @@ class TelegramExporter(WebhookExporter):
                     self.telegram.chat,
                     messages[0].get("message_id"),
                 )
+                if event:
+                    try:
+                        self.summary.set_message(event, messages[0]["message_id"])
+                    except Exception:
+                        self.logger.exception("Failed to store the alert for the summary")
                 feedback_id = self.feedback_listener.save_detection(best_detection)
                 self.feedback_listener.add_buttons(
                     self.telegram.chat, messages[0]["message_id"], feedback_id

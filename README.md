@@ -121,7 +121,14 @@ als melding binnen; om 08:00 en 16:00 volgt een overzicht, bijvoorbeeld:
 • 03:12–03:16 · Stal Rechts Voorin + Stal Rechts Achterin · 4x
 • 05:40 · Stal Links PTZ Voorin
 • 05:51 · Stal Links PTZ Voorin
+
+[▶️ 21:05] [▶️ 03:12–03:16] [▶️ 05:40]
+[▶️ 05:51]
 ```
+
+Onder het overzicht staat per moment een knop. Tik je erop, dan antwoordt de bot op de
+melding van dat moment; tik op het citaat in dat antwoord om naar de melding met de
+video te springen. Een moment waarvan geen melding verstuurd is, krijgt geen knop.
 
 Elke regel is één moment; `4x` betekent dat er op dat moment 4 keer kort na elkaar op
 dezelfde plek gesprongen is. Een tweede camera die dezelfde sprong ziet, telt niet mee. Zet `"send_events": false` om alleen het overzicht te krijgen. Met

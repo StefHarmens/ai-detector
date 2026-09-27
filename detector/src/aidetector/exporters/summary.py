@@ -13,6 +13,8 @@ from aidetector.utils.config import Detection, SummaryConfig, max_confidence
 
 RETENTION = timedelta(days=8)
 MESSAGE_LIMIT = 4096
+BUTTON_LIMIT = 100
+BUTTONS_PER_ROW = 3
 
 
 @dataclass
@@ -55,10 +57,19 @@ class MountRecord:
 
 @dataclass
 class MountEvent:
+    event: str
     start: datetime
     end: datetime
     cameras: list[str]
     jumps: int
+    message_id: int | None = None
+
+    @property
+    def period(self) -> str:
+        period = f"{self.start:%H:%M}"
+        if f"{self.end:%H:%M}" != period:
+            period += f"–{self.end:%H:%M}"
+        return period
 
 
 def parse_times(times: list[str]) -> list[time]:
@@ -96,13 +107,18 @@ class SummaryService:
         self.directory = directory
         self.records_path = directory / "events.jsonl"
         self.state_path = directory / "state.json"
+        self.messages_path = directory / "messages.jsonl"
         self.lock = Lock()
         self.stop_event = Event()
         self.started = False
         self.records = self._load_records(datetime.now())
+        self.messages = self._load_messages()
 
-    def register(self, best_detection: Detection, detections: list[Detection]) -> bool:
-        """Stores the detection and returns True if it starts a new mounting event."""
+    def register(
+        self, best_detection: Detection, detections: list[Detection]
+    ) -> str | None:
+        """Stores the detection and returns the event ID if it starts a new
+        mounting event, or None if it belongs to an earlier one."""
         source = best_detection.source or ""
         record = MountRecord(
             event="",
@@ -133,7 +149,17 @@ class SummaryService:
             record.event,
             record.camera,
         )
-        return is_new
+        return record.event if is_new else None
+
+    def set_message(self, event: str, message_id: int) -> None:
+        """Remembers the alert message of an event, so the summary can link to it."""
+        with self.lock:
+            self.messages[event] = message_id
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with self.messages_path.open("a") as file:
+                file.write(
+                    json.dumps({"event": event, "message_id": message_id}) + "\n"
+                )
 
     def _same_event(self, record: MountRecord, other: MountRecord) -> bool:
         gap = _gap_seconds(record, other)
@@ -166,31 +192,38 @@ class SummaryService:
                 counted.append(record)
         return len(counted)
 
-    def events_between(self, start: datetime, end: datetime) -> list[MountEvent]:
+    def events(self) -> list[MountEvent]:
         with self.lock:
             records = list(self.records)
+            messages = dict(self.messages)
         grouped: dict[str, list[MountRecord]] = {}
         for record in sorted(records, key=lambda record: record.start):
             grouped.setdefault(record.event, []).append(record)
         events = [
             MountEvent(
+                event=event,
                 start=group[0].start,
                 end=max(record.end for record in group),
                 cameras=list(dict.fromkeys(record.camera for record in group)),
                 jumps=self._count_jumps(group),
+                message_id=messages.get(event),
             )
-            for group in grouped.values()
+            for event, group in grouped.items()
         ]
-        return sorted(
-            (event for event in events if start <= event.start < end),
-            key=lambda event: event.start,
-        )
+        return sorted(events, key=lambda event: event.start)
+
+    def events_between(self, start: datetime, end: datetime) -> list[MountEvent]:
+        return [event for event in self.events() if start <= event.start < end]
 
     def build_summary(self, start: datetime, end: datetime) -> str:
+        return self._summary(start, end)[0]
+
+    def _summary(self, start: datetime, end: datetime) -> tuple[str, list[MountEvent]]:
+        """Returns the summary text and the events listed in it."""
         events = self.events_between(start, end)
         header = f"🐄 Overzicht sprongen\n{start:%d-%m %H:%M} – {end:%d-%m %H:%M}\n\n"
         if not events:
-            return header + "Geen sprongen gezien."
+            return header + "Geen sprongen gezien.", []
 
         jumps = sum(event.jumps for event in events)
         text = header + (
@@ -198,17 +231,63 @@ class SummaryService:
             f" {'moment' if len(events) == 1 else 'momenten'}\n"
         )
         for index, event in enumerate(events):
-            period = f"{event.start:%H:%M}"
-            if f"{event.end:%H:%M}" != period:
-                period += f"–{event.end:%H:%M}"
-            line = f"\n• {period} · {' + '.join(event.cameras)}"
+            line = f"\n• {event.period} · {' + '.join(event.cameras)}"
             if event.jumps > 1:
                 line += f" · {event.jumps}x"
             remaining = len(events) - index
             if len(text) + len(line) + 30 > MESSAGE_LIMIT:
-                return text + f"\n… en nog {remaining} meer"
+                return text + f"\n… en nog {remaining} meer", events[:index]
             text += line
-        return text
+        return text, events
+
+    @staticmethod
+    def reply_markup(events: list[MountEvent]) -> str | None:
+        """One button per event that has an alert message; pressing it replies to
+        that alert, so the farmer can jump to it. Private chats have no message
+        links, so buttons are the only way to point at a message."""
+        buttons = [
+            {"text": f"▶️ {event.period}", "callback_data": f"summary:{event.event}"}
+            for event in events
+            if event.message_id is not None
+        ][:BUTTON_LIMIT]
+        if not buttons:
+            return None
+        return json.dumps(
+            {
+                "inline_keyboard": [
+                    buttons[index : index + BUTTONS_PER_ROW]
+                    for index in range(0, len(buttons), BUTTONS_PER_ROW)
+                ]
+            }
+        )
+
+    def show_event(self, event_id: str) -> bool:
+        """Replies to the alert of an event. Returns False if the alert is gone."""
+        event = next(
+            (event for event in self.events() if event.event == event_id), None
+        )
+        if event is None or event.message_id is None:
+            return False
+        response = requests.post(
+            f"{self.api_url}/sendMessage",
+            data={
+                "chat_id": self.chat,
+                "reply_to_message_id": event.message_id,
+                "allow_sending_without_reply": False,
+                "text": f"⬆️ Melding van {event.start:%d-%m} {event.period}"
+                f" · {' + '.join(event.cameras)}",
+            },
+            timeout=10,
+        )
+        if response.status_code >= 400:
+            self.logger.warning(
+                "Failed to reply to alert %s of event %s: %s",
+                event.message_id,
+                event_id,
+                response.text,
+            )
+            return False
+        return True
 
     def latest_due(self, now: datetime) -> datetime:
         return max(
@@ -230,11 +309,12 @@ class SummaryService:
             return
 
         start = self.latest_due(due - timedelta(microseconds=1))
-        response = requests.post(
-            f"{self.api_url}/sendMessage",
-            data={"chat_id": self.chat, "text": self.build_summary(start, due)},
-            timeout=10,
-        )
+        text, events = self._summary(start, due)
+        data = {"chat_id": self.chat, "text": text}
+        markup = self.reply_markup(events)
+        if markup:
+            data["reply_markup"] = markup
+        response = requests.post(f"{self.api_url}/sendMessage", data=data, timeout=10)
         if response.status_code >= 400:
             # Retrying would not help, so skip this summary instead of repeating it.
             self.logger.error(
@@ -283,6 +363,28 @@ class SummaryService:
             "".join(record.to_json() + "\n" for record in records)
         )
         return records
+
+    def _load_messages(self) -> dict[str, int]:
+        if not self.messages_path.is_file():
+            return {}
+        events = {record.event for record in self.records}
+        messages = {}
+        for line in self.messages_path.read_text().splitlines():
+            try:
+                data = json.loads(line)
+                event, message_id = data["event"], int(data["message_id"])
+            except (ValueError, KeyError, TypeError):
+                self.logger.warning("Skipping invalid summary message: %s", line)
+                continue
+            if event in events:
+                messages[event] = message_id
+        self.messages_path.write_text(
+            "".join(
+                json.dumps({"event": event, "message_id": message_id}) + "\n"
+                for event, message_id in messages.items()
+            )
+        )
+        return messages
 
     def _read_last_sent(self) -> datetime | None:
         try:
