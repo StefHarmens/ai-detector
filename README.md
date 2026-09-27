@@ -53,6 +53,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 			"yolo": {
 				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
 				"confidence": 0.85,
+				"review_confidence": 0.7,
 				"include_trailing_time": 10,
 				"frames_min": 8,
 				"imgsz": 960
@@ -70,9 +71,15 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 						]
 					}
 				},
-				"disk": {
-					"directory": "/Users/cowcatcher/Desktop/video"
-				}
+				"disk": [
+					{
+						"directory": "/Users/cowcatcher/Desktop/video"
+					},
+					{
+						"directory": "/Users/cowcatcher/Desktop/data/twijfel",
+						"review": true
+					}
+				]
 			}
 		}
 	]
@@ -151,6 +158,42 @@ xattr -dr com.apple.quarantine aidetector-osx-v0.7.5.command
 ./aidetector-osx-v0.7.5.command
 ```
 
+## Twijfelgevallen controleren
+
+Een sprong wordt alleen een melding in Telegram als YOLO minstens `confidence` (0.85)
+zeker is, in minstens `frames_min` beelden. Alles wat daar net niet aan komt, is het
+nuttigst om het model van te leren. Daarom komt het in de map
+`data/twijfel/` terecht, zonder melding:
+
+- **Twijfel:** YOLO was tussen `review_confidence` (0.70) en `confidence` (0.85) zeker.
+- **Te kort:** YOLO was wel zeker genoeg, maar in te weinig beelden (`frames_min`).
+
+Elke gebeurtenis krijgt een eigen map met de video (`video.mp4`), het beeld met kaders
+(`best.jpg`), het beeld zonder kaders (`clean.jpg`) en `metadata.json`. De mapnaam is
+de tijd plus de camera, bijvoorbeeld `2026-09-27T03-12-00 Stal Rechts Voorin`.
+
+Bekijk ze af en toe met het reviewprogramma (vanaf v0.8.0). De detector mag daarbij gewoon blijven
+draaien:
+
+```bash
+cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
+
+./aidetector-osx-v0.8.0.command review-feedback \
+	--source "/Users/cowcatcher/Desktop/data/twijfel" \
+	--data-root "/Users/cowcatcher/Desktop/data"
+```
+
+In de browser zie je per gebeurtenis de video en het beeld. Kies **Good** (`G`) als het
+een sprong is, **Bad** (`B`) als het geen sprong is en **Skip** (`S`) als je het niet
+weet. Good en Bad komen direct in `data/good` en `data/bad`, klaar voor de volgende
+training. Stop je halverwege, dan ga je de volgende keer verder waar je was; **Undo**
+maakt de laatste keuze ongedaan.
+
+De meldingen in Telegram veranderen hierdoor niet: in een melding tellen en staan alleen
+kaders vanaf 0.85. Wordt de map te vol, zet `review_confidence` dan hoger, bijvoorbeeld
+op `0.75`. Laat je `review_confidence` weg, dan komen alleen de te korte sprongen in de
+map.
+
 ## Model trainen
 
 Stop eerst de actieve detector. Train daarna op Apple Silicon met de
@@ -169,6 +212,11 @@ cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
 	--device mps \
 	--update-config
 ```
+
+De training gebruikt standaard 2 hulpprocessen (`--workers 2`) om de beelden in te
+laden. Ultralytics start er zelf 8, en op een Mac laadt elk proces een eigen kopie van
+PyTorch, waardoor 16 GB werkgeheugen vol raakt. Is het geheugen nog steeds vol, probeer
+dan `--workers 1` of `--batch 2`; de training duurt dan wat langer.
 
 De training bouwt voort op V17 en overschrijft het originele model niet.
 `--update-config` maakt `config.json.bak` en activeert na succesvolle training
