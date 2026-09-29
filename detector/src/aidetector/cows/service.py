@@ -733,11 +733,10 @@ class CowService:
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).name)
         path = folder / f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{safe}"
         path.write_bytes(response.content)
-        added, problems = import_cows(path, self.registry)
-        lines = [f"✅ {added} {'koe' if added == 1 else 'koeien'} ingelezen."]
-        lines += problems[:15]
-        if len(problems) > 15:
-            lines.append(f"… en nog {len(problems) - 15} regels met een probleem")
+        result = import_cows(path, self.registry)
+        lines = [result.summary(), *result.problems[:15]]
+        if len(result.problems) > 15:
+            lines.append(f"… en nog {len(result.problems) - 15} regels met een probleem")
         return "\n".join(lines)
 
     def _command_add(self, arguments: list[str]) -> str:
@@ -762,7 +761,7 @@ class CowService:
         old = self.registry.cow_with_number(number)
         if old is None or old == life_number:
             self.registry.add(number, life_number, name)
-            return f"✅ Nummer {number} is nu {life_number}"
+            return f"✅ Nummer {number} is nu {self._animal(life_number)}"
         token = secrets.token_hex(4)
         with self.lock:
             self.switches[token] = (number, life_number, name)
@@ -776,8 +775,8 @@ class CowService:
             {
                 "chat_id": self.chat,
                 "text": f"Nummer {number} was {self.registry.label(old)} · {old}.\n"
-                f"Is die koe van het bedrijf? Dan archiveer ik haar foto's en begint "
-                f"{life_number} met een lege map.",
+                f"Is die koe van het bedrijf? Dan archiveer ik haar foto's, en krijgt "
+                f"{self._animal(life_number)} nummer {number}.",
                 "reply_markup": json.dumps({"inline_keyboard": buttons}),
             },
         )
@@ -790,18 +789,27 @@ class CowService:
         if switch is None:
             return "Deze vraag is verlopen, stuur /wissel opnieuw."
         number, life_number, name = switch
+        before = self.registry.cow_with_number(number)
+        old_label = self._animal(before) if before else ""
         old = self.registry.switch(number, life_number, answer == "y", name)
         self._send_text(
-            f"✅ Nummer {number} is nu {life_number}."
+            f"✅ Nummer {number} is nu {self._animal(life_number)}."
             + (
-                f" {old} is gearchiveerd."
+                f" {old_label} is gearchiveerd."
                 if old and answer == "y"
-                else f" {old} heeft nu geen nummer, geef haar er een met /koe."
+                else f" {old_label} heeft nu geen nummer, geef haar er een met /koe."
                 if old
                 else ""
             )
         )
         return "Opgeslagen"
+
+    def _animal(self, life_number: str) -> str:
+        """An animal as the farmer knows her, with her life number: "5102 (Nel) ·
+        NL000000052", or only the life number for an animal not added yet."""
+        if self.registry.cow(life_number) is None:
+            return life_number
+        return f"{self.registry.label(life_number)} · {life_number}"
 
     def _command_gone(self, arguments: list[str]) -> str:
         if not arguments:

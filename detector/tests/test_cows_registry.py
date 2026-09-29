@@ -124,14 +124,15 @@ def test_import_reads_a_herd_program_export(tmp_path):
     )
     registry = CowRegistry(tmp_path / "koeien")
 
-    added, problems = import_cows(export, registry)
+    result = import_cows(export, registry)
 
-    assert added == 3
+    assert result.added == 3
     assert registry.label("NL123456789") == "31 (Dubbel)"
     assert registry.cow_with_number("12") == PINK
-    assert problems == [
+    assert result.problems == [
         "Regel 4: 'geen nummer' is geen levensnummer, verwacht bijvoorbeeld NL123456789"
     ]
+    assert result.summary() == "✅ 3 dieren ingelezen op werknummer."
 
 
 def test_import_without_header_uses_number_life_number_name(tmp_path):
@@ -141,7 +142,8 @@ def test_import_without_header_uses_number_life_number_name(tmp_path):
     export.write_text("30,NL123456789,Bertha\n12,NL987654321\n")
     registry = CowRegistry(tmp_path / "koeien")
 
-    assert import_cows(export, registry) == (2, [])
+    result = import_cows(export, registry)
+    assert (result.added, result.problems) == (2, [])
     assert registry.label(OLD) == "30 (Bertha)"
 
 
@@ -157,7 +159,8 @@ def test_import_takes_the_collar_number_and_else_the_work_number(tmp_path):
     )
     registry = CowRegistry(tmp_path / "koeien")
 
-    assert import_cows(export, registry) == (2, [])
+    result = import_cows(export, registry)
+    assert (result.added, result.problems) == (2, [])
     assert registry.label(OLD) == "30 (Bertha)"
     assert registry.label("NL100000001") == "5101 (Anna)"
     assert registry.with_name("anna") == ["NL100000001"]

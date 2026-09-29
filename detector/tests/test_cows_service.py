@@ -346,6 +346,9 @@ def test_switch_asks_whether_the_old_cow_left(tmp_path, telegram):
     yes = json.loads(question["reply_markup"])["inline_keyboard"][0][0]["callback_data"]
 
     assert service.handle_callback(yes) == "Opgeslagen"
+    assert telegram.sent("sendMessage")[-1]["text"] == (
+        "✅ Nummer 30 is nu 30 · NL111111111. 30 (Bertha) · NL123456789 is gearchiveerd."
+    )
     assert service.registry.cow_with_number("30") == new
     assert service.registry.cow(BERTHA).archived is not None
 
@@ -390,7 +393,7 @@ def test_a_csv_sent_to_the_bot_adds_the_cows(tmp_path, telegram, monkeypatch):
     answer = service.handle_message({"document": {"file_id": "f", "file_name": "export koeien.csv"}})
 
     assert answer.splitlines() == [
-        "✅ 1 koe ingelezen.",
+        "✅ 1 dier ingelezen op werknummer.",
         "Regel 2: 'fout' is geen levensnummer, verwacht bijvoorbeeld NL123456789",
     ]
     assert service.registry.label("NL222222222") == "7 (Klaartje)"
