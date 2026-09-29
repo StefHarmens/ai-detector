@@ -200,6 +200,12 @@ class CowsConfig:
     # The herd list exported from the herd program (Excel or CSV). It is read
     # at the start and again whenever the file changes, and is leading.
     herd_file: Path | None = None
+    # The animal categories (Lely: Diercat) that take part; the rest, such as
+    # calves and male animals, are left out. null uses no list: then only
+    # calves and bulls are recognised and left out.
+    herd_categories: list[str] | None = field(
+        default_factory=lambda: ["Koeien", "Vrouwelijk jongvee"]
+    )
     # Generic model that finds single cows; COCO has the class "cow". A
     # segmentation model also gives her pixels, so the barn can be masked out.
     segment_model: str = "yolo11s-seg.pt"

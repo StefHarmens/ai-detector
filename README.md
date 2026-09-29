@@ -80,7 +80,8 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 						]
 					},
 					"cows": {
-						"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx"
+						"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+						"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
 					}
 				},
 				"disk": [
@@ -293,7 +294,8 @@ Het makkelijkst: zet het pad naar de export uit het managementprogramma (Excel o
 
 ```json
 "cows": {
-	"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx"
+	"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+	"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
 }
 ```
 
@@ -319,8 +321,9 @@ Lely-programma (kolommen `Diernr`, `Resp 1`, `Levensnummer`, `Gesl`, `Naam`, `We
 - een pink zonder halsband (`Resp 1` leeg) krijgt haar **Werknummer**. Kalft ze af en
   krijgt ze een halsband, dan neemt de bot bij de volgende export haar Diernr over; haar
   sprongen en foto's blijven bij haar;
-- kalveren en stieren (`Diercat` kalf of stier, of `Gesl` M) worden overgeslagen; het
-  bericht zegt hoeveel;
+- alleen de categorieën uit `herd_categories` doen mee (standaard `Koeien` en
+  `Vrouwelijk jongvee`, zoals in `Diercat`); `Vaarskalf`, `Mannelijk` en de rest worden
+  overgeslagen, en mannelijke dieren (`Gesl` Mannelijk) altijd. Het bericht zegt hoeveel;
 - `Levnr moeder` wordt nooit als levensnummer gelezen.
 
 Andere exports met kolommen zoals `Halsbandnummer` en `Werknummer` werken ook: per dier

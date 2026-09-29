@@ -259,7 +259,7 @@ class CowService:
                 return None
             if now - modified < _HERD_SETTLE_SECONDS:
                 return None
-            result = sync_herd(path, self.registry)
+            result = sync_herd(path, self.registry, categories=self.config.herd_categories)
             self.directory.mkdir(parents=True, exist_ok=True)
             state_path.write_text(json.dumps({"file": str(path), "modified": modified}))
         self.logger.info("%s", result.summary())
@@ -275,7 +275,7 @@ class CowService:
                     shown = ", ".join(names[:10]) + (f" en nog {len(names) - 10}" if len(names) > 10 else "")
                     lines.append(f"{label}: {shown}")
             if result.added and result.skipped:
-                lines.append(f"Overgeslagen: {result.skipped} kalveren en stieren")
+                lines.append(f"Overgeslagen: {result.skipped} andere dieren (kalveren, mannelijk)")
             lines += result.problems[:10]
             self._send_text("\n".join(lines))
         return result
@@ -802,7 +802,7 @@ class CowService:
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).name)
         path = folder / f"{datetime.now():%Y-%m-%dT%H-%M-%S}_{safe}"
         path.write_bytes(response.content)
-        result = import_cows(path, self.registry)
+        result = import_cows(path, self.registry, self.config.herd_categories)
         lines = [result.summary(), *result.problems[:15]]
         if len(result.problems) > 15:
             lines.append(f"… en nog {len(result.problems) - 15} regels met een probleem")

@@ -59,14 +59,15 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
         [
             LELY_HEADER,
             # A cow with a collar (responder): her Diernr.
-            [30, 123456, "NL 0000 0003 0", "Vrouwelijk", date(2021, 3, 1), "Bertha", 4030, "Koe", "NL 0000 0099 9", None],
+            [30, 123456, "NL 0000 0003 0", "Vrouwelijk", date(2021, 3, 1), "Bertha", 4030, "Koeien", "NL 0000 0099 9", None],
             # A heifer without a collar yet: her work number, even though
             # she already has a Diernr.
-            [512, None, ANNA, "Vrouwelijk", date(2024, 5, 2), "Anna", 5101, "Pink", BERTHA, None],
-            # A bull calf and a heifer calf are left out. Gesl holds
-            # "Vrouwelijk" or "Mannelijk" in the farm's export.
-            [640, None, "NL000000640", "Mannelijk", date(2026, 8, 1), None, 6400, "Kalf", ANNA, None],
-            [641, None, "NL000000641", "Vrouwelijk", date(2026, 8, 2), None, 6401, "Kalf", BERTHA, None],
+            [512, None, ANNA, "Vrouwelijk", date(2024, 5, 2), "Anna", 5101, "Vrouwelijk jongvee", BERTHA, None],
+            # Only "Koeien" and "Vrouwelijk jongvee" take part: a bull and a
+            # heifer calf ("Vaarskalf") are left out. Gesl holds "Vrouwelijk"
+            # or "Mannelijk" in the farm's export.
+            [640, None, "NL000000640", "Mannelijk", date(2026, 8, 1), None, 6400, "Mannelijk", ANNA, None],
+            [641, None, "NL000000641", "Vrouwelijk", date(2026, 8, 2), None, 6401, "Vaarskalf", BERTHA, None],
         ],
     )
 
@@ -86,8 +87,8 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
     assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "5101 (Anna)"]
     calved = excel(
         tmp_path / "lely.xlsx",
-        [LELY_HEADER, [30, 123456, BERTHA, "Vrouwelijk", None, "Bertha", 4030, "Koe", None, None],
-         [512, 654321, ANNA, "Vrouwelijk", None, "Anna", 5101, "Koe", BERTHA, None]],
+        [LELY_HEADER, [30, 123456, BERTHA, "Vrouwelijk", None, "Bertha", 4030, "Koeien", None, None],
+         [512, 654321, ANNA, "Vrouwelijk", None, "Anna", 5101, "Koeien", BERTHA, None]],
     )
     later = start + timedelta(days=60)
     result = sync_herd(calved, registry, at=later)
@@ -95,12 +96,29 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
     assert registry.label(ANNA, start) == "5101 (Anna)"
 
 
-def test_a_male_animal_is_left_out_whatever_its_category():
-    rows = [LELY_HEADER, [700, None, "NL000000700", "Mannelijk", None, None, 7000, "Pink", None, None]]
+def test_only_the_listed_categories_take_part():
+    def row(number, sex, category):
+        return [number, None, f"NL000000{number}", sex, None, None, number, category, None, None]
+
+    rows = [
+        LELY_HEADER,
+        row(701, "Vrouwelijk", "koeien"),  # case does not matter
+        row(702, "Vrouwelijk", "Vrouwelijk jongvee"),
+        row(703, "Vrouwelijk", "Vaarskalf"),
+        row(704, "Mannelijk", "Mannelijk"),
+        row(705, "Vrouwelijk", ""),
+        # A male animal stays out, whatever its category says.
+        row(706, "Mannelijk", "Vrouwelijk jongvee"),
+    ]
 
     parsed = parse_herd(rows)
+    assert [animal.number for animal in parsed.animals] == ["701", "702"]
+    assert parsed.skipped == 4
 
-    assert parsed.animals == [] and parsed.skipped == 1
+    # Other categories can be set in cows.herd_categories.
+    assert [animal.number for animal in parse_herd(rows, ["Vaarskalf"]).animals] == ["703"]
+    # Without a list, only calves and bulls are recognised and left out.
+    assert [animal.number for animal in parse_herd(rows, None).animals] == ["701", "702", "705"]
 
 
 def herd_file(tmp_path, rows, name="koeien.xlsx"):

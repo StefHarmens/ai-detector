@@ -1,5 +1,6 @@
 import argparse
 import csv
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -26,10 +27,12 @@ _RESPONDER_COLUMNS = ("resp", "transponder")
 _NAME_COLUMNS = ("naam", "name", "roepnaam")
 _SEX_COLUMNS = ("gesl", "sex", "gender")
 _CATEGORY_COLUMNS = ("diercat", "categorie", "category")
-# Only cows and heifers take part; anything unclear stays in rather than
-# being dropped by accident.
+# Only cows and heifers take part. With a list of categories (see
+# cows.herd_categories) only those count; without one, calves and bulls are
+# recognised by these words and anything unclear stays in.
 _MALE_VALUES = ("m", "man", "mannelijk", "male", "stier", "bull")
 _SKIPPED_CATEGORIES = ("kalf", "kalveren", "calf", "stier", "bull")
+DEFAULT_CATEGORIES = ("Koeien", "Vrouwelijk jongvee")
 # Exports often start with a title or the farm's name above the header.
 _HEADER_ROWS = 10
 EXCEL_SUFFIXES = (".xlsx", ".xlsm")
@@ -99,7 +102,7 @@ class HerdRow:
 class ParsedHerd:
     animals: list[HerdRow] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
-    # Calves and male animals, which are left out.
+    # Animals of other categories, such as calves and male animals.
     skipped: int = 0
 
 
@@ -155,16 +158,23 @@ class _Columns:
             return other, self.work is None and self.collar is None
         return collar, True
 
-    def skip(self, row: list[str]) -> bool:
-        sex = _cell(row, self.sex).lower()
-        category = _cell(row, self.category).lower()
-        return sex in _MALE_VALUES or any(word in category for word in _SKIPPED_CATEGORIES)
+    def skip(self, row: list[str], categories: Sequence[str] | None) -> bool:
+        if _cell(row, self.sex).lower() in _MALE_VALUES:
+            return True
+        if self.category is None:
+            return False
+        category = _cell(row, self.category).casefold()
+        if categories is not None:
+            return category not in {wanted.strip().casefold() for wanted in categories}
+        return any(word in category for word in _SKIPPED_CATEGORIES)
 
 
-def parse_herd(rows: list[list[str]]) -> ParsedHerd:
+def parse_herd(
+    rows: list[list[str]], categories: Sequence[str] | None = DEFAULT_CATEGORIES
+) -> ParsedHerd:
     """Finds the header and returns the cows and heifers with valid numbers,
-    a problem per row that could not be read, and how many calves and male
-    animals were left out."""
+    a problem per row that could not be read, and how many other animals
+    (calves, male animals) were left out."""
     columns, data = None, list(enumerate(rows, start=1))
     for index, row in enumerate(rows[:_HEADER_ROWS]):
         columns = _Columns.find(row)
@@ -179,7 +189,7 @@ def parse_herd(rows: list[list[str]]) -> ParsedHerd:
     for line, row in data:
         if not any(_text(cell) for cell in row):
             continue
-        if columns.skip(row):
+        if columns.skip(row, categories):
             parsed.skipped += 1
             continue
         number, collar = columns.number(row)
@@ -220,18 +230,20 @@ class ImportResult:
         else:
             text = f"✅ {self.added} {'koe' if self.added == 1 else 'koeien'} ingelezen."
         if self.skipped:
-            text += f" {self.skipped} kalveren en stieren overgeslagen."
+            text += f" {self.skipped} andere dieren (kalveren, mannelijk) overgeslagen."
         return text
 
 
-def import_cows(path: Path, registry: CowRegistry) -> ImportResult:
+def import_cows(
+    path: Path, registry: CowRegistry, categories: Sequence[str] | None = DEFAULT_CATEGORIES
+) -> ImportResult:
     """Adds each animal of the file (collar or work number, life number,
     optional name); animals already known keep what they have unless the
     file gives them a free number."""
     rows = read_table(path)
     if not rows:
         return ImportResult(problems=["Het bestand is leeg"])
-    parsed = parse_herd(rows)
+    parsed = parse_herd(rows, categories)
     result = ImportResult(problems=parsed.problems, skipped=parsed.skipped)
     for animal in parsed.animals:
         try:
@@ -277,13 +289,18 @@ class SyncResult:
         return "📋 Koeienlijst bijgewerkt: " + (", ".join(parts) or "niets veranderd") + "."
 
 
-def sync_herd(path: Path, registry: CowRegistry, at: datetime | None = None) -> SyncResult:
+def sync_herd(
+    path: Path,
+    registry: CowRegistry,
+    at: datetime | None = None,
+    categories: Sequence[str] | None = DEFAULT_CATEGORIES,
+) -> SyncResult:
     """Makes the register follow the herd list, which is leading: new animals
     are added, numbers and names follow the list, and animals that are no
     longer on it are archived. Numbers change in two passes, so two cows can
     swap collars."""
     at = at or datetime.now()
-    parsed = parse_herd(read_table(path))
+    parsed = parse_herd(read_table(path), categories)
     result = SyncResult(problems=parsed.problems, skipped=parsed.skipped)
     listed: dict[str, HerdRow] = {}
     numbers: dict[str, str] = {}

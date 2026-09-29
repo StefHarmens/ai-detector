@@ -430,12 +430,13 @@ number, life number and optional name (headers such as `Levensnummer`, `Werknumm
 `Halsbandnummer` and `Naam` are recognised, also below a title), or run
 `import-koeien export.xlsx`. In a Lely export (`Diernr`, `Resp 1`, `Levensnummer`, `Gesl`,
 `Naam`, `Werknummer`, `Diercat`) a cow with a responder gets her `Diernr` and a heifer
-without one her `Werknummer`; calves and male animals are left out, and `Levnr moeder`
-is never taken for the life number.
+without one her `Werknummer`; only the categories in `herd_categories` take part, male
+animals never, and `Levnr moeder` is never taken for the life number.
 
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |
 | `directory`          | `<feedback_directory>/koeien` | Where cows, photos and mounts are kept. |
+| `herd_categories`    | `["Koeien", "Vrouwelijk jongvee"]` | The animal categories (e.g. Lely's `Diercat`) that take part; the rest, such as `Vaarskalf`, is left out, and male animals (`Gesl`) always. `null` uses no list: then only calves and bulls are recognised and left out. |
 | `herd_file`          |               | The herd list exported from the herd program (Excel or CSV). Read at the start and whenever the file changes; it is leading: new animals are added, numbers and names follow it, and animals no longer on it are archived (unless more than a fifth would go at once, which looks like a partial export). The farmer gets a short message per change. |
 | `segment_model`      | `"yolo11s-seg.pt"` | Model that finds single cows and their pixels; downloaded on first use. A detection-only model works too, without masking. |
 | `segment_confidence` | `0.25`        | Minimum confidence of a single cow. |

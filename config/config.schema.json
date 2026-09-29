@@ -149,6 +149,20 @@
           "default": null,
           "title": "Herd File"
         },
+        "herd_categories": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Herd Categories"
+        },
         "segment_model": {
           "default": "yolo11s-seg.pt",
           "title": "Segment Model",
