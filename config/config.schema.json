@@ -136,6 +136,19 @@
           "default": null,
           "title": "Directory"
         },
+        "herd_file": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Herd File"
+        },
         "segment_model": {
           "default": "yolo11s-seg.pt",
           "title": "Segment Model",

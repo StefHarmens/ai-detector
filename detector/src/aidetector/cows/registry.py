@@ -188,6 +188,13 @@ class CowRegistry:
             self._save()
             return old
 
+    def unassign(self, life_number: str, at: Moment = None) -> None:
+        """Takes her number from a cow, e.g. before it goes to another cow."""
+        at = moment(at)
+        with self.lock:
+            self._end_numbers(life_number, at)
+            self._save()
+
     def archive(self, life_number: str, at: Moment = None) -> None:
         """Marks a cow as gone: she keeps her history but her photos no longer
         take part in recognition."""

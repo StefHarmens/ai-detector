@@ -394,10 +394,10 @@ def test_a_csv_sent_to_the_bot_adds_the_cows(tmp_path, telegram, monkeypatch):
 
     assert answer.splitlines() == [
         "✅ 1 dier ingelezen op werknummer.",
-        "Regel 2: 'fout' is geen levensnummer, verwacht bijvoorbeeld NL123456789",
+        "Regel 3: 'fout' is geen levensnummer, verwacht bijvoorbeeld NL123456789",
     ]
     assert service.registry.label("NL222222222") == "7 (Klaartje)"
-    assert service.handle_message({"document": {"file_id": "f", "file_name": "foto.jpg"}}).startswith("Stuur de koeien als CSV")
+    assert service.handle_message({"document": {"file_id": "f", "file_name": "foto.jpg"}}).startswith("Stuur de koeien als Excel- of CSV-bestand")
 
 
 def test_overview_counts_both_cows_and_skips_wrong_alerts(tmp_path, telegram):

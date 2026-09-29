@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Lock, RLock
+from threading import Event, Lock, RLock, Thread
 from typing import Any
 
 import cv2
@@ -17,7 +17,7 @@ import requests
 from numpy import ndarray
 
 from aidetector.cows.answers import parse_answers
-from aidetector.cows.importer import import_cows
+from aidetector.cows.importer import EXCEL_SUFFIXES, SyncResult, import_cows, sync_herd
 from aidetector.cows.photos import control_image, side_by_side
 from aidetector.cows.registry import (
     NumberTaken,
@@ -42,6 +42,10 @@ SIGHTINGS_FILE = "sprongen-{chat}.jsonl"
 CROPS_FOLDER = ".meldingen"
 FRAMES_FOLDER = "beelden"
 IMPORT_FOLDER = ".import"
+HERD_STATE_FILE = ".koeienlijst.json"
+_HERD_CHECK_SECONDS = 30
+# A herd list that changed this recently may still be being saved.
+_HERD_SETTLE_SECONDS = 5
 SLOT_NAMES = ("A", "B")
 # Frames kept per side of the jump, to look back at a mount later.
 _KEEP_FRAMES = 3
@@ -66,7 +70,7 @@ Het nummer is het halsbandnummer, of het werknummer bij een pink zonder halsband
 /koeien – alle koeien met hun nummer en aantal foto's
 /overzicht 7 – sprongen per koe over de laatste 7 dagen
 
-Alle koeien in één keer: stuur mij de export uit het managementprogramma als CSV-bestand (kolommen zoals Werknummer;Levensnummer;Naam)."""
+Alle koeien in één keer: stuur mij de export uit het managementprogramma als Excel- of CSV-bestand (kolommen zoals Levensnummer, Werknummer, Halsbandnummer, Naam). Staat de lijst in de instellingen (herd_file), dan lees ik hem zelf opnieuw zodra hij verandert."""
 
 COMMANDS = [
     ("koeien", "Alle koeien met nummer en foto's"),
@@ -213,6 +217,66 @@ class CowService:
         self.switches: dict[str, tuple[str, str, str | None]] = {}
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cows")
         self.cleaned = 0.0
+        self.stop_event = Event()
+        self.herd_missing = False
+        if config.herd_file is not None:
+            Thread(target=self._watch_herd, name="koeienlijst", daemon=True).start()
+
+    # Herd list
+
+    def _watch_herd(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                self.check_herd()
+            except Exception:
+                self.logger.exception("Failed to read the herd list")
+            self.stop_event.wait(_HERD_CHECK_SECONDS)
+
+    def check_herd(self, now: float | None = None) -> SyncResult | None:
+        """Makes the register follow the herd list when the file changed, and
+        tells the farmer what changed. The version read is remembered in the
+        folder, so a restart does not repeat the message and chats that share
+        the folder read it once."""
+        assert self.config.herd_file is not None
+        path = self.config.herd_file.expanduser()
+        try:
+            modified = path.stat().st_mtime
+        except FileNotFoundError:
+            if not self.herd_missing:
+                self.logger.warning("Herd list %s not found", path)
+                self._send_text(f"⚠️ De koeienlijst {path} is niet gevonden.")
+                self.herd_missing = True
+            return None
+        self.herd_missing = False
+        now = time.time() if now is None else now
+        state_path = self.directory / HERD_STATE_FILE
+        with self.registry.lock:
+            try:
+                state = json.loads(state_path.read_text())
+            except (FileNotFoundError, ValueError):
+                state = {}
+            if state.get("file") == str(path) and state.get("modified") == modified:
+                return None
+            if now - modified < _HERD_SETTLE_SECONDS:
+                return None
+            result = sync_herd(path, self.registry)
+            self.directory.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps({"file": str(path), "modified": modified}))
+        self.logger.info("%s", result.summary())
+        if result.changed or result.problems:
+            lines = [result.summary()]
+            for label, names in (
+                ("Nieuw", result.added),
+                ("Terug", result.returned),
+                ("Ander nummer", result.renumbered),
+                ("Weg", result.archived),
+            ):
+                if names:
+                    shown = ", ".join(names[:10]) + (f" en nog {len(names) - 10}" if len(names) > 10 else "")
+                    lines.append(f"{label}: {shown}")
+            lines += result.problems[:10]
+            self._send_text("\n".join(lines))
+        return result
 
     # Recognition
 
@@ -723,8 +787,11 @@ class CowService:
 
     def _import_document(self, document: dict[str, Any]) -> str:
         name = str(document.get("file_name") or "koeien.csv")
-        if not name.lower().endswith((".csv", ".txt")):
-            return "Stuur de koeien als CSV-bestand, bijv. een export met Werknummer;Levensnummer;Naam."
+        if not name.lower().endswith((".csv", ".txt", *EXCEL_SUFFIXES)):
+            return (
+                "Stuur de koeien als Excel- of CSV-bestand, bijv. een export met "
+                "Levensnummer, Werknummer, Halsbandnummer en Naam."
+            )
         info = _call(self.api_url, "getFile", {"file_id": document["file_id"]})
         response = requests.get(f"{self.file_url}/{info['file_path']}", timeout=60)
         response.raise_for_status()
@@ -835,7 +902,7 @@ class CowService:
         if not cows:
             return (
                 "Nog geen koeien. Voeg ze toe met /koe 30 NL123456789, of stuur mij "
-                "de export uit het managementprogramma als CSV-bestand."
+                "de export uit het managementprogramma als Excel- of CSV-bestand."
             )
 
         def sort_key(cow) -> tuple[int, str]:

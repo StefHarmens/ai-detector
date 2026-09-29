@@ -79,7 +79,9 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 							["Stal Rechts Voorin", "Stal Rechts Achterin", "Stal Achterin Centraal"]
 						]
 					},
-					"cows": {}
+					"cows": {
+						"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx"
+					}
 				},
 				"disk": [
 					{
@@ -284,12 +286,40 @@ Zet in de detector van de pinkencamera ook `"cows": {}` onder `telegram`, met de
 dieren. Meldt de pinkencamera in een eigen chat, dan telt het overzicht in die chat alleen
 de sprongen van de pinken.
 
-Alle koeien in één keer invoeren: stuur de CSV-export uit het managementprogramma
-(kolommen zoals `Werknummer;Levensnummer;Naam`) als bestand naar de bot. Op de Mac mini
-kan het ook met:
+### Koeienlijst uit het managementprogramma
+
+Het makkelijkst: zet het pad naar de export uit het managementprogramma (Excel of CSV) in
+`config.json` onder `cows`:
+
+```json
+"cows": {
+	"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx"
+}
+```
+
+De detector leest de lijst bij het starten, en opnieuw zodra het bestand verandert.
+Een nieuwe export over het oude bestand heen opslaan is genoeg. De lijst is leidend:
+
+- nieuwe dieren komen erbij;
+- een ander nummer wordt overgenomen, ook als twee koeien van halsband ruilen;
+- namen worden bijgewerkt;
+- een dier dat niet meer in de lijst staat, gaat naar het archief, en komt met haar foto's
+  terug als ze weer in de lijst staat.
+
+Ontbreekt er in één keer meer dan een vijfde van de dieren, dan lijkt het een halve export
+en archiveert de bot niemand; hij waarschuwt dan in de chat. Na elke wijziging stuurt hij
+een kort bericht, bijvoorbeeld `📋 Koeienlijst bijgewerkt: 2 nieuw, 1 ander nummer, 1 weg
+(archief).`
+
+De bot zoekt zelf de kopregel, ook als er een titel boven staat. Kolommen zoals
+`Levensnummer`, `Werknummer`, `Halsbandnummer` (of `Respondernummer`) en `Naam` worden
+herkend; per dier neemt hij het halsbandnummer, en anders het werknummer.
+
+Zonder `herd_file` kan het ook eenmalig: stuur de export (Excel of CSV) als bestand naar de
+bot. Op de Mac mini kan het ook met:
 
 ```bash
-./aidetector-osx-v0.8.0.command import-koeien ~/Desktop/koeien.csv
+./aidetector-osx-v0.8.0.command import-koeien ~/Desktop/koeienlijst.xlsx
 ```
 
 Het levensnummer wordt op vorm gecontroleerd (landcode en 9 tot 12 cijfers), niet op het

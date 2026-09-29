@@ -197,6 +197,9 @@ class SummaryConfig:
 class CowsConfig:
     # Defaults to <feedback_directory>/koeien.
     directory: Path | None = None
+    # The herd list exported from the herd program (Excel or CSV). It is read
+    # at the start and again whenever the file changes, and is leading.
+    herd_file: Path | None = None
     # Generic model that finds single cows; COCO has the class "cow". A
     # segmentation model also gives her pixels, so the barn can be masked out.
     segment_model: str = "yolo11s-seg.pt"

@@ -424,13 +424,16 @@ stays with the right cow.
 
 The commands are put in the chat's menu. Commands: `/koe 30 NL123456789 Bertha`, `/wissel 30 NL987654321` (asks
 whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeien`,
-`/overzicht 7`, `/help`. To add many cows at once, send the bot a CSV of collar number,
-life number and optional name (headers such as `Werknummer;Levensnummer;Naam` are
-recognised), or run `import-koeien export.csv`.
+`/overzicht 7`, `/help`. To keep the register in sync with the herd program, set
+`herd_file`. To add many cows once, send the bot an Excel or CSV file with collar or work
+number, life number and optional name (headers such as `Levensnummer`, `Werknummer`,
+`Halsbandnummer` and `Naam` are recognised, also below a title), or run
+`import-koeien export.xlsx`.
 
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |
 | `directory`          | `<feedback_directory>/koeien` | Where cows, photos and mounts are kept. |
+| `herd_file`          |               | The herd list exported from the herd program (Excel or CSV). Read at the start and whenever the file changes; it is leading: new animals are added, numbers and names follow it, and animals no longer on it are archived (unless more than a fifth would go at once, which looks like a partial export). The farmer gets a short message per change. |
 | `segment_model`      | `"yolo11s-seg.pt"` | Model that finds single cows and their pixels; downloaded on first use. A detection-only model works too, without masking. |
 | `segment_confidence` | `0.25`        | Minimum confidence of a single cow. |
 | `reid_model`         | DINOv2 small (Hugging Face) | ONNX model or URL for the embeddings; downloaded once to `.model/`. |

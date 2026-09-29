@@ -130,7 +130,8 @@ def test_import_reads_a_herd_program_export(tmp_path):
     assert registry.label("NL123456789") == "31 (Dubbel)"
     assert registry.cow_with_number("12") == PINK
     assert result.problems == [
-        "Regel 4: 'geen nummer' is geen levensnummer, verwacht bijvoorbeeld NL123456789"
+        # Line 5 of the file, as the farmer sees it in Excel.
+        "Regel 5: 'geen nummer' is geen levensnummer, verwacht bijvoorbeeld NL123456789"
     ]
     assert result.summary() == "✅ 3 dieren ingelezen op werknummer."
 
