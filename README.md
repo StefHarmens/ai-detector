@@ -49,15 +49,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 					"Stal Rechts Achterin",
 					"Stal Achterin Centraal"
 				],
-				"hires": {
-					"source": [
-						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-1>",
-						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-2>",
-						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-3>",
-						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-4>",
-						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-5>"
-					]
-				}
+				"hires": {}
 			},
 			"yolo": {
 				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
@@ -288,8 +280,8 @@ bij de trainingsdata van de boer komen. Is het goed, zet `cows` dan bij de boer 
 mee.
 
 `detection.hires` geldt voor beide chats: de boer merkt daar niets van in Telegram, maar de
-Mac mini gebruikt dan wel ongeveer 350 MB per 4K-stream, en de schijf-export bewaart een
-extra `hires.jpg` per sprong.
+Mac mini gebruikt dan meer geheugen (zie [4K-beelden](#4k-beelden)), en de schijf-export
+bewaart een extra `hires.jpg` per sprong.
 
 ### Levensnummer, halsbandnummer en werknummer
 
@@ -380,16 +372,24 @@ controlecijfer.
 ### 4K-beelden
 
 Zonder 4K werkt het ook, maar dan op de uitsnede uit het 1280-beeld, waarin het vachtpatroon
-minder scherp is. Zet in UniFi Protect per camera de RTSPS-stream **High** aan en zet die
-adressen in `detection.hires`, in dezelfde volgorde als `source`:
+minder scherp is. Er zijn twee manieren:
+
+- **De detectie draait al op de 4K-stream** (`source` is de High-link uit UniFi Protect):
+  zet `"hires": {}` onder `detection`, zonder `source`. De detector bewaart dan het 4K-beeld
+  dat hij toch al binnenhaalt, voordat het voor de detectie kleiner wordt gemaakt. Er wordt
+  niets dubbel gedecodeerd, en het beeld hoort precies bij de detectie.
+- **Lichter voor de Mac mini**: laat de detectie de stream **Medium** gebruiken (die wordt
+  toch naar 1280 verkleind) en zet de links van **High** in `detection.hires.source`, in
+  dezelfde volgorde als `source`. De 4K-streams gaan dan via de hardware van de Mac.
+
+Zet nooit dezelfde links in `source` én `hires.source`: dan wordt elke 4K-stream twee keer
+gedecodeerd en wordt de detectie flink trager.
 
 ```json
 "detection": {
 	"source": ["rtsps://<nvr-ip>:7441/<sleutel-camera-1>", "..."],
 	"name": ["Stal Links PTZ Voorin", "..."],
-	"hires": {
-		"source": ["rtsps://<nvr-ip>:7441/<4k-sleutel-camera-1>", "..."]
-	}
+	"hires": {}
 },
 "exporters": {
 	"telegram": {
@@ -400,8 +400,10 @@ adressen in `detection.hires`, in dezelfde volgorde als `source`:
 }
 ```
 
-De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden.
-Elke 4K-stream kost ongeveer 350 MB geheugen. Telegram weigert foto's boven 10 MB en toont
+De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden,
+ongeveer 1 tot 2 MB per beeld (100 à 200 MB per camera); met `"seconds": 60` of
+`"quality": 80` wordt dat minder. Een aparte 4K-stream (`hires.source`) kost daarbovenop
+ongeveer 350 MB om te decoderen. Telegram weigert foto's boven 10 MB en toont
 ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
 onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
 
