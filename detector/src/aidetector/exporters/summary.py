@@ -255,8 +255,8 @@ class SummaryService:
                 text += f"\n… en nog {len(lines) - index} meer"
                 break
             text += line
-        if len(text) + len(overview) + 50 <= MESSAGE_LIMIT:
-            text += overview
+        if overview and len(text) + len(overview) + 50 <= MESSAGE_LIMIT:
+            text = text.rstrip("\n") + overview
         if buttons:
             text += "\n\nTik op een moment om de melding te zien."
         return text.rstrip("\n"), buttons

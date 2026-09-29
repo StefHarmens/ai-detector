@@ -113,8 +113,8 @@ def make_service(tmp_path, split, scores, **config) -> CowService:
         splitter=FakeSplitter(split),
         gallery=FakeGallery(scores),
     )
-    service.registry.add("30", BERTHA, "Bertha", day=START.date() - timedelta(days=100))
-    service.registry.add("12", PINK, day=START.date() - timedelta(days=100))
+    service.registry.add("30", BERTHA, "Bertha", at=START.date() - timedelta(days=100))
+    service.registry.add("12", PINK, at=START.date() - timedelta(days=100))
     return service
 
 
@@ -144,7 +144,7 @@ def test_each_cow_gets_a_photo_with_candidates(tmp_path, telegram):
 
 def test_a_clear_match_with_enough_photos_is_filled_in(tmp_path, telegram):
     add_photos(tmp_path, BERTHA, 5)
-    service = make_service(tmp_path, pair(), [[(BERTHA, 0.93), (PINK, 0.70)], [(PINK, 0.86), (BERTHA, 0.84)]])
+    service = make_service(tmp_path, pair(), [[(BERTHA, 0.93), (PINK, 0.70)], [(PINK, 0.95), (BERTHA, 0.90)]])
 
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
@@ -195,7 +195,8 @@ def test_typed_number_and_new_cow(tmp_path, telegram):
     assert reply == "Opgeslagen: 44"
     sighting = service.sightings[sighting.id]
     assert sighting.cows[1] == "NL555555555"
-    assert service.registry.cow_with_number("44", START.date()) == "NL555555555"
+    # The number counts from the mount the farmer answered for.
+    assert service.registry.cow_with_number("44", START) == "NL555555555"
 
 
 def test_switch_asks_whether_the_old_cow_left(tmp_path, telegram):
@@ -277,6 +278,7 @@ def test_summary_includes_the_overview_per_cow(tmp_path, telegram):
     text = summary.build_summary(START - timedelta(hours=1), START + timedelta(hours=1))
 
     assert text.endswith("🔥 30: 1× besprongen")
+    assert "\n\n\n" not in text
 
 
 def test_event_frames_prefer_4k_and_stop_at_the_first_confident_frame():

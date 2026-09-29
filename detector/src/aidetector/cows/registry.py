@@ -2,7 +2,7 @@ import json
 import re
 import shutil
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from threading import RLock
 
@@ -13,6 +13,17 @@ _LIFE_NUMBER = re.compile(r"^[A-Z]{2}\d{9,12}$")
 UNKNOWN_FOLDER = "onbekend"
 ARCHIVE_FOLDER = "archief"
 REGISTRY_FILE = "koeien.json"
+
+# A moment in time; a date means the start of that day.
+Moment = datetime | date | None
+
+
+def moment(value: Moment) -> datetime:
+    if value is None:
+        return datetime.now()
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, time.min)
 
 
 def normalize_life_number(value: str) -> str:
@@ -43,16 +54,17 @@ class Cow:
 @dataclass
 class NumberPeriod:
     """Collar numbers are given to a new cow once the old one leaves, so a
-    number belongs to a cow only between two dates."""
+    number belongs to a cow only between two moments. A number can change on
+    the day of a mount, so the moments have a time."""
 
     number: str
     cow: str
     start: str
     end: str | None = None
 
-    def covers(self, day: date) -> bool:
-        return date.fromisoformat(self.start) <= day and (
-            self.end is None or day < date.fromisoformat(self.end)
+    def covers(self, at: datetime) -> bool:
+        return datetime.fromisoformat(self.start) <= at and (
+            self.end is None or at < datetime.fromisoformat(self.end)
         )
 
 
@@ -78,56 +90,60 @@ class CowRegistry:
     def active_cows(self) -> list[Cow]:
         return [cow for cow in self.data.cows.values() if cow.archived is None]
 
-    def number_of(self, life_number: str, day: date | None = None) -> str | None:
-        day = day or date.today()
+    def number_of(self, life_number: str, at: Moment = None) -> str | None:
+        at = moment(at)
         return next(
             (
                 period.number
                 for period in self.data.numbers
-                if period.cow == life_number and period.covers(day)
+                if period.cow == life_number and period.covers(at)
             ),
             None,
         )
 
-    def cow_with_number(self, number: str, day: date | None = None) -> str | None:
-        day = day or date.today()
+    def cow_with_number(self, number: str, at: Moment = None) -> str | None:
+        at = moment(at)
         number = normalize_number(number)
         return next(
             (
                 period.cow
                 for period in self.data.numbers
-                if period.number == number and period.covers(day)
+                if period.number == number and period.covers(at)
             ),
             None,
         )
 
-    def label(self, life_number: str | None, day: date | None = None) -> str:
-        """The name the farmer knows a cow by: her collar number at that day."""
+    def label(self, life_number: str | None, at: Moment = None) -> str:
+        """The name the farmer knows a cow by: her collar number at that moment,
+        or her number now for a mount from before she was added. A cow that left
+        is marked, since her number may be worn by another cow now."""
         if life_number is None:
             return "onbekend"
         cow = self.cow(life_number)
-        number = self.number_of(life_number, day)
+        number = self.number_of(life_number, at) or self.number_of(life_number)
         label = number or life_number
         if cow and cow.name:
             label += f" ({cow.name})"
+        if cow and cow.archived:
+            label += " · weg"
         return label
 
     def add(
-        self, number: str, life_number: str, name: str | None = None, day: date | None = None
+        self, number: str, life_number: str, name: str | None = None, at: Moment = None
     ) -> Cow:
         """Gives the collar number to a cow. Fails when another cow still wears
         the number; that needs switch() so the farmer decides about the old cow."""
-        day = day or date.today()
+        at = moment(at)
         number = normalize_number(number)
         life_number = normalize_life_number(life_number)
         with self.lock:
-            holder = self.cow_with_number(number, day)
+            holder = self.cow_with_number(number, at)
             if holder is not None and holder != life_number:
                 raise NumberTaken(number, holder)
             cow = self._ensure_cow(life_number, name)
             if holder is None:
-                self._end_numbers(life_number, day)
-                self.data.numbers.append(NumberPeriod(number, life_number, day.isoformat()))
+                self._end_numbers(life_number, at)
+                self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))
             self._save()
             return cow
 
@@ -137,40 +153,40 @@ class CowRegistry:
         life_number: str,
         old_cow_left: bool,
         name: str | None = None,
-        day: date | None = None,
+        at: Moment = None,
     ) -> str | None:
         """Gives the collar number to another cow and returns the cow that wore
         it. When she left the farm she is archived; otherwise (collars swapped)
         she only loses the number."""
-        day = day or date.today()
+        at = moment(at)
         number = normalize_number(number)
         life_number = normalize_life_number(life_number)
         with self.lock:
-            old = self.cow_with_number(number, day)
+            old = self.cow_with_number(number, at)
             if old == life_number:
                 self._ensure_cow(life_number, name)
                 self._save()
                 return None
             if old is not None:
-                self._end_number(number, day)
+                self._end_number(number, at)
                 if old_cow_left:
-                    self.archive(old, day)
+                    self.archive(old, at)
             self._ensure_cow(life_number, name)
-            self._end_numbers(life_number, day)
-            self.data.numbers.append(NumberPeriod(number, life_number, day.isoformat()))
+            self._end_numbers(life_number, at)
+            self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))
             self._save()
             return old
 
-    def archive(self, life_number: str, day: date | None = None) -> None:
+    def archive(self, life_number: str, at: Moment = None) -> None:
         """Marks a cow as gone: she keeps her history but her photos no longer
         take part in recognition."""
-        day = day or date.today()
+        at = moment(at)
         with self.lock:
             cow = self.data.cows.get(life_number)
             if cow is None:
                 raise KeyError(life_number)
-            self._end_numbers(life_number, day)
-            cow.archived = day.isoformat()
+            self._end_numbers(life_number, at)
+            cow.archived = at.date().isoformat()
             folder = self.directory / life_number
             if folder.is_dir():
                 archive = self.directory / ARCHIVE_FOLDER / life_number
@@ -211,20 +227,21 @@ class CowRegistry:
                 shutil.move(str(archive), self.directory / life_number)
         return cow
 
-    def _end_number(self, number: str, day: date) -> None:
+    def _end_number(self, number: str, at: datetime) -> None:
         for period in self.data.numbers:
-            if period.number == number and period.covers(day):
-                period.end = day.isoformat()
+            if period.number == number and period.covers(at):
+                period.end = at.isoformat(timespec="seconds")
 
-    def _end_numbers(self, life_number: str, day: date) -> None:
+    def _end_numbers(self, life_number: str, at: datetime) -> None:
         for period in self.data.numbers:
-            if period.cow == life_number and period.covers(day):
-                period.end = day.isoformat()
-        # A number given and taken back on the same day never covered a day.
+            if period.cow == life_number and period.covers(at):
+                period.end = at.isoformat(timespec="seconds")
+        # A number given and taken back at the same moment never covered one.
         self.data.numbers = [
             period
             for period in self.data.numbers
-            if period.end is None or period.end > period.start
+            if period.end is None
+            or datetime.fromisoformat(period.end) > datetime.fromisoformat(period.start)
         ]
 
     def _load(self) -> RegistryData:

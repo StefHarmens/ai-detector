@@ -21,16 +21,17 @@ def test_life_number_is_written_without_spaces():
 
 def test_number_given_to_a_pink_keeps_the_old_cows_history(tmp_path):
     registry = CowRegistry(tmp_path)
-    registry.add("30", OLD, "Bertha", day=date(2025, 3, 1))
+    registry.add("30", OLD, "Bertha", at=date(2025, 3, 1))
     (tmp_path / OLD).mkdir()
     (tmp_path / OLD / "photo.jpg").write_bytes(b"jpg")
 
-    old = registry.switch("30", PINK, old_cow_left=True, day=SWITCH_DAY)
+    old = registry.switch("30", PINK, old_cow_left=True, at=SWITCH_DAY)
 
     assert old == OLD
     assert registry.cow_with_number("30", date(2026, 9, 1)) == OLD
     assert registry.cow_with_number("30", SWITCH_DAY) == PINK
-    assert registry.label(OLD, date(2026, 9, 1)) == "30 (Bertha)"
+    # She left, and number 30 is worn by another cow now.
+    assert registry.label(OLD, date(2026, 9, 1)) == "30 (Bertha) · weg"
     # The old cow is archived: her photos no longer take part in recognition.
     assert [cow.life_number for cow in registry.active_cows()] == [PINK]
     assert (tmp_path / "archief" / OLD / "photo.jpg").is_file()
@@ -41,14 +42,21 @@ def test_number_given_to_a_pink_keeps_the_old_cows_history(tmp_path):
 
 def test_swapped_collars_keep_both_cows_active(tmp_path):
     registry = CowRegistry(tmp_path)
-    registry.add("30", OLD, day=date(2025, 3, 1))
+    registry.add("30", OLD, at=date(2025, 3, 1))
 
-    registry.switch("30", PINK, old_cow_left=False, day=SWITCH_DAY)
+    registry.switch("30", PINK, old_cow_left=False, at=SWITCH_DAY)
 
     assert {cow.life_number for cow in registry.active_cows()} == {OLD, PINK}
     assert registry.number_of(OLD, SWITCH_DAY) is None
-    registry.add("31", OLD, day=SWITCH_DAY)
+    registry.add("31", OLD, at=SWITCH_DAY)
     assert registry.number_of(OLD, SWITCH_DAY) == "31"
+
+
+def test_a_mount_from_before_the_cow_was_added_shows_her_number_now(tmp_path):
+    registry = CowRegistry(tmp_path)
+    registry.add("30", OLD, "Bertha", at=date.today())
+
+    assert registry.label(OLD, date(2025, 9, 1)) == "30 (Bertha)"
 
 
 def test_a_number_worn_by_another_cow_needs_a_switch(tmp_path):
@@ -60,10 +68,21 @@ def test_a_number_worn_by_another_cow_needs_a_switch(tmp_path):
     assert error.value.holder == OLD
 
 
+def test_a_number_that_changes_on_the_day_of_a_mount(tmp_path):
+    from datetime import datetime
+
+    registry = CowRegistry(tmp_path)
+    registry.add("12", OLD, at=datetime(2026, 10, 5, 6, 50))
+    registry.switch("12", PINK, old_cow_left=True, at=datetime(2026, 10, 5, 17, 10))
+
+    assert registry.label(OLD, datetime(2026, 10, 5, 7, 26)) == "12 · weg"
+    assert registry.cow_with_number("12", datetime(2026, 10, 5, 18, 0)) == PINK
+
+
 def test_a_cow_gets_one_number_at_a_time(tmp_path):
     registry = CowRegistry(tmp_path)
-    registry.add("30", OLD, day=date(2025, 3, 1))
-    registry.add("12", OLD, day=SWITCH_DAY)
+    registry.add("30", OLD, at=date(2025, 3, 1))
+    registry.add("12", OLD, at=SWITCH_DAY)
 
     assert registry.cow_with_number("30", SWITCH_DAY) is None
     assert registry.number_of(OLD, SWITCH_DAY) == "12"
@@ -71,12 +90,12 @@ def test_a_cow_gets_one_number_at_a_time(tmp_path):
 
 def test_an_archived_cow_that_returns_gets_her_photos_back(tmp_path):
     registry = CowRegistry(tmp_path)
-    registry.add("30", OLD, day=date(2025, 3, 1))
+    registry.add("30", OLD, at=date(2025, 3, 1))
     (tmp_path / OLD).mkdir()
     (tmp_path / OLD / "photo.jpg").write_bytes(b"jpg")
     registry.archive(OLD, SWITCH_DAY)
 
-    registry.add("44", OLD, day=date(2026, 11, 1))
+    registry.add("44", OLD, at=date(2026, 11, 1))
 
     assert registry.cow(OLD).archived is None
     assert (tmp_path / OLD / "photo.jpg").is_file()

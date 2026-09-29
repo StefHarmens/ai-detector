@@ -302,7 +302,7 @@ class CowService:
         return role if sighting.role_certain else f"{role} (gok)"
 
     def caption(self, sighting: Sighting, slot: int) -> str:
-        day = sighting.when.date()
+        at = sighting.when
         if sighting.split:
             title = f"🐄 Koe {SLOT_NAMES[slot]} {self._role(sighting, slot)}"
         else:
@@ -314,12 +314,12 @@ class CowService:
         cow, how = sighting.cows[slot], sighting.how[slot]
         if how == "auto":
             score = dict(sighting.candidates[slot]).get(cow or "", 0)
-            status = f"✅ {self.registry.label(cow, day)} · herkend ({score:.0%})"
+            status = f"✅ {self.registry.label(cow, at)} · herkend ({score:.0%})"
         elif how == "boer" and sighting.bad_photo[slot]:
             status = "🚫 Foto klopt niet"
         elif how == "boer":
             status = (
-                f"✅ {self.registry.label(cow, day)}" if cow else "❔ Onbekend"
+                f"✅ {self.registry.label(cow, at)}" if cow else "❔ Onbekend"
             )
         elif sighting.candidates[slot]:
             status = "Wie is dit? Tik een nummer aan."
@@ -328,13 +328,13 @@ class CowService:
         return f"{title}\n{status}"
 
     def keyboard(self, sighting: Sighting, slot: int) -> str:
-        day = sighting.when.date()
+        at = sighting.when
         prefix = f"cow:{sighting.id}:{slot}"
         chosen = sighting.cows[slot]
         rows = []
         candidates = [
             {
-                "text": f"{'✅ ' if cow == chosen else ''}{self.registry.label(cow, day)}"
+                "text": f"{'✅ ' if cow == chosen else ''}{self.registry.label(cow, at)}"
                 f" · {score:.0%}",
                 "callback_data": f"{prefix}:c{index}",
             }
@@ -412,19 +412,19 @@ class CowService:
                 return "Deze keuze bestaat niet meer."
             cow = sighting.candidates[slot][index][0]
             self._choose(sighting, slot, cow)
-            return f"Opgeslagen als {self.registry.label(cow, sighting.when.date())}"
+            return f"Opgeslagen als {self.registry.label(cow, sighting.when)}"
         raise ValueError(f"Unknown cow action {action}")
 
     def _ask_number(self, sighting: Sighting, slot: int) -> None:
-        name = SLOT_NAMES[slot] if sighting.split else (
-            "die sprong" if slot == sighting.mounter else "die werd besprongen"
+        name = f"koe {SLOT_NAMES[slot]}" if sighting.split else (
+            "de koe die sprong" if slot == sighting.mounter else "de koe die werd besprongen"
         )
         result = _call(
             self.api_url,
             "sendMessage",
             {
                 "chat_id": self.chat,
-                "text": f"Typ het halsbandnummer van koe {name}.\n"
+                "text": f"Typ het halsbandnummer van {name}.\n"
                 "Nieuwe koe? Typ nummer en levensnummer, bijv. 30 NL123456789",
                 "reply_to_message_id": str(sighting.messages[slot] or ""),
                 "allow_sending_without_reply": "true",
@@ -512,11 +512,11 @@ class CowService:
             return "Typ een nummer, bijv. 30"
         try:
             number = normalize_number(parts[0])
-            day = sighting.when.date()
+            at = sighting.when
             if len(parts) > 1:
-                cow = self.registry.add(number, "".join(parts[1:]), day=day).life_number
+                cow = self.registry.add(number, "".join(parts[1:]), at=at).life_number
             else:
-                cow = self.registry.cow_with_number(number, day) or self.registry.cow_with_number(number)
+                cow = self.registry.cow_with_number(number, at) or self.registry.cow_with_number(number)
                 if cow is None:
                     return (
                         f"Nummer {number} ken ik nog niet. Antwoord met nummer en "
@@ -533,7 +533,7 @@ class CowService:
             self.prompts.pop(prompt_id, None)
             sighting.prompts[slot] = None
         self._choose(sighting, slot, cow)
-        return f"Opgeslagen: {self.registry.label(cow, sighting.when.date())}"
+        return f"Opgeslagen: {self.registry.label(cow, sighting.when)}"
 
     def _command_add(self, arguments: list[str]) -> str:
         if len(arguments) < 2:
@@ -635,9 +635,12 @@ class CowService:
             number = self.registry.number_of(cow.life_number)
             return (int(number) if number else 10**9, cow.life_number)
 
+        def photos(cow) -> str:
+            amount = len(self.registry.photos(cow.life_number))
+            return f"{amount} {'foto' if amount == 1 else 'foto' + chr(39) + 's'}"
+
         lines = [
-            f"• {self.registry.label(cow.life_number)} · {cow.life_number}"
-            f" · {len(self.registry.photos(cow.life_number))} foto's"
+            f"• {self.registry.label(cow.life_number)} · {cow.life_number} · {photos(cow)}"
             for cow in sorted(cows, key=sort_key)
         ]
         return f"🐄 {len(cows)} koeien\n\n" + "\n".join(lines)
@@ -689,7 +692,7 @@ class CowService:
                     unknown += 1
                     continue
                 counts.setdefault(cow, [0, 0])[0 if slot != sighting.mounter else 1] += 1
-                labels.setdefault(cow, self.registry.label(cow, sighting.when.date()))
+                labels.setdefault(cow, self.registry.label(cow, sighting.when))
         lines = []
         for cow, (mounted, mounting) in sorted(
             counts.items(), key=lambda item: (-item[1][0], -item[1][1], labels[item[0]])

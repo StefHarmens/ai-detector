@@ -152,12 +152,12 @@
           "type": "string"
         },
         "accept_score": {
-          "default": 0.85,
+          "default": 0.9,
           "title": "Accept Score",
           "type": "number"
         },
         "accept_margin": {
-          "default": 0.05,
+          "default": 0.08,
           "title": "Accept Margin",
           "type": "number"
         },

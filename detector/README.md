@@ -418,8 +418,8 @@ whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeie
 | `segment_model`      | `"yolo11s.pt"` | Model that finds single cows; downloaded on first use. |
 | `segment_confidence` | `0.25`        | Minimum confidence of a single cow. |
 | `reid_model`         | DINOv2 small (Hugging Face) | ONNX model or URL for the embeddings; downloaded once to `.model/`. |
-| `accept_score`       | `0.85`        | Minimum similarity to fill in a cow without asking. |
-| `accept_margin`      | `0.05`        | How much the best cow must beat the next one. |
+| `accept_score`       | `0.90`        | Minimum similarity to fill in a cow without asking. Barn and cubicles fill much of a crop, so different cows can still score 0.80. |
+| `accept_margin`      | `0.08`        | How much the best cow must beat the next one. |
 | `min_photos`         | `5`           | Photos a cow needs before she is filled in without asking. |
 | `candidates`         | `3`           | Cows shown as buttons. |
 
