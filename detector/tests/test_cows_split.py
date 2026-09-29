@@ -86,3 +86,14 @@ def test_pick_pair_ignores_cows_elsewhere_and_boxes_around_both():
     near = (0.50, 0.45, 0.62, 0.68)
 
     assert pick_pair([far, around_both, STILL, near], MOUNT) == [STILL, near]
+
+
+def test_a_cow_lying_next_to_the_mount_is_not_one_of_the_pair():
+    # On the barn examples: the pair seen as one box, and a neighbour in a
+    # cubicle whose center lies outside the mount box.
+    both = (0.41, 0.41, 0.59, 0.69)
+    neighbour = (0.52, 0.50, 0.72, 0.62)
+    frames = [(START - timedelta(seconds=1), frame(0))]
+
+    assert pick_pair([both, neighbour, STILL], MOUNT) == [STILL]
+    assert CowSplitter(fake_detector({0: [both, neighbour, STILL]})).split(frames, MOUNT, START) is None

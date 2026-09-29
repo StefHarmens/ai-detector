@@ -24,6 +24,8 @@ _TRACK_IOU = 0.2
 _ROLE_RATIO = 1.5
 _ROLE_MIN_MOTION = 0.15
 _CROP_PADDING = 0.1
+# A box that nearly covers the mount box is both cows seen as one.
+_PAIR_IOU = 0.6
 
 
 @dataclass
@@ -74,9 +76,18 @@ def crop_box(image: ndarray, box: Box, padding: float = _CROP_PADDING) -> ndarra
     return image[y1:y2, x1:x2].copy()
 
 
+def inside(point: tuple[float, float], box: Box) -> bool:
+    return box[0] <= point[0] <= box[2] and box[1] <= point[1] <= box[3]
+
+
 def pick_pair(boxes: list[Box], mount: Box) -> list[Box]:
     """Returns the two cows that lie most inside the mount box, largest share
-    first, or fewer when there are not two."""
+    first, or fewer when there are not two.
+
+    On the barn examples a cow lying in a cubicle next to the mount was picked
+    as one of the two; her center lies outside the mount box, so each cow's
+    center must lie inside it. Asking the farmer is better than a wrong photo
+    in a cow folder."""
     region = grow(mount, _MOUNT_GROW)
     scored = [
         (intersection(box, region) / area(box), box)
@@ -84,6 +95,8 @@ def pick_pair(boxes: list[Box], mount: Box) -> list[Box]:
         if area(box) > 0
         # A box around both cows is not a single cow.
         and area(box) < area(mount) * 1.5
+        and iou(box, mount) < _PAIR_IOU
+        and inside(center(box), mount)
     ]
     scored = [item for item in scored if item[0] >= _MIN_INSIDE]
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -118,8 +131,13 @@ class CowSplitter:
     ) -> CowPair | None:
         frames = sorted(frames, key=lambda frame: frame[0])
         before = [frame for frame in frames if frame[0] < mount_start][-_MAX_PRE_FRAMES:]
-        found = [(frame, pick_pair(self._cows(frame[1], mount), mount)) for frame in before]
-        pairs = [(frame, pair) for frame, pair in found if len(pair) == 2]
+        # All cows per frame: the mounter often walks in from outside the box.
+        found = [(frame, self._cows(frame[1], mount)) for frame in before]
+        pairs = [
+            (frame, pair)
+            for frame, pair in ((frame, pick_pair(cows, mount)) for frame, cows in found)
+            if len(pair) == 2
+        ]
         if not pairs:
             logger.info("Could not find two separate cows for this mount")
             return None
