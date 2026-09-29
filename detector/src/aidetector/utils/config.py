@@ -137,8 +137,10 @@ class YoloConfig:
 @dataclass(kw_only=True)
 class HiresConfig:
     # One stream per detection source, in the same order; null for a camera
-    # without a high-resolution stream.
-    source: str | list[str | None]
+    # without a high-resolution stream. Leave it out when detection.source is
+    # already the 4K stream: then its own frames are kept, before they are
+    # made smaller for detection, and nothing is decoded twice.
+    source: str | list[str | None] | None = None
     fps: float = 1
     # How long frames are kept; must cover before_seconds plus the longest event.
     seconds: int = 90

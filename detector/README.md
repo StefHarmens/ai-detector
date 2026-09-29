@@ -118,9 +118,13 @@ You can run multiple independent detectors in the same file — useful if you ha
 
 #### High-resolution frames (`hires`)
 
-Detection runs on the light stream in `source`. With `hires`, a second stream per camera
-(e.g. the 4K "High" RTSP stream of UniFi Protect) is read at `fps` frames per second and
-the last `seconds` are kept as JPEG. When an event is exported, the frames from
+With `hires`, full-size frames are kept at `fps` frames per second for the last `seconds`,
+as JPEG. When `source` is already the 4K stream, leave `hires.source` out (`"hires": {}`):
+the frames the detector decodes anyway are kept before they are made smaller, so nothing is
+decoded twice (encoding a 4K frame takes about 15 ms). Otherwise run detection on a light
+stream and set `hires.source` to a second stream per camera (e.g. the 4K "High" RTSP stream
+of UniFi Protect). Never set the same streams in both: every 4K stream is then decoded
+twice and detection slows down a lot. When an event is exported, the frames from
 `before_seconds` before it until its end go with it: Telegram (`include_crop`) and disk
 (`hires.jpg`) use them for the crop, and `telegram.cows` uses the frames from before the
 jump to tell the two cows apart. FFmpeg decodes with `hwaccel` (VideoToolbox on a Mac);
@@ -138,7 +142,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 
 | Field            | Default      | Description |
 | :--------------- | :----------- | :---------- |
-| `source`         | **Required** | One stream per `detection.source`, in the same order; `null` for a camera without one. |
+| `source`         |              | One stream per `detection.source`, in the same order; `null` for a camera without one. Leave out to keep the frames of `detection.source` itself. |
 | `fps`            | `1`          | Frames per second to keep. |
 | `seconds`        | `90`         | How long frames are kept; must cover `before_seconds` plus `yolo.time_max` and `yolo.timeout`. |
 | `before_seconds` | `10`         | How far before the event the frames start. |

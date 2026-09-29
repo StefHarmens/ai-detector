@@ -1,11 +1,14 @@
 import logging
 import os
 import subprocess
+import time
 from collections import deque
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
 
+import cv2
 from imageio_ffmpeg import get_ffmpeg_exe
+from numpy import ndarray
 
 from aidetector.utils.config import (
     Crop,
@@ -46,16 +49,37 @@ class HiresBuffer:
     keeps the last frames as JPEG, so an event can use the frames from just
     before it started."""
 
-    def __init__(self, source: str, config: HiresConfig):
+    def __init__(self, source: str | None, config: HiresConfig):
+        # None: frames come from the detection stream through feed().
         self.source = source
         self.config = config
+        self.fed = 0.0
         self.frames: deque[HiresFrame] = deque()
         self.lock = Lock()
         self.stop_event = Event()
         self.process: subprocess.Popen | None = None
         self.thread: Thread | None = None
 
+    @property
+    def from_detection(self) -> bool:
+        return self.source is None
+
+    def feed(self, frame: ndarray) -> None:
+        """Keeps a full-size frame of the detection stream, at most fps per
+        second. Encoding a 4K frame as JPEG takes some tens of milliseconds,
+        far less than decoding the stream a second time."""
+        now = time.monotonic()
+        if now - self.fed < 1 / self.config.fps:
+            return
+        self.fed = now
+        success, encoded = cv2.imencode(
+            ".jpg", frame, (int(cv2.IMWRITE_JPEG_QUALITY), self.config.quality)
+        )
+        if success:
+            self.add(HiresFrame(datetime.now(), encoded.tobytes()))
+
     def command(self) -> list[str]:
+        assert self.source is not None
         command = [get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
         if self.source.lower().startswith("rtsp"):
             command += ["-rtsp_transport", "tcp"]
@@ -82,8 +106,10 @@ class HiresBuffer:
         ]
 
     def start(self) -> None:
+        if self.from_detection:
+            return
         self.thread = Thread(
-            target=self._run, name=f"hires-{self.source[-12:]}", daemon=True
+            target=self._run, name=f"hires-{(self.source or '')[-12:]}", daemon=True
         )
         self.thread.start()
 
@@ -140,6 +166,8 @@ def hires_buffers(detection: DetectionConfig) -> dict[str, HiresBuffer]:
     sources = (
         [detection.source] if isinstance(detection.source, str) else detection.source
     )
+    if detection.hires.source is None:
+        return {source: HiresBuffer(None, detection.hires) for source in sources}
     hires_sources = (
         [detection.hires.source]
         if isinstance(detection.hires.source, str)

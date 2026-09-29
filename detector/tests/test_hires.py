@@ -104,3 +104,43 @@ def test_buffer_reads_frames_from_ffmpeg(tmp_path):
 
     assert 4 <= len(buffer.frames) <= 8
     assert buffer.frames[0].jpg.shape == (360, 640, 3)
+
+
+def test_without_hires_source_the_detection_stream_itself_is_kept(monkeypatch):
+    import aidetector.sources.hires as hires_module
+
+    detection = DetectionConfig(source=["cam-a", "cam-b"], hires=HiresConfig(fps=1))
+    buffers = hires_buffers(detection)
+    assert sorted(buffers) == ["cam-a", "cam-b"]
+    assert all(buffer.from_detection for buffer in buffers.values())
+
+    buffer = buffers["cam-a"]
+    buffer.start()  # no second stream to read
+    assert buffer.thread is None
+    clock = iter([100.0, 100.4, 101.1])
+    monkeypatch.setattr(hires_module.time, "monotonic", lambda: next(clock))
+    frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
+    for _ in range(3):
+        buffer.feed(frame)
+
+    # At most one frame per second, kept at full size.
+    assert len(buffer.frames) == 2
+    assert buffer.frames[0].jpg.shape == (2160, 3840, 3)
+
+
+def test_the_detector_feeds_full_size_frames_to_its_buffers(tmp_path):
+    import cv2
+
+    from aidetector.sources.source import SourceProvider
+
+    path = tmp_path / "barn.jpg"
+    cv2.imwrite(str(path), np.full((2160, 3840, 3), 80, dtype=np.uint8))
+    seen = []
+    provider = SourceProvider(
+        DetectionConfig(source=[str(path)], frames_width=1280),
+        lambda source, frame: seen.append((source, frame.shape)),
+    )
+
+    list(provider.iter_batches())
+
+    assert seen == [(str(path), (2160, 3840, 3))]

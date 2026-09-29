@@ -60,7 +60,8 @@ class Detector:
         self.detections = defaultdict(list)
         self.detection = detection
         self.yolo_config = yolo_config
-        self.source_provider = SourceProvider(detection)
+        self.hires = hires_buffers(detection)
+        self.source_provider = SourceProvider(detection, self._feed_hires)
         self.yolo_runner = (
             YoloRunner(yolo_config, onnx_config, self.source_provider.sources)
             if yolo_config is not None
@@ -73,7 +74,6 @@ class Detector:
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
         self.camera_names = camera_names(detection)
-        self.hires = hires_buffers(detection)
         # The frame thread and the timeout monitor both finish events.
         self.lock = Lock()
 
@@ -305,6 +305,11 @@ class Detector:
             if any(detection.confidence for detection in all_detections):
                 self._export_review(all_detections)
         self.detections[source] = []
+
+    def _feed_hires(self, source: str, frame: ndarray) -> None:
+        buffer = self.hires.get(source)
+        if buffer is not None and buffer.from_detection:
+            buffer.feed(frame)
 
     def _attach_hires(
         self, source: str, best_detection: Detection, detections: list[Detection]

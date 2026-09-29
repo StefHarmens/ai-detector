@@ -1,6 +1,9 @@
 import logging
+from collections.abc import Callable
 from threading import Condition, Thread
 from time import sleep
+
+from numpy import ndarray
 
 from ultralytics.data.loaders import LoadStreams
 
@@ -17,7 +20,13 @@ class StreamBatcher:
     missing_sources: set[str]
     condition: Condition
 
-    def __init__(self, sources: list[str], width: int = 1280, retention: int = 1):
+    def __init__(
+        self,
+        sources: list[str],
+        width: int = 1280,
+        retention: int = 1,
+        on_frame: Callable[[str, ndarray], None] | None = None,
+    ):
         logger.info("Initializing StreamBatcher with %d sources", len(sources))
         self.running = True
         self.sources = sources
@@ -39,6 +48,12 @@ class StreamBatcher:
                             break
                         if imgs is None:
                             continue
+                        if on_frame is not None:
+                            # The full-size frame, before it is made smaller.
+                            try:
+                                on_frame(source, imgs[0])
+                            except Exception:
+                                logger.exception("Failed to keep a full-size frame")
                         with self.condition:
                             self.collector.add(source, imgs[0])
                             logger.debug(

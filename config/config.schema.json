@@ -524,8 +524,12 @@
                 ]
               },
               "type": "array"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Source"
         },
         "fps": {
@@ -561,9 +565,6 @@
           "title": "Hwaccel"
         }
       },
-      "required": [
-        "source"
-      ],
       "title": "HiresConfig",
       "type": "object"
     },

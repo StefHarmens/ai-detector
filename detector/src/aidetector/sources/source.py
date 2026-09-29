@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 
 from aidetector.sources.streaming import StreamBatcher
@@ -17,7 +17,13 @@ class SourceProvider:
     width: int
     retention: int
 
-    def __init__(self, detection: DetectionConfig):
+    def __init__(
+        self,
+        detection: DetectionConfig,
+        on_frame: Callable[[str, ndarray], None] | None = None,
+    ):
+        # Gets every full-size frame, e.g. to keep 4K frames.
+        self.on_frame = on_frame
         self.running = True
         self.sources = (
             [detection.source]
@@ -43,7 +49,7 @@ class SourceProvider:
         self,
     ) -> Iterator[dict[str, list[tuple[datetime, ndarray]]]]:
         logger.info("Starting stream processing for sources: %s", self.sources)
-        batcher = StreamBatcher(self.sources, self.width, self.retention)
+        batcher = StreamBatcher(self.sources, self.width, self.retention, self.on_frame)
         logger.info(
             "StreamBatcher started with %d active sources", len(batcher.sources)
         )
@@ -62,6 +68,8 @@ class SourceProvider:
         for sources, imgs, _ in results:
             if not self.running:
                 return
+            if self.on_frame is not None:
+                self.on_frame(sources[0], imgs[0])
             yield {sources[0]: [(datetime.now(), imgs[0])]}
 
     def close(self):
