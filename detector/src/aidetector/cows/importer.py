@@ -53,8 +53,8 @@ def _column(
     return None
 
 
-def _cell(row: list[str], index: int | None) -> str:
-    return row[index].strip() if index is not None and index < len(row) else ""
+def _cell(row: list, index: int | None) -> str:
+    return _text(row[index]) if index is not None and index < len(row) else ""
 
 
 def _text(value: object) -> str:
@@ -177,7 +177,7 @@ def parse_herd(rows: list[list[str]]) -> ParsedHerd:
 
     parsed = ParsedHerd()
     for line, row in data:
-        if not any(cell.strip() for cell in row):
+        if not any(_text(cell) for cell in row):
             continue
         if columns.skip(row):
             parsed.skipped += 1
