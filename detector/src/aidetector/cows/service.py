@@ -693,10 +693,13 @@ class CowService:
                     continue
                 counts.setdefault(cow, [0, 0])[0 if slot != sighting.mounter else 1] += 1
                 labels.setdefault(cow, self.registry.label(cow, sighting.when))
+        def order(item: tuple[str, list[int]]) -> tuple[int, int, int, str]:
+            # Most mounted first, then by collar number (7 before 12).
+            number = labels[item[0]].split()[0]
+            return (-item[1][0], -item[1][1], int(number) if number.isdigit() else 10**9, labels[item[0]])
+
         lines = []
-        for cow, (mounted, mounting) in sorted(
-            counts.items(), key=lambda item: (-item[1][0], -item[1][1], labels[item[0]])
-        ):
+        for cow, (mounted, mounting) in sorted(counts.items(), key=order):
             parts = []
             if mounted:
                 parts.append(f"{mounted}× besprongen")

@@ -114,14 +114,14 @@ class CowRegistry:
         )
 
     def label(self, life_number: str | None, at: Moment = None) -> str:
-        """The name the farmer knows a cow by: her collar number at that moment,
-        or her number now for a mount from before she was added. A cow that left
-        is marked, since her number may be worn by another cow now."""
+        """The name the farmer knows a cow by: her collar number at that moment.
+        For a mount from before she got a number, the first number she got
+        after it, otherwise her last one. A cow that left is marked, since her
+        number may be worn by another cow now."""
         if life_number is None:
             return "onbekend"
         cow = self.cow(life_number)
-        number = self.number_of(life_number, at) or self.number_of(life_number)
-        label = number or life_number
+        label = self._number_near(life_number, moment(at)) or life_number
         if cow and cow.name:
             label += f" ({cow.name})"
         if cow and cow.archived:
@@ -212,6 +212,19 @@ class CowRegistry:
         if not folder.is_dir():
             return []
         return sorted(folder.glob("*.jpg"))
+
+    def _number_near(self, life_number: str, at: datetime) -> str | None:
+        periods = sorted(
+            (period for period in self.data.numbers if period.cow == life_number),
+            key=lambda period: period.start,
+        )
+        covering = next((period for period in periods if period.covers(at)), None)
+        later = next(
+            (period for period in periods if datetime.fromisoformat(period.start) > at),
+            None,
+        )
+        chosen = covering or later or (periods[-1] if periods else None)
+        return chosen.number if chosen else None
 
     def _ensure_cow(self, life_number: str, name: str | None) -> Cow:
         cow = self.data.cows.get(life_number)

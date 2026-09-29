@@ -79,6 +79,16 @@ def test_a_number_that_changes_on_the_day_of_a_mount(tmp_path):
     assert registry.cow_with_number("12", datetime(2026, 10, 5, 18, 0)) == PINK
 
 
+def test_a_mount_from_before_a_sold_cow_was_added_shows_her_number(tmp_path):
+    from datetime import datetime
+
+    registry = CowRegistry(tmp_path)
+    registry.add("12", OLD, at=datetime(2026, 10, 5, 19, 0))
+    registry.switch("12", PINK, old_cow_left=True, at=datetime(2026, 10, 5, 20, 0))
+
+    assert registry.label(OLD, datetime(2026, 10, 5, 7, 26)) == "12 · weg"
+
+
 def test_a_cow_gets_one_number_at_a_time(tmp_path):
     registry = CowRegistry(tmp_path)
     registry.add("30", OLD, at=date(2025, 3, 1))
