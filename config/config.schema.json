@@ -137,7 +137,7 @@
           "title": "Directory"
         },
         "segment_model": {
-          "default": "yolo11s.pt",
+          "default": "yolo11s-seg.pt",
           "title": "Segment Model",
           "type": "string"
         },

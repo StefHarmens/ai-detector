@@ -197,8 +197,9 @@ class SummaryConfig:
 class CowsConfig:
     # Defaults to <feedback_directory>/koeien.
     directory: Path | None = None
-    # Generic model that finds single cows; COCO has the class "cow".
-    segment_model: str = "yolo11s.pt"
+    # Generic model that finds single cows; COCO has the class "cow". A
+    # segmentation model also gives her pixels, so the barn can be masked out.
+    segment_model: str = "yolo11s-seg.pt"
     segment_confidence: float = 0.25
     reid_model: str = "https://huggingface.co/onnx-community/dinov2-small/resolve/main/onnx/model.onnx"
     # A cow is filled in without asking when her score is at least accept_score,

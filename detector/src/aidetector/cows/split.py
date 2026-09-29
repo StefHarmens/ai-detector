@@ -1,9 +1,10 @@
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+import numpy as np
 from numpy import ndarray
 
 logger = logging.getLogger(__name__)
@@ -12,15 +13,20 @@ logger = logging.getLogger(__name__)
 # and the 4K frame can be compared.
 Box = tuple[float, float, float, float]
 Frame = tuple[datetime, ndarray]
+# What a detector returns per cow: her box as fractions of the image it got,
+# optionally with a mask of her pixels in that image.
+Detected = Box | tuple[Box, ndarray | None]
 
 # Search this much around the mount box for the two cows.
 _SEARCH_SCALE = 2.5
 # Share of a cow box that must lie inside the (slightly larger) mount box.
 _MIN_INSIDE = 0.35
 _MOUNT_GROW = 1.3
-_MAX_PRE_FRAMES = 6
+# Frames used on each side of the jump.
+_SIDE_FRAMES = 6
 _TRACK_IOU = 0.2
-# The mounter must move this much more than the mounted cow, who stands still.
+# The cow that walks in (or steps off) must move this much more than the
+# mounted cow, who stands still.
 _ROLE_RATIO = 1.5
 _ROLE_MIN_MOTION = 0.15
 _CROP_PADDING = 0.1
@@ -30,12 +36,26 @@ _PAIR_IOU = 0.6
 _MOUNTED_INSIDE = 0.25
 # Without her box, this much around the mount box shows her in full.
 _MOUNTED_GROW = 1.8
+# Grey used around a masked cow, the same as the padding of the embedder.
+MASK_FILL = 114
+
+
+@dataclass
+class Found:
+    """A cow found near the mount."""
+
+    box: Box
+    # Her pixels in the searched part of the frame, which starts at `origin`.
+    mask: ndarray | None = None
+    origin: tuple[int, int] = (0, 0)
 
 
 @dataclass
 class CowPair:
-    # Single-cow images, from the frame the pair was found in.
+    # Single-cow images from the frame the pair was found in: as seen, for the
+    # farmer, and with everything but the cow grey, for recognition.
     crops: list[ndarray]
+    masked: list[ndarray]
     boxes: list[Box]
     # Index of the cow that jumps, a guess when not certain.
     mounter: int
@@ -76,19 +96,47 @@ def center(box: Box) -> tuple[float, float]:
     return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
 
 
-def crop_box(image: ndarray, box: Box, padding: float = _CROP_PADDING) -> ndarray:
+def _pixels(image: ndarray, box: Box, padding: float) -> tuple[int, int, int, int]:
     height, width = image.shape[:2]
     padded = grow(box, 1 + padding * 2)
     x1, y1 = int(padded[0] * width), int(padded[1] * height)
     x2, y2 = max(x1 + 1, int(padded[2] * width)), max(y1 + 1, int(padded[3] * height))
+    return x1, y1, x2, y2
+
+
+def crop_box(image: ndarray, box: Box, padding: float = _CROP_PADDING) -> ndarray:
+    x1, y1, x2, y2 = _pixels(image, box, padding)
     return image[y1:y2, x1:x2].copy()
+
+
+def cow_crops(
+    image: ndarray, found: Found, padding: float = _CROP_PADDING
+) -> tuple[ndarray, ndarray]:
+    """Returns the crop of a cow and the same crop with everything but her
+    grey. The barn and the cubicles made different cows look alike."""
+    x1, y1, x2, y2 = _pixels(image, found.box, padding)
+    plain = image[y1:y2, x1:x2].copy()
+    if found.mask is None:
+        return plain, plain
+    cow = np.zeros(plain.shape[:2], dtype=bool)
+    origin_x, origin_y = found.origin
+    mask_h, mask_w = found.mask.shape[:2]
+    left, top = max(x1, origin_x), max(y1, origin_y)
+    right, bottom = min(x2, origin_x + mask_w), min(y2, origin_y + mask_h)
+    if right > left and bottom > top:
+        cow[top - y1 : bottom - y1, left - x1 : right - x1] = found.mask[
+            top - origin_y : bottom - origin_y, left - origin_x : right - origin_x
+        ]
+    masked = plain.copy()
+    masked[~cow] = MASK_FILL
+    return plain, masked
 
 
 def inside(point: tuple[float, float], box: Box) -> bool:
     return box[0] <= point[0] <= box[2] and box[1] <= point[1] <= box[3]
 
 
-def pick_pair(boxes: list[Box], mount: Box) -> list[Box]:
+def pick_pair(boxes: Sequence[Box], mount: Box) -> list[Box]:
     """Returns the two cows that lie most inside the mount box, largest share
     first, or fewer when there are not two.
 
@@ -124,52 +172,71 @@ def motion(track: list[Box]) -> float:
 
 class CowSplitter:
     """Finds the two cows of a mount with a generic cow detector and guesses
-    which one jumps: the cow standing in heat stays still, the other moves in.
+    which one jumps: the cow standing in heat stays still, the other walks in
+    before the jump and steps off after it.
 
-    Only frames from before the jump are used: during it the detector sees the
-    pair as one cow or picks a lying neighbour, and a wrong photo in a cow
-    folder spoils the recognition."""
+    Frames during the jump are not used: then the detector sees the pair as
+    one cow or picks a lying neighbour, and a wrong photo in a cow folder
+    spoils the recognition. Frames before the jump come first, those after it
+    are the second chance."""
 
-    def __init__(self, detect: Callable[[ndarray], list[Box]]):
-        # Returns the cows in an image as fractions of that image.
+    def __init__(self, detect: Callable[[ndarray], Sequence[Detected]]):
         self.detect = detect
 
     def split(
-        self, frames: list[Frame], mount: Box, mount_start: datetime
+        self,
+        frames: list[Frame],
+        mount: Box,
+        mount_start: datetime,
+        mount_end: datetime | None = None,
     ) -> CowPair | None:
         frames = sorted(frames, key=lambda frame: frame[0])
-        before = [frame for frame in frames if frame[0] < mount_start][-_MAX_PRE_FRAMES:]
-        # All cows per frame: the mounter often walks in from outside the box.
-        found = [(frame, self._cows(frame[1], mount)) for frame in before]
-        pairs = [
-            (frame, pair)
-            for frame, pair in ((frame, pick_pair(cows, mount)) for frame, cows in found)
-            if len(pair) == 2
-        ]
-        if not pairs:
-            logger.info("Could not find two separate cows for this mount")
-            return None
+        before = [frame for frame in frames if frame[0] < mount_start][-_SIDE_FRAMES:]
+        after = (
+            [frame for frame in frames if frame[0] > mount_end][:_SIDE_FRAMES]
+            if mount_end is not None
+            else []
+        )
+        # Nearest to the jump first on each side, so the cows are still close.
+        for side, ordered in (("before", before[::-1]), ("after", after)):
+            pair = self._split_side(ordered, mount)
+            if pair is not None:
+                logger.info("Split mount into two cows using frames %s the jump", side)
+                return pair
+        logger.info("Could not find two separate cows for this mount")
+        return None
 
-        (date, image), pair = pairs[-1]
-        earlier = [item for item in found if item[0][0] < date]
-        tracks = [self._track(box, earlier) for box in pair]
-        motions = [motion(track) for track in tracks]
-        mounter = int(motions[1] > motions[0])
-        slow, fast = sorted(motions)
-        certain = fast >= _ROLE_MIN_MOTION and fast >= slow * _ROLE_RATIO
-        logger.info(
-            "Split mount into two cows, motion %.2f and %.2f, %s role",
-            motions[0],
-            motions[1],
-            "certain" if certain else "uncertain",
-        )
-        return CowPair(
-            crops=[crop_box(image, box) for box in pair],
-            boxes=pair,
-            mounter=mounter,
-            certain=certain,
-            date=date,
-        )
+    def _split_side(self, frames: list[Frame], mount: Box) -> CowPair | None:
+        """Uses the frame nearest to the jump that shows two separate cows, and
+        the frames further away to see which cow moved."""
+        # All cows per frame: the mounter often comes from outside the box.
+        found = [(frame, self._cows(frame[1], mount)) for frame in frames]
+        for index, ((date, image), cows) in enumerate(found):
+            boxes = [cow.box for cow in cows]
+            pair = [cows[boxes.index(box)] for box in pick_pair(boxes, mount)]
+            if len(pair) < 2:
+                continue
+            further = [[cow.box for cow in others] for _, others in found[index + 1 :]]
+            motions = [motion(self._track(cow.box, further)) for cow in pair]
+            mounter = int(motions[1] > motions[0])
+            slow, fast = sorted(motions)
+            certain = fast >= _ROLE_MIN_MOTION and fast >= slow * _ROLE_RATIO
+            logger.info(
+                "Cows moved %.2f and %.2f, %s role",
+                motions[0],
+                motions[1],
+                "certain" if certain else "uncertain",
+            )
+            crops = [cow_crops(image, cow) for cow in pair]
+            return CowPair(
+                crops=[plain for plain, _ in crops],
+                masked=[masked for _, masked in crops],
+                boxes=[cow.box for cow in pair],
+                mounter=mounter,
+                certain=certain,
+                date=date,
+            )
+        return None
 
     def mounted_region(self, image: ndarray, mount: Box) -> Box:
         """The area that shows the mounted cow in full on a frame of the jump.
@@ -180,7 +247,7 @@ class CowSplitter:
         wider area is used."""
         outside = [
             (area(box) - intersection(box, mount), box)
-            for box in self._cows(image, mount)
+            for box in (cow.box for cow in self._cows(image, mount))
             if area(box) > 0
             and iou(box, mount) < _PAIR_IOU
             and intersection(box, mount) / area(box) >= _MOUNTED_INSIDE
@@ -190,7 +257,7 @@ class CowSplitter:
             return union(mount, box)
         return grow(mount, _MOUNTED_GROW)
 
-    def _cows(self, image: ndarray, mount: Box) -> list[Box]:
+    def _cows(self, image: ndarray, mount: Box) -> list[Found]:
         """Runs the detector on the area around the mount, which keeps the cows
         large enough to be found in a wide barn view."""
         height, width = image.shape[:2]
@@ -200,29 +267,44 @@ class CowSplitter:
         if x2 - x1 < 8 or y2 - y1 < 8:
             return []
         region_w, region_h = region[2] - region[0], region[3] - region[1]
-        return [
-            (
-                region[0] + box[0] * region_w,
-                region[1] + box[1] * region_h,
-                region[0] + box[2] * region_w,
-                region[1] + box[3] * region_h,
+        found = []
+        for item in self.detect(image[y1:y2, x1:x2]):
+            box, mask = item if len(item) == 2 else (item, None)
+            found.append(
+                Found(
+                    (
+                        region[0] + box[0] * region_w,
+                        region[1] + box[1] * region_h,
+                        region[0] + box[2] * region_w,
+                        region[1] + box[3] * region_h,
+                    ),
+                    mask,
+                    (x1, y1),
+                )
             )
-            for box in self.detect(image[y1:y2, x1:x2])
-        ]
+        return found
 
     @staticmethod
-    def _track(box: Box, found: list[tuple[Frame, list[Box]]]) -> list[Box]:
-        """Follows a cow back through the frames before the mount."""
+    def _track(box: Box, frames: list[list[Box]]) -> list[Box]:
+        """Follows a cow through the frames, in the given order."""
         track = [box]
-        for _, boxes in reversed(found):
-            matches = [(iou(track[-1], other), other) for other in boxes]
-            best = max(matches, default=(0.0, None), key=lambda item: item[0])
+        for boxes in frames:
+            best = max(
+                ((iou(track[-1], other), other) for other in boxes),
+                default=(0.0, None),
+                key=lambda item: item[0],
+            )
             if best[1] is not None and best[0] >= _TRACK_IOU:
                 track.append(best[1])
-        return list(reversed(track))
+        return track
 
 
-def yolo_cow_detector(model_path: str, confidence: float) -> Callable[[ndarray], list[Box]]:
+def yolo_cow_detector(
+    model_path: str, confidence: float
+) -> Callable[[ndarray], list[Detected]]:
+    """A COCO model with the class "cow". A segmentation model (such as
+    yolo11s-seg.pt) also gives the pixels of each cow."""
+    import torch
     from ultralytics import YOLO
 
     model = YOLO(model_path)
@@ -231,17 +313,29 @@ def yolo_cow_detector(model_path: str, confidence: float) -> Callable[[ndarray],
     if not cow_classes:
         raise ValueError(f"cows.segment_model {model_path} has no class 'cow'")
 
-    def detect(image: ndarray) -> list[Box]:
+    def detect(image: ndarray) -> list[Detected]:
         height, width = image.shape[:2]
-        boxes = model.predict(
-            image, classes=cow_classes, conf=confidence, verbose=False
-        )[0].boxes
-        if boxes is None:
+        result = model.predict(
+            image,
+            classes=cow_classes,
+            conf=confidence,
+            verbose=False,
+            # Masks at the size of the image, not of the model input.
+            retina_masks=True,
+        )[0]
+        if result.boxes is None:
             return []
         # Tensor and ndarray both copy to plain floats with tolist().
-        return [
+        boxes = [
             (x1 / width, y1 / height, x2 / width, y2 / height)
-            for x1, y1, x2, y2 in boxes.xyxy.tolist()
+            for x1, y1, x2, y2 in result.boxes.xyxy.tolist()
         ]
+        if result.masks is None:
+            return list(boxes)
+        data = result.masks.data
+        if isinstance(data, torch.Tensor):
+            data = data.cpu().numpy()
+        masks = np.asarray(data) > 0.5
+        return [(box, mask) for box, mask in zip(boxes, masks)]
 
     return detect

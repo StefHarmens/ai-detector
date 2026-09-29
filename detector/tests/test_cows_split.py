@@ -115,3 +115,51 @@ def test_the_mounted_cow_photo_is_wider_without_her_box():
     splitter = CowSplitter(fake_detector({0: [lying_far]}))
 
     assert splitter.mounted_region(frame(0), MOUNT) == pytest.approx(grow(MOUNT, 1.8))
+
+
+def test_frames_after_the_jump_are_the_second_chance():
+    # Before the jump the cows stood as one; after it the mounter steps off.
+    end = START + timedelta(seconds=5)
+    before = [(START - timedelta(seconds=1), frame(0))]
+    after = [(end + timedelta(seconds=offset), frame(offset)) for offset in (1, 2, 3)]
+    stepping_off = {offset: (0.45 + offset * 0.04, 0.45, 0.57 + offset * 0.04, 0.65) for offset in (1, 2, 3)}
+    cows = {0: [STILL], **{offset: [STILL, stepping_off[offset]] for offset in (1, 2, 3)}}
+
+    pair = CowSplitter(fake_detector(cows)).split(before + after, MOUNT, START, end)
+
+    assert pair is not None
+    assert pair.date == end + timedelta(seconds=1)
+    assert pair.boxes[pair.mounter] == pytest.approx(stepping_off[1])
+    assert pair.certain
+
+
+def test_the_masked_crop_keeps_only_the_cow():
+    from aidetector.cows.split import MASK_FILL, Found, cow_crops
+
+    image = np.full((100, 100, 3), 50, dtype=np.uint8)
+    mask = np.zeros((40, 40), dtype=bool)
+    mask[10:30, 10:30] = True
+    # The mask covers the searched area that starts at (20, 20).
+    found = Found((0.3, 0.3, 0.5, 0.5), mask, (20, 20))
+
+    plain, masked = cow_crops(image, found, padding=0)
+
+    assert plain.shape == masked.shape == (20, 20, 3)
+    assert (plain == 50).all()
+    assert (masked == 50).all()  # the box lies fully on the cow
+    wide_plain, wide_masked = cow_crops(image, Found((0.2, 0.2, 0.6, 0.6), mask, (20, 20)), padding=0)
+    assert wide_masked[0, 0, 0] == MASK_FILL and wide_masked[20, 20, 0] == 50
+    assert (wide_plain == 50).all()
+
+
+def test_the_detector_can_return_masks():
+    from aidetector.cows.split import Found
+
+    mask = np.ones((10, 10), dtype=bool)
+    splitter = CowSplitter(lambda image: [((0.1, 0.1, 0.5, 0.5), mask)])
+
+    found = splitter._cows(frame(0), MOUNT)
+
+    assert isinstance(found[0], Found) and found[0].mask is mask
+    height, width = 720, 1280
+    assert found[0].origin == (int(REGION[0] * width), int(REGION[1] * height))

@@ -9,9 +9,10 @@ import pytest
 from aidetector.cows import service as service_module
 from aidetector.cows.registry import CowRegistry
 from aidetector.cows.reid import Gallery
-from aidetector.cows.service import CowService, event_frames
-from aidetector.cows.split import CowPair
+from aidetector.cows.service import CowService, event_frames, split_message
+from aidetector.cows.split import CowPair, grow
 from aidetector.exporters.summary import SummaryService
+from aidetector.media.video import get_image
 from aidetector.utils.config import (
     CowsConfig,
     Crop,
@@ -20,7 +21,6 @@ from aidetector.utils.config import (
     ImageSet,
     SummaryConfig,
 )
-from aidetector.media.video import get_image
 
 START = datetime(2026, 10, 2, 8, 0, 0)
 BERTHA = "NL123456789"
@@ -33,16 +33,21 @@ class Telegram:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
         self.ids = count(100)
+        self.last_id = None
 
     def post(self, url, data=None, files=None, timeout=None):
-        self.calls.append((url.rsplit("/", 1)[-1], dict(data or {})))
-        message_id = next(self.ids)
+        method = url.rsplit("/", 1)[-1]
+        self.calls.append((method, dict(data or {})))
+        self.last_id = next(self.ids)
+        message_id = self.last_id
 
         class Response:
             status_code = 200
             text = ""
 
             def json(self):
+                if method == "getFile":
+                    return {"ok": True, "result": {"file_path": "documents/koeien.csv"}}
                 return {"ok": True, "result": {"message_id": message_id}}
 
         return Response()
@@ -54,21 +59,23 @@ class Telegram:
 class FakeSplitter:
     def __init__(self, pair: CowPair | None):
         self.pair = pair
+        self.calls = []
 
-    def split(self, frames, mount, start):
+    def split(self, frames, mount, start, end=None):
+        self.calls.append((frames, start, end))
         return self.pair
 
     def mounted_region(self, image, mount):
-        from aidetector.cows.split import grow
-
         return grow(mount, 1.8)
 
 
 class FakeGallery:
     def __init__(self, scores: list[list[tuple[str, float]]]):
         self.scores = list(scores)
+        self.images = []
 
     def match(self, image):
+        self.images.append(image)
         return np.zeros(2), self.scores.pop(0)
 
 
@@ -79,6 +86,7 @@ def cow_image(value: int) -> np.ndarray:
 def pair(certain: bool = True) -> CowPair:
     return CowPair(
         crops=[cow_image(10), cow_image(200)],
+        masked=[cow_image(11), cow_image(201)],
         boxes=[(0.4, 0.4, 0.5, 0.6), (0.5, 0.4, 0.6, 0.6)],
         mounter=1,
         certain=certain,
@@ -89,17 +97,17 @@ def pair(certain: bool = True) -> CowPair:
 def mount() -> tuple[Detection, list[Detection]]:
     image = np.zeros((720, 1280, 3), dtype=np.uint8)
     crop = Crop(500, 300, 700, 500, "mounting", 0.9)
-    # A frame from before the jump, then the jump itself.
+    # A frame from before the jump, the jump, and a frame after it.
     detections = [
         Detection(
             START + timedelta(seconds=offset),
             ImageSet(image, [crop]),
-            {"mounting": 0.9} if offset >= 0 else {},
+            {"mounting": 0.9} if 0 <= offset <= 5 else {},
             camera="Stal Links",
         )
-        for offset in (-2, 0, 5)
+        for offset in (-2, 0, 5, 7)
     ]
-    return detections[-1], detections
+    return detections[2], detections
 
 
 @pytest.fixture
@@ -118,8 +126,8 @@ def make_service(tmp_path, split, scores, **config) -> CowService:
         splitter=FakeSplitter(split),
         gallery=FakeGallery(scores),
     )
-    service.registry.add("30", BERTHA, "Bertha", at=START.date() - timedelta(days=100))
-    service.registry.add("12", PINK, at=START.date() - timedelta(days=100))
+    service.registry.add("30", BERTHA, "Bertha", at=START - timedelta(days=100))
+    service.registry.add("12", PINK, at=START - timedelta(days=100))
     return service
 
 
@@ -130,78 +138,162 @@ def add_photos(tmp_path, life_number: str, amount: int) -> None:
         (folder / f"{index}.jpg").write_bytes(b"jpg")
 
 
-def test_each_cow_gets_a_photo_with_candidates(tmp_path, telegram):
+def buttons(markup: str) -> list[list[str]]:
+    return [[button["text"] for button in row] for row in json.loads(markup)["inline_keyboard"]]
+
+
+def reply(service: CowService, text: str) -> str | None:
+    """The farmer answers on the photo of the last mount."""
+    sighting = max(service.sightings.values(), key=lambda sighting: sighting.message or 0)
+    return service.handle_message({"text": text, "reply_to_message": {"message_id": sighting.message}})
+
+
+def test_one_photo_with_both_cows_and_their_candidates(tmp_path, telegram):
     service = make_service(tmp_path, pair(certain=False), [[(BERTHA, 0.7), (PINK, 0.6)], [(PINK, 0.8)]])
 
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     photos = telegram.sent("sendPhoto")
-    assert len(photos) == 2
-    assert all(photo["reply_to_message_id"] == "42" for photo in photos)
-    assert photos[0]["caption"].startswith("🐄 Koe A werd besprongen (gok)")
-    assert photos[1]["caption"].startswith("🐄 Koe B sprong (gok)")
-    buttons = json.loads(photos[0]["reply_markup"])["inline_keyboard"]
-    assert [button["text"] for button in buttons[0]] == ["30 (Bertha) · 70%", "12 · 60%"]
-    # Too few photos to fill anything in automatically.
-    assert sighting.cows == [None, None]
-    assert (tmp_path / ".meldingen" / sighting.id / "A.jpg").is_file()
+    assert len(photos) == 1
+    assert photos[0]["reply_to_message_id"] == "42"
+    assert photos[0]["caption"].splitlines()[:3] == [
+        "🐄 Wie zijn het?",
+        "A werd besprongen (gok): ❓",
+        "B sprong (gok): ❓",
+    ]
+    assert "antwoord op deze foto met de nummers, eerst A dan B: 30 12" in photos[0]["caption"]
+    assert buttons(photos[0]["reply_markup"]) == [
+        ["A: 30 (Bertha) · 70%", "A: 12 · 60%"],
+        ["B: 12 · 80%"],
+        ["✏️ Nummers typen"],
+        ["❔ A onbekend", "❔ B onbekend"],
+        ["🔄 Andersom", "🚫 Foto A", "🚫 Foto B"],
+    ]
+    # Recognition compares the masked cows, without the barn.
+    assert [int(image[0, 0, 0]) for image in service.gallery.images] == [11, 201]
+    folder = tmp_path / ".meldingen" / sighting.id
+    assert {path.name for path in folder.iterdir()} >= {
+        "A.jpg", "B.jpg", "A_koe.jpg", "B_koe.jpg", "controle.jpg", "beelden",
+    }
+    assert sorted(path.name for path in (folder / "beelden").iterdir()) == ["+007.0s.jpg", "-002.0s.jpg"]
+
+
+def test_the_splitter_gets_frames_before_and_after_the_jump(tmp_path, telegram):
+    service = make_service(tmp_path, None, [])
+
+    service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    frames, start, end = service.splitter.calls[0]
+    assert [date - START for date, _ in frames] == [timedelta(seconds=-2), timedelta(seconds=7)]
+    assert (start, end) == (START, START + timedelta(seconds=5))
 
 
 def test_a_clear_match_with_enough_photos_is_filled_in(tmp_path, telegram):
     add_photos(tmp_path, BERTHA, 5)
-    service = make_service(tmp_path, pair(), [[(BERTHA, 0.93), (PINK, 0.70)], [(PINK, 0.95), (BERTHA, 0.90)]])
+    service = make_service(tmp_path, pair(), [[(BERTHA, 0.95), (PINK, 0.70)], [(PINK, 0.95), (BERTHA, 0.90)]])
 
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     assert sighting.cows == [BERTHA, None]
     assert sighting.how == ["auto", None]
-    assert "✅ 30 (Bertha) · herkend (93%)" in telegram.sent("sendPhoto")[0]["caption"]
+    assert "A werd besprongen: ✅ 30 (Bertha) · herkend 95%" in telegram.sent("sendPhoto")[0]["caption"]
 
 
-def test_choosing_a_candidate_files_the_photo_for_learning(tmp_path, telegram):
+def test_tapping_a_candidate_files_the_masked_photo(tmp_path, telegram):
     service = make_service(tmp_path, pair(), [[(BERTHA, 0.7)], [(PINK, 0.8)]])
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
-    answer = service.handle_callback(f"cow:{sighting.id}:0:c0")
+    assert service.handle_callback(f"cow:{sighting.id}:0:c0") == "A: 30 (Bertha)"
 
-    assert answer == "Opgeslagen als 30 (Bertha)"
-    assert sighting.cows[0] == BERTHA and sighting.how[0] == "boer"
-    assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
-    edit = telegram.sent("editMessageCaption")[0]
-    assert "✅ 30 (Bertha)" in edit["caption"]
+    filed = list((tmp_path / BERTHA).glob("*.jpg"))
+    assert len(filed) == 1
+    # The masked crop (value 11), not the one sent to the farmer (value 10).
+    assert abs(int(cv2.imread(str(filed[0]))[0, 0, 0]) - 11) <= 1
+    edit = telegram.sent("editMessageCaption")[-1]
+    assert "A werd besprongen: ✅ 30 (Bertha)" in edit["caption"]
+    assert buttons(edit["reply_markup"])[0] == ["✅ A: 30 (Bertha) · 70%"]
 
-    # Changing the answer moves the photo to the other cow.
+    # Changing the answer moves the photo; a wrong photo goes nowhere.
     service.handle_callback(f"cow:{sighting.id}:0:u")
     assert list((tmp_path / BERTHA).glob("*.jpg")) == []
     assert len(list((tmp_path / "onbekend").glob("*.jpg"))) == 1
-
-    # A photo that does not show one cow goes into no folder at all.
     service.handle_callback(f"cow:{sighting.id}:0:x")
     assert list((tmp_path / "onbekend").glob("*.jpg")) == []
-    # Both photos are refreshed, cow A first.
-    assert "🚫 Foto klopt niet" in telegram.sent("editMessageCaption")[-2]["caption"]
-    service.handle_callback(f"cow:{sighting.id}:0:c0")
-    assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
+    assert "A werd besprongen: 🚫 foto klopt niet" in telegram.sent("editMessageCaption")[-1]["caption"]
 
 
-def test_typed_number_and_new_cow(tmp_path, telegram):
+def test_answering_on_the_photo_with_two_numbers(tmp_path, telegram):
     service = make_service(tmp_path, pair(), [[], []])
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
-    service.handle_callback(f"cow:{sighting.id}:1:n")
-    prompt = next(telegram.ids) - 1  # the prompt was the last message sent
+    assert reply(service, "30 12") == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+    assert sighting.cows == [BERTHA, PINK]
+    assert "Iets fout? Antwoord op deze foto met de goede nummers." in telegram.sent("editMessageCaption")[-1]["caption"]
 
-    reply = service.handle_message({"text": "44", "reply_to_message": {"message_id": prompt}})
-    assert reply.startswith("Nummer 44 ken ik nog niet")
+    # Correcting later works the same way.
+    assert reply(service, "? 30") == "✅ Opgeslagen: A = onbekend, B = 30 (Bertha)"
 
-    # The question survives a restart, which happens after every config change.
-    service = CowService("token", "chat", tmp_path, CowsConfig(), gallery=FakeGallery([]))
-    reply = service.handle_message({"text": "44 NL 5555 5555 5", "reply_to_message": {"message_id": prompt}})
-    assert reply == "Opgeslagen: 44"
-    sighting = service.sightings[sighting.id]
-    assert sighting.cows[1] == "NL555555555"
+
+def test_one_number_fills_the_open_cow_and_new_cows_need_a_life_number(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert reply(service, "30") == "✅ Opgeslagen: A = 30 (Bertha)"
+    assert reply(service, "44").startswith("Nummer 44 ken ik nog niet")
+    assert reply(service, "44 NL 5555 5555 5") == "✅ Opgeslagen: B = 44"
+    assert sighting.cows == [BERTHA, "NL555555555"]
     # The number counts from the mount the farmer answered for.
     assert service.registry.cow_with_number("44", START) == "NL555555555"
+    assert reply(service, "12").startswith("Beide koeien zijn al ingevuld")
+    assert reply(service, "30 30") == "Twee keer dezelfde koe: een koe springt niet op zichzelf."
+    assert reply(service, "dertig").startswith("⚠️ 'dertig' is geen halsbandnummer")
+
+
+def test_typing_button_asks_and_the_answer_survives_a_restart(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert service.handle_callback(f"cow:{sighting.id}:-:n") == "Typ de nummers als antwoord"
+    assert telegram.sent("sendMessage")[-1]["text"].startswith("Typ de nummers, eerst A dan B: 30 12")
+    prompt = telegram.last_id
+
+    # A restart happens after every change to config.json.
+    restarted = CowService("token", "chat", tmp_path, CowsConfig(), gallery=FakeGallery([]))
+    answer = restarted.handle_message({"text": "30 12", "reply_to_message": {"message_id": prompt}})
+    assert answer == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+
+
+def test_swapping_roles(tmp_path, telegram):
+    service = make_service(tmp_path, pair(certain=False), [[], []])
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert service.handle_callback(f"cow:{sighting.id}:-:s") == "Rollen omgedraaid"
+    assert telegram.sent("editMessageCaption")[-1]["caption"].splitlines()[1:3] == [
+        "A sprong: ❓",
+        "B werd besprongen: ❓",
+    ]
+
+
+def test_without_two_cows_the_photo_shows_the_jump_per_role(tmp_path, telegram):
+    service = make_service(tmp_path, None, [])
+
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    photo = telegram.sent("sendPhoto")[0]
+    assert photo["caption"].splitlines()[:3] == ["🐄 Wie zijn het?", "Sprong: ❓", "Werd besprongen: ❓"]
+    assert "eerst wie sprong dan wie werd besprongen: 30 12" in photo["caption"]
+    assert buttons(photo["reply_markup"]) == [
+        ["✏️ Nummers typen"],
+        ["❔ Sprong onbekend", "❔ Besprongen onbekend"],
+    ]
+    # The mounted cow gets a wider photo than the mounter.
+    folder = tmp_path / ".meldingen" / sighting.id
+    mounter, mounted = (cv2.imread(str(folder / f"{slot}.jpg")) for slot in "AB")
+    assert mounted.shape[0] > mounter.shape[0] and mounted.shape[1] > mounter.shape[1]
+    # Both cows are on these photos, so they never go into a cow folder.
+    assert reply(service, "? 30") == "✅ Opgeslagen: Sprong = onbekend, Besprongen = 30 (Bertha)"
+    assert sighting.cows == [None, BERTHA]
+    assert not (tmp_path / BERTHA).exists() and not (tmp_path / "onbekend").exists()
 
 
 def test_switch_asks_whether_the_old_cow_left(tmp_path, telegram):
@@ -231,7 +323,38 @@ def test_commands(tmp_path, telegram):
     ]
     assert service.handle_message({"text": "/weg 12"}).startswith("✅ 12 · NL987654321 is gearchiveerd")
     assert service.handle_message({"text": "/koe 30 abc"}) == "⚠️ '' is geen levensnummer, verwacht bijvoorbeeld NL123456789"
+    assert service.handle_message({"text": "/help"}).startswith("🐄 Koeien herkennen")
     assert service.handle_message({"text": "hallo"}) is None
+
+
+def test_command_menu(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [])
+
+    service.set_commands()
+
+    commands = json.loads(telegram.sent("setMyCommands")[0]["commands"])
+    assert [command["command"] for command in commands] == ["koeien", "overzicht", "koe", "wissel", "weg", "help"]
+
+
+def test_a_csv_sent_to_the_bot_adds_the_cows(tmp_path, telegram, monkeypatch):
+    service = make_service(tmp_path, pair(), [])
+
+    class Download:
+        content = "Werknummer;Levensnummer;Naam\n7;NL222222222;Klaartje\n8;fout;\n".encode()
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(service_module.requests, "get", lambda url, timeout: Download())
+
+    answer = service.handle_message({"document": {"file_id": "f", "file_name": "export koeien.csv"}})
+
+    assert answer.splitlines() == [
+        "✅ 1 koe ingelezen.",
+        "Regel 2: 'fout' is geen levensnummer, verwacht bijvoorbeeld NL123456789",
+    ]
+    assert service.registry.label("NL222222222") == "7 (Klaartje)"
+    assert service.handle_message({"document": {"file_id": "f", "file_name": "foto.jpg"}}).startswith("Stuur de koeien als CSV")
 
 
 def test_overview_counts_both_cows_and_skips_wrong_alerts(tmp_path, telegram):
@@ -260,24 +383,6 @@ def test_overview_counts_both_cows_and_skips_wrong_alerts(tmp_path, telegram):
     assert restarted.overview_text(START - timedelta(hours=1), START + timedelta(hours=1)) == text
 
 
-def test_without_two_cows_both_photos_show_the_mount(tmp_path, telegram):
-    service = make_service(tmp_path, None, [])
-
-    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
-
-    photos = telegram.sent("sendPhoto")
-    assert photos[0]["caption"].startswith("🐄 Welke koe sprong?")
-    assert photos[1]["caption"].startswith("🐄 Welke koe werd besprongen?")
-    assert not sighting.split
-    # The mounted cow gets a wider photo than the mounter.
-    folder = tmp_path / ".meldingen" / sighting.id
-    mounter, mounted = (cv2.imread(str(folder / f"{slot}.jpg")) for slot in "AB")
-    assert mounted.shape[0] > mounter.shape[0] and mounted.shape[1] > mounter.shape[1]
-    # The photo shows both cows, so it is never filed in a cow folder.
-    service.handle_callback(f"cow:{sighting.id}:1:u")
-    assert not (tmp_path / "onbekend").exists()
-
-
 def test_summary_includes_the_overview_per_cow(tmp_path, telegram):
     summary = SummaryService("token", "chat", tmp_path / "summary", SummaryConfig())
     best, detections = mount()
@@ -290,21 +395,31 @@ def test_summary_includes_the_overview_per_cow(tmp_path, telegram):
     assert "\n\n\n" not in text
 
 
-def test_event_frames_prefer_4k_and_stop_at_the_first_confident_frame():
+def test_event_frames_prefer_4k_and_skip_the_jump_itself():
     best, detections = mount()
     best.hires = [
         HiresFrame(START + timedelta(seconds=offset), get_image(cow_image(offset + 10), 90))
-        for offset in range(-8, 6)
+        for offset in range(-8, 14)
     ]
 
-    frames, start = event_frames(best, detections)
+    frames = event_frames(best, detections)
 
-    assert start == START
-    # The last six frames before the mount started.
-    assert [date for date, _ in frames] == [
-        START + timedelta(seconds=offset) for offset in range(-6, 0)
+    assert (frames.start, frames.end) == (START, START + timedelta(seconds=5))
+    # Six frames on each side of the jump, none during it.
+    assert [date - START for date, _ in frames.frames] == [
+        timedelta(seconds=offset) for offset in [*range(-6, 0), *range(6, 12)]
     ]
-    assert frames[0][1].shape == (60, 40, 3)
+    assert frames.frames[0][1].shape == (60, 40, 3)
+    assert frames.jpegs[0][1] == best.hires[2].jpeg
+
+
+def test_long_replies_are_split_at_line_ends():
+    text = "\n".join(f"• koe {number}" for number in range(1000))
+
+    parts = split_message(text, limit=100)
+
+    assert all(len(part) <= 100 for part in parts)
+    assert "\n".join(parts) == text
 
 
 def test_gallery_ranks_cows_and_skips_archived_ones(tmp_path):
@@ -341,6 +456,7 @@ def test_telegram_alert_starts_recognition_and_routes_farmer_input(tmp_path, mon
             return {"ok": True, "result": [{"message_id": 42}]}
 
     monkeypatch.setattr(TelegramFeedbackListener, "start", lambda self: None)
+    monkeypatch.setattr(CowService, "set_commands", lambda self: None)
     posts = []
     monkeypatch.setattr(
         "aidetector.exporters.telegram.requests.post",
@@ -373,11 +489,15 @@ def test_telegram_alert_starts_recognition_and_routes_farmer_input(tmp_path, mon
 
     listener = exporter.feedback_listener
     handled = []
-    monkeypatch.setattr(exporter.cows, "handle_message", lambda message: handled.append(message) or "ok")
+    monkeypatch.setattr(
+        exporter.cows, "handle_message", lambda message: handled.append(message) or "ok\n" * 3000
+    )
+    before = len(posts)
     listener.process_message({"chat": {"id": "cow-chat"}, "message_id": 5, "text": "/koeien"})
     listener.process_message({"chat": {"id": "stranger"}, "message_id": 6, "text": "/koeien"})
     assert [message["message_id"] for message in handled] == [5]
-    assert posts[-1][1]["data"]["text"] == "ok"
+    # A long reply goes out in parts.
+    assert len(posts) - before >= 3
 
     monkeypatch.setattr(exporter.cows, "handle_callback", lambda data: f"got {data}")
     listener.process_callback(

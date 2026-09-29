@@ -376,21 +376,26 @@ grouped together.
 
 ##### Cow recognition (`cows`)
 
-Every alert gets two photo replies, one per cow, with buttons for the cows that look
-most alike, `✏️ Ander nummer` (type the collar number), `❔ Onbekend`, `🔄 Andersom`
-(swap who jumped) and `🚫 Foto klopt niet`. A farmer's choice files the photo in the
-cow's folder, which is what recognition learns from; photos filled in automatically
-are never filed, so mistakes do not teach the model.
+Every alert gets one photo reply with both cows side by side (A and B) and buttons for
+the cows that look most alike, `✏️ Nummers typen`, unknown per cow, `🔄 Andersom` (swap
+who jumped) and `🚫 Foto A/B` (photo is wrong). The farmer can also answer on the photo
+with both numbers, mounter first when the cows are not split: `30 12`, `? 12`, or a new
+cow with her life number, `44 NL123456789 12`. A farmer's choice files the cow's masked
+photo in her folder, which is what recognition learns from; photos filled in
+automatically are never filed, so mistakes do not teach the model.
 
-1. **Split** – a generic detector (`segment_model`, COCO class `cow`) looks for two
-   separate cows around the mount box in the frames *before* the jump (from `hires`
-   when set, otherwise the detection frames). The cow that moved in is guessed as the
-   one that jumped; without clear motion the role is marked `(gok)`. Frames during the
-   jump are not used: the pair then looks like one cow. Without two separate cows both
-   photos show the whole mount and the farmer picks the cow per role; such photos are
-   never filed.
-2. **Recognise** – DINOv2 (`reid_model`, ONNX) turns each cow into an embedding and
-   compares it with the photos in the folders of the active cows. A cow is filled in
+1. **Split** – a generic segmentation model (`segment_model`, COCO class `cow`) looks for
+   two separate cows around the mount box in the frames *before* the jump, and *after* it
+   as a second chance (from `hires` when set, otherwise the detection frames). Each cow's
+   center must lie inside the mount box, and a box around both counts as none. The cow
+   that walked in (or stepped off) is guessed as the mounter; without clear motion the
+   role is marked `(gok)`. Frames during the jump are not used: the pair then looks like
+   one cow. Without two separate cows the photo shows the jump per role (the mounted cow
+   wider, so her head is in view); these photos are never filed.
+2. **Recognise** – each cow is masked (everything but her pixels grey) and DINOv2
+   (`reid_model`, ONNX) turns her into an embedding that is compared with the masked
+   photos of the active cows. On 49 cows from the barn examples, masking cut the share of
+   different cows that score like the same cow from 33.5% to 2.1%. A cow is filled in
    without asking when her score is at least `accept_score`, beats the next cow by
    `accept_margin` and her folder has `min_photos` photos.
 3. **Count** – the summary gets a section with how often each cow was mounted (🔥,
@@ -407,19 +412,21 @@ stays with the right cow.
 ├── NL123456789/          photos of one cow (with .embeddings/ cache)
 ├── onbekend/             photos marked unknown
 ├── archief/NL…/          cows that left; not used for recognition
-└── .meldingen/<id>/      the two crops of each alert
+└── .meldingen/<id>/      per alert: the photos (A, B, masked A_koe/B_koe),
+                          controle.jpg (the jump with its box) and beelden/
+                          (frames around the jump, removed after 14 days)
 ```
 
-Commands in the chat: `/koe 30 NL123456789 Bertha`, `/wissel 30 NL987654321` (asks
+The commands are put in the chat's menu. Commands: `/koe 30 NL123456789 Bertha`, `/wissel 30 NL987654321` (asks
 whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeien`,
-`/overzicht 7`, `/help`. To add many cows at once, run
-`import-koeien export.csv` with a CSV of collar number, life number and optional name
-(headers such as `Werknummer;Levensnummer;Naam` are recognised).
+`/overzicht 7`, `/help`. To add many cows at once, send the bot a CSV of collar number,
+life number and optional name (headers such as `Werknummer;Levensnummer;Naam` are
+recognised), or run `import-koeien export.csv`.
 
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |
 | `directory`          | `<feedback_directory>/koeien` | Where cows, photos and mounts are kept. |
-| `segment_model`      | `"yolo11s.pt"` | Model that finds single cows; downloaded on first use. |
+| `segment_model`      | `"yolo11s-seg.pt"` | Model that finds single cows and their pixels; downloaded on first use. A detection-only model works too, without masking. |
 | `segment_confidence` | `0.25`        | Minimum confidence of a single cow. |
 | `reid_model`         | DINOv2 small (Hugging Face) | ONNX model or URL for the embeddings; downloaded once to `.model/`. |
 | `accept_score`       | `0.90`        | Minimum similarity to fill in a cow without asking. Barn and cubicles fill much of a crop, so different cows can still score 0.80. |

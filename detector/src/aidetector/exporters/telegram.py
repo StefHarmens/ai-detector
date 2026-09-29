@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from aidetector.cows.service import CowService, get_cow_service
+from aidetector.cows.service import CowService, get_cow_service, split_message
 from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
@@ -200,19 +200,20 @@ class TelegramFeedbackListener:
         except Exception:
             self.logger.exception("Failed to handle Telegram message")
             reply = "Dat ging mis, kijk in het log van de detector."
-        if reply is None:
+        if not reply:
             return
         try:
-            requests.post(
-                f"{self.api_url}/sendMessage",
-                data={
-                    "chat_id": chat,
-                    "text": reply,
-                    "reply_to_message_id": message.get("message_id"),
-                    "allow_sending_without_reply": True,
-                },
-                timeout=10,
-            )
+            for part in split_message(reply):
+                requests.post(
+                    f"{self.api_url}/sendMessage",
+                    data={
+                        "chat_id": chat,
+                        "text": part,
+                        "reply_to_message_id": message.get("message_id"),
+                        "allow_sending_without_reply": True,
+                    },
+                    timeout=10,
+                )
         except Exception:
             self.logger.exception("Failed to reply to Telegram message")
 
@@ -339,6 +340,7 @@ class TelegramExporter(WebhookExporter):
             # Commands such as /koe work before the first alert.
             self.feedback_listener.register_cows(config.chat, self.cows)
             self.feedback_listener.start()
+            Thread(target=self.cows.set_commands, name="telegram-commands", daemon=True).start()
         if self.summary:
             if self.cows:
                 self.summary.overview = self.cows.overview_text

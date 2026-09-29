@@ -48,7 +48,16 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 					"Stal Links Achterin",
 					"Stal Rechts Achterin",
 					"Stal Achterin Centraal"
-				]
+				],
+				"hires": {
+					"source": [
+						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-1>",
+						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-2>",
+						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-3>",
+						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-4>",
+						"rtsps://<nvr-ip>:7441/<4k-sleutel-camera-5>"
+					]
+				}
 			},
 			"yolo": {
 				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
@@ -69,7 +78,8 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 							["Stal Links PTZ Voorin", "Stal Links Achterin", "Stal Achterin Centraal"],
 							["Stal Rechts Voorin", "Stal Rechts Achterin", "Stal Achterin Centraal"]
 						]
-					}
+					},
+					"cows": {}
 				},
 				"disk": [
 					{
@@ -152,26 +162,38 @@ Een gewijzigde keuze ruimt de eerdere classificatie automatisch op.
 
 ## Koeien herkennen
 
-Met `cows` stuurt de bot bij elke melding twee foto's terug, één per koe, met knoppen:
+Met `cows` stuurt de bot na elke melding één foto met beide koeien naast elkaar (A en B),
+met knoppen:
 
 ```text
-🐄 Koe A werd besprongen (gok)
-Wie is dit? Tik een nummer aan.
-[ 30 (Bertha) · 88% ] [ 12 · 81% ] [ 7 · 64% ]
-[ ✏️ Ander nummer ] [ ❔ Onbekend ]
-[ 🔄 Andersom (wie sprong) ] [ 🚫 Foto klopt niet ]
+🐄 Wie zijn het?
+A werd besprongen (gok): ✅ 30 (Bertha) · herkend 93%
+B sprong (gok): ❓
+
+Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 12
+[ ✅ A: 30 (Bertha) · 93% ] [ A: 44 · 78% ]
+[ B: 44 · 88% ] [ B: 12 · 80% ]
+[ ✏️ Nummers typen ]
+[ ❔ A onbekend ] [ ❔ B onbekend ]
+[ 🔄 Andersom ] [ 🚫 Foto A ] [ 🚫 Foto B ]
 ```
 
-- Tik het juiste nummer aan, of kies **✏️ Ander nummer** en typ het nummer als antwoord.
-  Een koe die de bot nog niet kent, typ je als nummer en levensnummer:
-  `30 NL123456789`.
-- Elke keuze zet de foto in de map van die koe. Daarvan leert de herkenning, dus in het
-  begin moet je vaak tikken. Zodra een koe 5 foto's heeft en duidelijk herkend wordt, vult
-  de bot haar zelf in (`✅ 30 · herkend (93%)`); tik dan alleen nog als het fout is.
+- **Antwoorden** gaat het snelst door op de foto te antwoorden met twee nummers, eerst A
+  dan B: `30 12`. Onbekend is een vraagteken (`? 12`). Een koe die de bot nog niet kent,
+  typ je met haar levensnummer: `44 NL123456789 12`. Eén nummer vult de koe die nog open
+  staat. Iets fout? Antwoord nog eens met de goede nummers.
+- **Tikken** kan ook: een nummer aan, **✏️ Nummers typen**, of **❔ onbekend** per koe.
+- Elke keuze zet de foto van die koe in haar map, met de stal weggemaskeerd. Daarvan leert
+  de herkenning, dus in het begin moet je vaak antwoorden. Zodra een koe 5 foto's heeft en
+  duidelijk herkend wordt, vult de bot haar zelf in (`✅ 30 · herkend 93%`); antwoord dan
+  alleen nog als het fout is.
 - **🔄 Andersom** draait om wie sprong en wie besprongen werd. Met *(gok)* weet de bot
   het niet zeker.
-- **🚫 Foto klopt niet**: de uitsnede toont niet één koe van de sprong. Die foto gaat
-  dan in geen enkele map.
+- **🚫 Foto A/B**: die uitsnede toont niet één koe van de sprong. Die foto gaat dan in geen
+  enkele map.
+- Vindt de bot geen twee losse koeien, vóór of na de sprong, dan toont hij de sprong zelf:
+  links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
+  (eerst wie sprong); deze foto's gaan niet in een koemap.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
 
 Het overzicht van 08:00 en 16:00 krijgt dan een telling per koe:
@@ -198,8 +220,11 @@ sprongen bij de oude koe. Commando's in de chat:
 | `/koeien` | Alle koeien met nummer, levensnummer en aantal foto's. |
 | `/overzicht 7` | Sprongen per koe over de laatste 7 dagen. |
 
-Alle koeien in één keer invoeren kan met een CSV-export uit het managementprogramma
-(kolommen zoals `Werknummer;Levensnummer;Naam`):
+De commando's staan ook in het menu van de chat, onder de /-knop.
+
+Alle koeien in één keer invoeren: stuur de CSV-export uit het managementprogramma
+(kolommen zoals `Werknummer;Levensnummer;Naam`) als bestand naar de bot. Op de Mac mini
+kan het ook met:
 
 ```bash
 ./aidetector-osx-v0.8.0.command import-koeien ~/Desktop/koeien.csv
@@ -234,7 +259,12 @@ adressen in `detection.hires`, in dezelfde volgorde als `source`:
 De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden.
 Elke 4K-stream kost ongeveer 350 MB geheugen. Telegram weigert foto's boven 10 MB en toont
 ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
-onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit. Een camera zonder 4K zet je op `null`.
+onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
+
+Per sprong bewaart de bot in `data/koeien/.meldingen/<id>/` de foto's, een `controle.jpg`
+(het 4K-beeld met het kader van de sprong: valt dat niet op de koeien, dan lopen de twee
+streams uit elkaar) en in `beelden/` een paar beelden van vóór en na de sprong. Die
+beelden worden na 14 dagen opgeruimd. Een camera zonder 4K zet je op `null`.
 De mappen staan in `data/koeien/`; zie [detector/README.md](detector/README.md) voor
 alle opties.
 
