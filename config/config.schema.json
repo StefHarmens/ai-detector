@@ -101,6 +101,17 @@
             }
           ],
           "default": null
+        },
+        "cows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CowsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -108,6 +119,60 @@
         "chat"
       ],
       "title": "ChatConfig",
+      "type": "object"
+    },
+    "CowsConfig": {
+      "properties": {
+        "directory": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Directory"
+        },
+        "segment_model": {
+          "default": "yolo11s.pt",
+          "title": "Segment Model",
+          "type": "string"
+        },
+        "segment_confidence": {
+          "default": 0.25,
+          "title": "Segment Confidence",
+          "type": "number"
+        },
+        "reid_model": {
+          "default": "https://huggingface.co/onnx-community/dinov2-small/resolve/main/onnx/model.onnx",
+          "title": "Reid Model",
+          "type": "string"
+        },
+        "accept_score": {
+          "default": 0.85,
+          "title": "Accept Score",
+          "type": "number"
+        },
+        "accept_margin": {
+          "default": 0.05,
+          "title": "Accept Margin",
+          "type": "number"
+        },
+        "min_photos": {
+          "default": 5,
+          "title": "Min Photos",
+          "type": "integer"
+        },
+        "candidates": {
+          "default": 3,
+          "title": "Candidates",
+          "type": "integer"
+        }
+      },
+      "title": "CowsConfig",
       "type": "object"
     },
     "DetectionConfig": {
@@ -158,6 +223,17 @@
           "default": 1280,
           "title": "Frames Width",
           "type": "integer"
+        },
+        "hires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HiresConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -400,6 +476,68 @@
         "url"
       ],
       "title": "HealthcheckConfig",
+      "type": "object"
+    },
+    "HiresConfig": {
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Source"
+        },
+        "fps": {
+          "default": 1,
+          "title": "Fps",
+          "type": "number"
+        },
+        "seconds": {
+          "default": 90,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "before_seconds": {
+          "default": 10,
+          "title": "Before Seconds",
+          "type": "integer"
+        },
+        "quality": {
+          "default": 85,
+          "title": "Quality",
+          "type": "integer"
+        },
+        "hwaccel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "auto",
+          "title": "Hwaccel"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "HiresConfig",
       "type": "object"
     },
     "OnnxConfig": {

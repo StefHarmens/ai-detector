@@ -107,12 +107,39 @@ You can run multiple independent detectors in the same file — useful if you ha
 | `interval`        | `0`          | How many seconds to wait between processed frames. Set to `0` to process every frame. Useful to reduce load on slow machines. |
 | `frame_retention` | `30`         | How many recent frames to keep in memory per source so detections can include earlier context. |
 
+| `hires`           |              | A high-resolution stream per camera for sharp crops and cow recognition. See below. |
+
 **Examples:**
 ```json
 "source": "rtsp://192.168.1.10/stream"
 "source": ["rtsp://camera1", "rtsp://camera2"]
 "source": "videos/clip.mp4"
 ```
+
+#### High-resolution frames (`hires`)
+
+Detection runs on the light stream in `source`. With `hires`, a second stream per camera
+(e.g. the 4K "High" RTSP stream of UniFi Protect) is read at `fps` frames per second and
+the last `seconds` are kept as JPEG. When an event is exported, the frames from
+`before_seconds` before it until its end go with it: Telegram (`include_crop`) and disk
+(`hires.jpg`) use them for the crop, and `telegram.cows` uses the frames from before the
+jump to tell the two cows apart. FFmpeg decodes with `hwaccel` (VideoToolbox on a Mac);
+each 4K stream takes about 350 MB of memory and a few percent of one CPU core.
+
+```json
+"hires": {
+  "source": ["rtsps://nvr:7441/<4k-key-1>", null, "rtsps://nvr:7441/<4k-key-3>"]
+}
+```
+
+| Field            | Default      | Description |
+| :--------------- | :----------- | :---------- |
+| `source`         | **Required** | One stream per `detection.source`, in the same order; `null` for a camera without one. |
+| `fps`            | `1`          | Frames per second to keep. |
+| `seconds`        | `90`         | How long frames are kept; must cover `before_seconds` plus `yolo.time_max` and `yolo.timeout`. |
+| `before_seconds` | `10`         | How far before the event the frames start. |
+| `quality`        | `85`         | JPEG quality of the kept frames. |
+| `hwaccel`        | `"auto"`     | FFmpeg hardware decoding; `null` to decode on the CPU. |
 
 ---
 
@@ -286,6 +313,7 @@ an optimized ONNX model on its next start.
 | `video_crf`       | `28`         | Video quality (0–51). Lower = better quality, larger file. `28` is a good default. |
 | `export_rejected` | `false`      | Whether to also send detections rejected by the VLM. |
 | `summary`         |              | Group repeated detections of the same mount and send a periodic overview. See below. |
+| `cows`            |              | Recognise the two cows of every alerted mount and count mounts per cow. See below. |
 
 ##### Mount summaries (`summary`)
 
@@ -298,8 +326,9 @@ cameras at once. With `summary` enabled, detections are grouped into one *mount 
 - **Another camera:** a detection belongs to the event when both cameras saw it within
   `camera_merge_seconds` of each other.
 
-Cows are not recognised yet, so this is based on time and place only: jumps by
-different cows at the same spot shortly after each other form one event too.
+Grouping is based on time and place only: jumps by different cows at the same spot
+shortly after each other form one event too. With `cows` enabled the overview also
+counts per cow.
 
 Only the first detection of an event is sent as a Telegram alert (with the Goed/Fout
 buttons); later detections in the event are only counted. At every time in `times` the
@@ -340,6 +369,59 @@ grouped together.
 | `camera_merge_seconds` | `10`        | Maximum gap between detections on different cameras to count as the same jump. Detections of the same jump overlap in time (gap 0), so this only absorbs small timing differences. |
 | `camera_groups`        |             | Which cameras see the same area, by `detection.name`, e.g. `[["Stal Links Voorin", "Stal Achterin Centraal"], ["Stal Rechts Voorin", "Stal Achterin Centraal"]]`. Detections on different cameras are only merged when both are in one group; a camera may be in several groups. Leave empty to treat all cameras as overlapping. |
 | `send_events`          | `true`      | Send an alert for the first detection of each event. `false` sends only the overview. |
+
+##### Cow recognition (`cows`)
+
+Every alert gets two photo replies, one per cow, with buttons for the cows that look
+most alike, `✏️ Ander nummer` (type the collar number), `❔ Onbekend`, `🔄 Andersom`
+(swap who jumped) and `🚫 Foto klopt niet`. A farmer's choice files the photo in the
+cow's folder, which is what recognition learns from; photos filled in automatically
+are never filed, so mistakes do not teach the model.
+
+1. **Split** – a generic detector (`segment_model`, COCO class `cow`) looks for two
+   separate cows around the mount box in the frames *before* the jump (from `hires`
+   when set, otherwise the detection frames). The cow that moved in is guessed as the
+   one that jumped; without clear motion the role is marked `(gok)`. Frames during the
+   jump are not used: the pair then looks like one cow. Without two separate cows both
+   photos show the whole mount and the farmer picks the cow per role; such photos are
+   never filed.
+2. **Recognise** – DINOv2 (`reid_model`, ONNX) turns each cow into an embedding and
+   compares it with the photos in the folders of the active cows. A cow is filled in
+   without asking when her score is at least `accept_score`, beats the next cow by
+   `accept_margin` and her folder has `min_photos` photos.
+3. **Count** – the summary gets a section with how often each cow was mounted (🔥,
+   possibly in heat) and jumped. Mounts marked **Fout** are not counted.
+
+Cows are kept by I&R life number, because collar numbers are given to a new cow once
+the old one leaves. `koeien.json` stores which number each cow had when, so history
+stays with the right cow.
+
+```text
+<feedback_directory>/koeien/
+├── koeien.json           cows and collar numbers with dates
+├── sprongen.jsonl        the two cows of every mount
+├── NL123456789/          photos of one cow (with .embeddings/ cache)
+├── onbekend/             photos marked unknown
+├── archief/NL…/          cows that left; not used for recognition
+└── .meldingen/<id>/      the two crops of each alert
+```
+
+Commands in the chat: `/koe 30 NL123456789 Bertha`, `/wissel 30 NL987654321` (asks
+whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeien`,
+`/overzicht 7`, `/help`. To add many cows at once, run
+`import-koeien export.csv` with a CSV of collar number, life number and optional name
+(headers such as `Werknummer;Levensnummer;Naam` are recognised).
+
+| Field                | Default       | Description |
+| :------------------- | :------------ | :---------- |
+| `directory`          | `<feedback_directory>/koeien` | Where cows, photos and mounts are kept. |
+| `segment_model`      | `"yolo11s.pt"` | Model that finds single cows; downloaded on first use. |
+| `segment_confidence` | `0.25`        | Minimum confidence of a single cow. |
+| `reid_model`         | DINOv2 small (Hugging Face) | ONNX model or URL for the embeddings; downloaded once to `.model/`. |
+| `accept_score`       | `0.85`        | Minimum similarity to fill in a cow without asking. |
+| `accept_margin`      | `0.05`        | How much the best cow must beat the next one. |
+| `min_photos`         | `5`           | Photos a cow needs before she is filled in without asking. |
+| `candidates`         | `3`           | Cows shown as buttons. |
 
 #### 🔗 Webhook (`webhook`)
 

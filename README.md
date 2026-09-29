@@ -114,8 +114,9 @@ Let op:
 - De naam mag hetzelfde zijn als de naam in UniFi, maar dat hoeft niet.
 
 Met `summary` worden detecties samengevoegd die kort na elkaar (binnen 2 minuten) op
-dezelfde plek in beeld zijn, of die tegelijk door twee camera's gezien worden. Koeien
-worden nog niet herkend: het gaat alleen om tijd en plek. Alleen de eerste detectie komt
+dezelfde plek in beeld zijn, of die tegelijk door twee camera's gezien worden. Het
+samenvoegen gaat alleen op tijd en plek; met `cows` (zie [Koeien herkennen](#koeien-herkennen))
+komt er een telling per koe bij. Alleen de eerste detectie komt
 als melding binnen; om 08:00 en 16:00 volgt een overzicht, bijvoorbeeld:
 
 ```text
@@ -148,6 +149,92 @@ hetzelfde moment als twee sprongen tellen. Alle teksten in Telegram zijn Nederla
 Iedere Telegram-melding bevat **Goed**- en **Fout**-knoppen. Goed bewaart de
 schone afbeelding en metadata in `data/good`; Fout bewaart ze in `data/bad`.
 Een gewijzigde keuze ruimt de eerdere classificatie automatisch op.
+
+## Koeien herkennen
+
+Met `cows` stuurt de bot bij elke melding twee foto's terug, één per koe, met knoppen:
+
+```text
+🐄 Koe A werd besprongen (gok)
+Wie is dit? Tik een nummer aan.
+[ 30 (Bertha) · 88% ] [ 12 · 81% ] [ 7 · 64% ]
+[ ✏️ Ander nummer ] [ ❔ Onbekend ]
+[ 🔄 Andersom (wie sprong) ] [ 🚫 Foto klopt niet ]
+```
+
+- Tik het juiste nummer aan, of kies **✏️ Ander nummer** en typ het nummer als antwoord.
+  Een koe die de bot nog niet kent, typ je als nummer en levensnummer:
+  `30 NL123456789`.
+- Elke keuze zet de foto in de map van die koe. Daarvan leert de herkenning, dus in het
+  begin moet je vaak tikken. Zodra een koe 5 foto's heeft en duidelijk herkend wordt, vult
+  de bot haar zelf in (`✅ 30 · herkend (93%)`); tik dan alleen nog als het fout is.
+- **🔄 Andersom** draait om wie sprong en wie besprongen werd. Met *(gok)* weet de bot
+  het niet zeker.
+- **🚫 Foto klopt niet**: de uitsnede toont niet één koe van de sprong. Die foto gaat
+  dan in geen enkele map.
+- Een sprong die je met **Fout** afkeurt, telt niet mee.
+
+Het overzicht van 08:00 en 16:00 krijgt dan een telling per koe:
+
+```text
+Per koe (🔥 = besprongen, mogelijk tochtig):
+🔥 30 (Bertha): 3× besprongen
+🔥 12: 1× besprongen, 1× gesprongen
+• 7: 2× gesprongen
+• Niet herkend: 1 koe
+```
+
+### Levensnummer en halsbandnummer
+
+Koeien worden bewaard op hun **I&R-levensnummer**. Het halsbandnummer is alleen een label
+met een datum, want nummer 30 gaat naar een pink als de oude 30 weg is. Zo blijven oude
+sprongen bij de oude koe. Commando's in de chat:
+
+| Commando | Wat het doet |
+| :------- | :----------- |
+| `/koe 30 NL123456789 Bertha` | Nummer 30 hoort bij deze koe (naam mag weg). |
+| `/wissel 30 NL987654321` | Nummer 30 gaat naar een andere koe. De bot vraagt of de oude koe weg is (dan gaat ze naar het archief en telt ze niet meer mee bij het herkennen) of dat alleen de halsbanden gewisseld zijn. |
+| `/weg 30` | De koe met nummer 30 is van het bedrijf; haar sprongen blijven bewaard. |
+| `/koeien` | Alle koeien met nummer, levensnummer en aantal foto's. |
+| `/overzicht 7` | Sprongen per koe over de laatste 7 dagen. |
+
+Alle koeien in één keer invoeren kan met een CSV-export uit het managementprogramma
+(kolommen zoals `Werknummer;Levensnummer;Naam`):
+
+```bash
+./aidetector-osx-v0.8.0.command import-koeien ~/Desktop/koeien.csv
+```
+
+Het levensnummer wordt op vorm gecontroleerd (landcode en 9 tot 12 cijfers), niet op het
+controlecijfer.
+
+### 4K-beelden
+
+Zonder 4K werkt het ook, maar dan op de uitsnede uit het 1280-beeld, waarin het vachtpatroon
+minder scherp is. Zet in UniFi Protect per camera de RTSPS-stream **High** aan en zet die
+adressen in `detection.hires`, in dezelfde volgorde als `source`:
+
+```json
+"detection": {
+	"source": ["rtsps://<nvr-ip>:7441/<sleutel-camera-1>", "..."],
+	"name": ["Stal Links PTZ Voorin", "..."],
+	"hires": {
+		"source": ["rtsps://<nvr-ip>:7441/<4k-sleutel-camera-1>", "..."]
+	}
+},
+"exporters": {
+	"telegram": {
+		"...": "...",
+		"summary": { "times": ["08:00", "16:00"] },
+		"cows": {}
+	}
+}
+```
+
+De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden.
+Elke 4K-stream kost ongeveer 350 MB geheugen. Een camera zonder 4K zet je op `null`.
+De mappen staan in `data/koeien/`; zie [detector/README.md](detector/README.md) voor
+alle opties.
 
 ## Detector starten
 

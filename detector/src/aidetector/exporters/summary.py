@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -119,6 +120,8 @@ class SummaryService:
         self.started = False
         self.records = self._load_records(datetime.now())
         self.messages = self._load_messages()
+        # Extra text per period, e.g. the mounts per cow.
+        self.overview: Callable[[datetime, datetime], str] | None = None
 
     def register(
         self, best_detection: Detection, detections: list[Detection]
@@ -245,14 +248,28 @@ class SummaryService:
             :BUTTON_LIMIT
         ]
         lines = [event for event in events if event not in buttons]
+        overview = self._overview(start, end)
         for index, event in enumerate(lines):
             line = f"\n• {event.line}"
-            if len(text) + len(line) + 30 > MESSAGE_LIMIT:
-                return text + f"\n… en nog {len(lines) - index} meer", buttons
+            if len(text) + len(line) + len(overview) + 30 > MESSAGE_LIMIT:
+                text += f"\n… en nog {len(lines) - index} meer"
+                break
             text += line
+        if len(text) + len(overview) + 50 <= MESSAGE_LIMIT:
+            text += overview
         if buttons:
             text += "\n\nTik op een moment om de melding te zien."
         return text.rstrip("\n"), buttons
+
+    def _overview(self, start: datetime, end: datetime) -> str:
+        if self.overview is None:
+            return ""
+        try:
+            return self.overview(start, end)
+        except Exception:
+            # The summary itself must still go out.
+            self.logger.exception("Failed to add the overview per cow")
+            return ""
 
     @staticmethod
     def reply_markup(events: list[MountEvent]) -> str | None:

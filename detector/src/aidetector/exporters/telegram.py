@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from aidetector.cows.service import CowService, get_cow_service
 from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
@@ -38,6 +39,7 @@ class TelegramFeedbackListener:
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.allowed_chats: set[str] = set()
         self.summaries: dict[str, SummaryService] = {}
+        self.cows: dict[str, CowService] = {}
         self.data_root = feedback_directory.expanduser().resolve()
         self.feedback_directory = self.data_root / ".telegram-feedback"
         self.offset = 0
@@ -50,6 +52,9 @@ class TelegramFeedbackListener:
 
     def register_summary(self, chat: str, summary: SummaryService) -> None:
         self.summaries[str(chat)] = summary
+
+    def register_cows(self, chat: str, cows: CowService) -> None:
+        self.cows[str(chat)] = cows
 
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)
@@ -113,7 +118,7 @@ class TelegramFeedbackListener:
                     params={
                         "offset": self.offset,
                         "timeout": 25,
-                        "allowed_updates": json.dumps(["callback_query"]),
+                        "allowed_updates": json.dumps(["callback_query", "message"]),
                     },
                     timeout=30,
                 )
@@ -123,6 +128,9 @@ class TelegramFeedbackListener:
                     callback = update.get("callback_query")
                     if callback:
                         self.process_callback(callback)
+                    message = update.get("message")
+                    if message:
+                        self.process_message(message)
             except Exception:
                 self.logger.exception("Failed to poll Telegram feedback")
                 self.stop_event.wait(5)
@@ -136,6 +144,12 @@ class TelegramFeedbackListener:
                 raise ValueError("Feedback came from an unconfigured chat")
 
             data = str(callback.get("data", ""))
+            if data.startswith(("cow:", "cowswitch:")):
+                cows = self.cows.get(chat)
+                if cows is None:
+                    raise ValueError("Cow button came from a chat without cows")
+                self._answer_callback(callback_id, cows.handle_callback(data))
+                return
             if data.startswith("summary:"):
                 summary = self.summaries.get(chat)
                 if summary is None:
@@ -153,6 +167,8 @@ class TelegramFeedbackListener:
                 raise ValueError("Invalid feedback data")
 
             self._classify(feedback_id, label)
+            if chat in self.cows:
+                self.cows[chat].feedback(feedback_id, label)
             requests.post(
                 f"{self.api_url}/editMessageReplyMarkup",
                 data={
@@ -172,6 +188,33 @@ class TelegramFeedbackListener:
                 "Opslaan mislukt, kijk in het log van de detector.",
                 alert=True,
             )
+
+    def process_message(self, message: dict[str, Any]) -> None:
+        """Passes typed commands and answers to the cow service of the chat."""
+        chat = str((message.get("chat") or {}).get("id", ""))
+        cows = self.cows.get(chat)
+        if chat not in self.allowed_chats or cows is None:
+            return
+        try:
+            reply = cows.handle_message(message)
+        except Exception:
+            self.logger.exception("Failed to handle Telegram message")
+            reply = "Dat ging mis, kijk in het log van de detector."
+        if reply is None:
+            return
+        try:
+            requests.post(
+                f"{self.api_url}/sendMessage",
+                data={
+                    "chat_id": chat,
+                    "text": reply,
+                    "reply_to_message_id": message.get("message_id"),
+                    "allow_sending_without_reply": True,
+                },
+                timeout=10,
+            )
+        except Exception:
+            self.logger.exception("Failed to reply to Telegram message")
 
     def _classify(self, feedback_id: str, label: str) -> None:
         if not feedback_id or any(
@@ -252,6 +295,7 @@ class TelegramExporter(WebhookExporter):
     alert_count: int
     feedback_listener: TelegramFeedbackListener
     summary: SummaryService | None
+    cows: CowService | None
 
     def __init__(self, config: ChatConfig):
         self.telegram = config
@@ -284,7 +328,20 @@ class TelegramExporter(WebhookExporter):
             if config.summary
             else None
         )
+        self.cows = (
+            get_cow_service(
+                config.token, config.chat, config.feedback_directory, config.cows
+            )
+            if config.cows
+            else None
+        )
+        if self.cows:
+            # Commands such as /koe work before the first alert.
+            self.feedback_listener.register_cows(config.chat, self.cows)
+            self.feedback_listener.start()
         if self.summary:
+            if self.cows:
+                self.summary.overview = self.cows.overview_text
             self.summary.start()
             # The summary buttons need the listener even before the first alert.
             self.feedback_listener.register_summary(config.chat, self.summary)
@@ -482,5 +539,13 @@ class TelegramExporter(WebhookExporter):
                     self.telegram.chat, messages[0]["message_id"], feedback_id
                 )
                 self.feedback_listener.start()
+                if self.cows and validated is not False:
+                    self.cows.submit(
+                        best_detection,
+                        detections,
+                        messages[0]["message_id"],
+                        event,
+                        feedback_id,
+                    )
         except Exception:
             self.logger.exception("Failed to send Telegram notification")
