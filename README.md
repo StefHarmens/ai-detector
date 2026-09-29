@@ -253,6 +253,44 @@ uv run python ../docs/demo/maak_demo.py
 De schermafbeeldingen hierboven maak je daarna opnieuw met `koeherkenning.html#chat`, dat
 alleen het gesprek toont.
 
+### Eerst zelf testen
+
+Wil je de koeherkenning eerst zelf proberen terwijl de boer alles houdt zoals het was, maak
+dan een tweede Telegram-bot en zet een tweede chat in de lijst onder `telegram`. De boer
+houdt zijn eigen bot en chat, zonder `cows`:
+
+```json
+"telegram": [
+	{
+		"token": "<bot-token-boer>",
+		"chat": "<chat-id-boer>",
+		"feedback_directory": "/Users/cowcatcher/Desktop/data",
+		"summary": { "times": ["08:00", "16:00"] }
+	},
+	{
+		"token": "<bot-token-test>",
+		"chat": "<jouw-chat-id>",
+		"feedback_directory": "/Users/cowcatcher/Desktop/data-test",
+		"summary": { "times": ["08:00", "12:00", "16:00", "20:00"] },
+		"cows": {
+			"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+			"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
+		}
+	}
+]
+```
+
+Gebruik echt een **aparte bot**: het commandomenu geldt voor alle chats van een bot, en
+twee chats met dezelfde bot maar een andere `feedback_directory` halen elkaars knoppen
+weg. De testchat krijgt een eigen `feedback_directory`, zodat jouw Goed/Fout-tikken niet
+bij de trainingsdata van de boer komen. Is het goed, zet `cows` dan bij de boer en kopieer
+`data-test/koeien` naar `data/koeien`, dan neemt hij de foto's die jij al hebt aangetikt
+mee.
+
+`detection.hires` geldt voor beide chats: de boer merkt daar niets van in Telegram, maar de
+Mac mini gebruikt dan wel ongeveer 350 MB per 4K-stream, en de schijf-export bewaart een
+extra `hires.jpg` per sprong.
+
 ### Levensnummer, halsbandnummer en werknummer
 
 Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe noemt, is

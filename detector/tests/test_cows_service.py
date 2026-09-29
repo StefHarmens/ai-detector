@@ -547,3 +547,50 @@ def test_telegram_alert_starts_recognition_and_routes_farmer_input(tmp_path, mon
         {"id": "cb", "data": "cow:abcd:0:u", "message": {"chat": {"id": "cow-chat"}, "message_id": 7}}
     )
     assert posts[-1][1]["data"]["text"] == "got cow:abcd:0:u"
+
+
+def test_a_test_chat_with_cows_leaves_the_farmers_chat_unchanged(tmp_path, monkeypatch):
+    """The farmer keeps the current alerts while a second bot sends the cow
+    recognition to another chat, e.g. to try it first."""
+    from aidetector.exporters.telegram import TelegramExporter, TelegramFeedbackListener
+    from aidetector.utils.config import ChatConfig
+
+    class AlertResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"ok": True, "result": [{"message_id": 42}]}
+
+    monkeypatch.setattr(TelegramFeedbackListener, "start", lambda self: None)
+    calls = []
+
+    def post(url, **kwargs):
+        calls.append(url)
+        return AlertResponse()
+
+    monkeypatch.setattr("aidetector.exporters.telegram.requests.post", post)
+    monkeypatch.setattr(service_module.requests, "post", post)
+    farmer = TelegramExporter(
+        ChatConfig(token="farmer-bot", chat="farmer", include_image=True, include_video=False,
+                   feedback_directory=tmp_path / "data")
+    )
+    test = TelegramExporter(
+        ChatConfig(token="test-bot", chat="stef", include_image=True, include_video=False,
+                   feedback_directory=tmp_path / "data-test", cows=CowsConfig())
+    )
+    submitted = []
+    monkeypatch.setattr(test.cows, "submit", lambda *args: submitted.append(args))
+    best, detections = mount()
+
+    for exporter in (farmer, test):
+        exporter.export(best, detections, True)
+
+    farmer_calls = [url.rsplit("/", 1)[-1] for url in calls if "/botfarmer-bot/" in url]
+    # The farmer gets the alert and Goed/Fout, as before: no cows, no menu.
+    assert farmer_calls == ["sendMediaGroup", "sendMessage"]
+    assert farmer.cows is None
+    assert len(submitted) == 1
+    # Each bot has its own listener, so the farmer's taps stay with the farmer.
+    assert farmer.feedback_listener is not test.feedback_listener
+    assert "farmer" not in test.feedback_listener.allowed_chats
