@@ -26,6 +26,10 @@ _ROLE_MIN_MOTION = 0.15
 _CROP_PADDING = 0.1
 # A box that nearly covers the mount box is both cows seen as one.
 _PAIR_IOU = 0.6
+# Share of a cow box inside the mount box to count as the mounted cow.
+_MOUNTED_INSIDE = 0.25
+# Without her box, this much around the mount box shows her in full.
+_MOUNTED_GROW = 1.8
 
 
 @dataclass
@@ -62,6 +66,10 @@ def grow(box: Box, scale: float) -> Box:
         min(1.0, cx + half_w),
         min(1.0, cy + half_h),
     )
+
+
+def union(a: Box, b: Box) -> Box:
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
 
 
 def center(box: Box) -> tuple[float, float]:
@@ -162,6 +170,25 @@ class CowSplitter:
             certain=certain,
             date=date,
         )
+
+    def mounted_region(self, image: ndarray, mount: Box) -> Box:
+        """The area that shows the mounted cow in full on a frame of the jump.
+        The mount box fits the mounter; the cow below sticks out of it with her
+        head. She is the cow that is partly inside the mount box and reaches
+        furthest out of it: the detector also finds pieces of the mounter, such
+        as her back, that lie fully inside and add nothing. Without such a cow a
+        wider area is used."""
+        outside = [
+            (area(box) - intersection(box, mount), box)
+            for box in self._cows(image, mount)
+            if area(box) > 0
+            and iou(box, mount) < _PAIR_IOU
+            and intersection(box, mount) / area(box) >= _MOUNTED_INSIDE
+        ]
+        reach, box = max(outside, default=(0.0, None), key=lambda item: item[0])
+        if box is not None and reach > 0:
+            return union(mount, box)
+        return grow(mount, _MOUNTED_GROW)
 
     def _cows(self, image: ndarray, mount: Box) -> list[Box]:
         """Runs the detector on the area around the mount, which keeps the cows

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-from aidetector.cows.split import CowSplitter, grow, pick_pair
+from aidetector.cows.split import CowSplitter, grow, pick_pair, union
 
 START = datetime(2026, 10, 2, 8, 0, 0)
 MOUNT = (0.40, 0.40, 0.60, 0.70)
@@ -97,3 +97,21 @@ def test_a_cow_lying_next_to_the_mount_is_not_one_of_the_pair():
 
     assert pick_pair([both, neighbour, STILL], MOUNT) == [STILL]
     assert CowSplitter(fake_detector({0: [both, neighbour, STILL]})).split(frames, MOUNT, START) is None
+
+
+def test_the_mounted_cow_photo_includes_the_cow_below():
+    # The pair seen as one fits the mount box; the cow below sticks out.
+    both = (0.41, 0.41, 0.59, 0.69)
+    below = (0.50, 0.50, 0.75, 0.66)
+    # After JPEG storage the detector also found the mounter's back.
+    back = (0.42, 0.41, 0.59, 0.47)
+    splitter = CowSplitter(fake_detector({0: [both, back, below]}))
+
+    assert splitter.mounted_region(frame(0), MOUNT) == pytest.approx(union(MOUNT, below))
+
+
+def test_the_mounted_cow_photo_is_wider_without_her_box():
+    lying_far = (0.62, 0.40, 0.80, 0.50)
+    splitter = CowSplitter(fake_detector({0: [lying_far]}))
+
+    assert splitter.mounted_region(frame(0), MOUNT) == pytest.approx(grow(MOUNT, 1.8))

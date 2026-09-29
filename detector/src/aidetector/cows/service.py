@@ -21,8 +21,14 @@ from aidetector.cows.registry import (
     normalize_number,
 )
 from aidetector.cows.reid import Gallery, dinov2_embedder, model_file
-from aidetector.cows.split import Box, CowPair, CowSplitter, yolo_cow_detector
-from aidetector.media.video import get_crop, get_image, telegram_photo
+from aidetector.cows.split import (
+    Box,
+    CowPair,
+    CowSplitter,
+    crop_box,
+    yolo_cow_detector,
+)
+from aidetector.media.video import get_image, telegram_photo
 from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import CowsConfig, Detection
 
@@ -196,7 +202,7 @@ class CowService:
             feedback=feedback,
             alert=alert,
         )
-        crops = self._crops(sighting, pair, best_detection)
+        crops = self._crops(sighting, pair, best_detection, splitter, box)
         if pair is not None:
             embeddings = [gallery.match(crop)[1] for crop in crops]
             sighting.candidates = [
@@ -230,22 +236,28 @@ class CowService:
             return self.splitter, self.gallery
 
     def _crops(
-        self, sighting: Sighting, pair: CowPair | None, best_detection: Detection
+        self,
+        sighting: Sighting,
+        pair: CowPair | None,
+        best_detection: Detection,
+        splitter: CowSplitter,
+        box: Box,
     ) -> list[ndarray]:
         if pair is not None:
             sighting.split = True
             sighting.mounter = pair.mounter
             sighting.role_certain = pair.certain
             return pair.crops
-        # Both photos show the whole mount; the farmer picks the cow per role.
+        # Photos of the jump, one per role, for the farmer to answer; both
+        # cows are on them, so they never go into a cow folder.
         sighting.split = False
         sighting.mounter = 0
         sighting.role_certain = True
-        detection = hires_detection(best_detection) or best_detection
-        crop = get_crop(detection, aspect_ratio=None, padding=0.3, plot=False)
-        if crop is None:
-            crop = detection.images.jpg
-        return [crop, crop]
+        image = (hires_detection(best_detection) or best_detection).images.jpg
+        # The mount box fits the mounter; the cow below needs a wider view.
+        mounter = crop_box(image, box, padding=0.15)
+        mounted = crop_box(image, splitter.mounted_region(image, box), padding=0.1)
+        return [mounter, mounted]
 
     def _accept(
         self, sighting: Sighting, scores: list[list[tuple[str, float]]]

@@ -58,6 +58,11 @@ class FakeSplitter:
     def split(self, frames, mount, start):
         return self.pair
 
+    def mounted_region(self, image, mount):
+        from aidetector.cows.split import grow
+
+        return grow(mount, 1.8)
+
 
 class FakeGallery:
     def __init__(self, scores: list[list[tuple[str, float]]]):
@@ -264,6 +269,10 @@ def test_without_two_cows_both_photos_show_the_mount(tmp_path, telegram):
     assert photos[0]["caption"].startswith("🐄 Welke koe sprong?")
     assert photos[1]["caption"].startswith("🐄 Welke koe werd besprongen?")
     assert not sighting.split
+    # The mounted cow gets a wider photo than the mounter.
+    folder = tmp_path / ".meldingen" / sighting.id
+    mounter, mounted = (cv2.imread(str(folder / f"{slot}.jpg")) for slot in "AB")
+    assert mounted.shape[0] > mounter.shape[0] and mounted.shape[1] > mounter.shape[1]
     # The photo shows both cows, so it is never filed in a cow folder.
     service.handle_callback(f"cow:{sighting.id}:1:u")
     assert not (tmp_path / "onbekend").exists()
