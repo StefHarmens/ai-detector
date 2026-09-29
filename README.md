@@ -232,7 +232,9 @@ adressen in `detection.hires`, in dezelfde volgorde als `source`:
 ```
 
 De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden.
-Elke 4K-stream kost ongeveer 350 MB geheugen. Een camera zonder 4K zet je op `null`.
+Elke 4K-stream kost ongeveer 350 MB geheugen. Telegram weigert foto's boven 10 MB en toont
+ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
+onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit. Een camera zonder 4K zet je op `null`.
 De mappen staan in `data/koeien/`; zie [detector/README.md](detector/README.md) voor
 alle opties.
 

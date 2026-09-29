@@ -126,6 +126,10 @@ the last `seconds` are kept as JPEG. When an event is exported, the frames from
 jump to tell the two cows apart. FFmpeg decodes with `hwaccel` (VideoToolbox on a Mac);
 each 4K stream takes about 350 MB of memory and a few percent of one CPU core.
 
+Telegram refuses photos over 10 MB and shows them at most 2560 px on the long side, so
+every photo sent to Telegram is scaled to 2560 px and compressed below 9.5 MB. The cow
+folders and `hires.jpg` on disk keep the full 4K detail.
+
 ```json
 "hires": {
   "source": ["rtsps://nvr:7441/<4k-key-1>", null, "rtsps://nvr:7441/<4k-key-3>"]

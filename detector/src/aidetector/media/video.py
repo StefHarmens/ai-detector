@@ -296,6 +296,25 @@ def compress_jpg(
     return jpg
 
 
+# Telegram refuses photos over 10 MB and shows them at most 2560 px on the long
+# side, so a 4K frame is sent smaller. Videos may be larger (50 MB).
+TELEGRAM_PHOTO_MAX = 9_500_000
+TELEGRAM_PHOTO_SIDE = 2560
+
+
+def telegram_photo(image: np.ndarray) -> bytes:
+    """Encodes an image as a JPEG that Telegram accepts as a photo."""
+    height, width = image.shape[:2]
+    if max(height, width) > TELEGRAM_PHOTO_SIDE:
+        scale = TELEGRAM_PHOTO_SIDE / max(height, width)
+        image = cv2.resize(
+            image,
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+    return compress_jpg(image, TELEGRAM_PHOTO_MAX) or get_image(image, 90)
+
+
 def get_crop(
     detection: Detection,
     crop: Crop | None = None,

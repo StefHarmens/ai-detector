@@ -12,11 +12,11 @@ from aidetector.cows.service import CowService, get_cow_service
 from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
-    compress_jpg,
     generate_mp4,
     get_crop,
     get_image,
     get_plot,
+    telegram_photo,
 )
 from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import (
@@ -356,15 +356,11 @@ class TelegramExporter(WebhookExporter):
         files = {}
         media = []
 
+        # data_max is for the video; photos have Telegram's own, lower limit.
         if self.telegram.include_image:
-            image = get_image(best_detection.images.jpg)
-            if self.config.data_max is not None:
-                compressed = compress_jpg(best_detection.images.jpg, self.config.data_max)
-                if compressed is not None:
-                    image = compressed
             files["image"] = (
                 get_timestamped_filename(best_detection),
-                image,
+                telegram_photo(best_detection.images.jpg),
                 "image/jpeg",
             )
             media.append(
@@ -375,15 +371,9 @@ class TelegramExporter(WebhookExporter):
             )
 
         if self.telegram.include_plot:
-            image = get_plot(best_detection)
-            photo = get_image(image)
-            if self.config.data_max is not None:
-                compressed = compress_jpg(image, self.config.data_max)
-                if compressed is not None:
-                    photo = compressed
             files["photo"] = (
                 get_timestamped_filename(best_detection),
-                photo,
+                telegram_photo(get_plot(best_detection)),
                 "image/jpeg",
             )
             media.append(
@@ -397,14 +387,9 @@ class TelegramExporter(WebhookExporter):
             # The 4K frame shows the coat pattern much sharper than the detection frame.
             c = get_crop(hires_detection(best_detection) or best_detection)
             if c is not None:
-                crop = get_image(c)
-                if self.config.data_max is not None:
-                    compressed = compress_jpg(c, self.config.data_max)
-                    if compressed is not None:
-                        crop = compressed
                 files["crop"] = (
                     f"{get_timestamped_filename(best_detection).replace('.jpg', '_crop.jpg')}",
-                    crop,
+                    telegram_photo(c),
                     "image/jpeg",
                 )
                 media.append(
@@ -439,7 +424,7 @@ class TelegramExporter(WebhookExporter):
             fallback = get_plot(best_detection) if self.telegram.include_plot else best_detection.images.jpg
             files["image"] = (
                 get_timestamped_filename(best_detection),
-                get_image(fallback),
+                telegram_photo(fallback),
                 "image/jpeg",
             )
             media.append(

@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Any
 
+import cv2
 import requests
 from numpy import ndarray
 
@@ -21,7 +22,7 @@ from aidetector.cows.registry import (
 )
 from aidetector.cows.reid import Gallery, dinov2_embedder, model_file
 from aidetector.cows.split import Box, CowPair, CowSplitter, yolo_cow_detector
-from aidetector.media.video import get_crop, get_image
+from aidetector.media.video import get_crop, get_image, telegram_photo
 from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import CowsConfig, Detection
 
@@ -286,7 +287,11 @@ class CowService:
             if sighting.alert is not None:
                 data["reply_to_message_id"] = str(sighting.alert)
                 data["allow_sending_without_reply"] = "true"
-            photo = (folder / f"{SLOT_NAMES[slot]}.jpg").read_bytes()
+            # The folder keeps full quality for recognition; Telegram gets a
+            # photo within its limits.
+            photo = telegram_photo(
+                cv2.imread(str(folder / f"{SLOT_NAMES[slot]}.jpg"))
+            )
             result = _call(
                 self.api_url,
                 "sendPhoto",
