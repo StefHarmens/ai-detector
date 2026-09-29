@@ -148,7 +148,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | `before_seconds` | `10`         | How far before the event the frames start. |
 | `quality`        | `85`         | JPEG quality of the kept frames. |
 | `hwaccel`        | `"auto"`     | FFmpeg hardware decoding; `null` to decode on the CPU. |
-| `keyframes_only` | `true`       | Decode only the keyframes of a separate stream: about a third less memory and half the CPU per 4K stream. Frames then come at most once per keyframe interval of the camera; the log says how often. |
+| `keyframes_only` | `true`       | Decode only the keyframes of a separate stream: about a third less memory and half the CPU per 4K stream. A camera whose keyframes are more than 2 s apart (UniFi sends one every 5 s) is decoded in full after all, since the 4K frame would be too far from the detection frame; the log says so per camera. |
 | `max_width`      | `2560`       | Kept frames are made this wide at most, which halves their memory. Telegram shows photos at most 2560 px; `null` keeps full 4K. |
 
 ---

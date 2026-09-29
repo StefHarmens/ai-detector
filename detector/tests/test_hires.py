@@ -235,3 +235,51 @@ def test_a_hold_that_is_never_released_is_capped():
     for minute in range(10):
         buffer.add(HiresFrame(START + timedelta(minutes=minute), b""))
     assert buffer.frames[0].date >= START + timedelta(minutes=6)
+
+
+def test_sparse_keyframes_switch_the_stream_to_all_frames(caplog):
+    import logging
+
+    buffer = HiresBuffer("rtsps://nvr/key", HiresConfig(source="x"), "Stal Links")
+    assert "-skip_frame" in buffer.command()
+
+    with caplog.at_level(logging.INFO, logger="aidetector.sources.hires"):
+        # UniFi sends a keyframe every 5 s.
+        buffer.add(HiresFrame(START, jpeg()))
+        buffer.add(HiresFrame(START + timedelta(seconds=5), jpeg()))
+
+    assert buffer.switch_to_all_frames
+    assert "-skip_frame" not in buffer.command()
+    assert "fps=1" in " ".join(buffer.command())
+    assert "keyframes are too far apart, decoding all frames instead" in caplog.records[-1].getMessage()
+
+
+def test_frequent_keyframes_stay(caplog):
+    buffer = HiresBuffer("rtsps://nvr/key", HiresConfig(source="x"), "Stal Links")
+    buffer.add(HiresFrame(START, jpeg()))
+    buffer.add(HiresFrame(START + timedelta(seconds=1), jpeg()))
+
+    assert not buffer.switch_to_all_frames
+    assert "-skip_frame" in buffer.command()
+
+
+def test_switching_restarts_the_stream_with_all_frames(tmp_path):
+    video = tmp_path / "sparse.mp4"
+    # 12 s at 5 fps with a keyframe every 5 s, played in real time.
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc=size=640x360:rate=5:duration=12", "-g", "25",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(video),
+        ],
+        check=True,
+    )
+    buffer = HiresBuffer(str(video), HiresConfig(source=str(video), hwaccel=None))
+    # Frames from a file come faster than real time; date them as a camera would.
+    dates = iter(START + timedelta(seconds=5 * index) for index in range(100))
+    original_add = buffer.add
+    buffer.add = lambda frame: original_add(HiresFrame(next(dates), frame.jpeg))
+
+    buffer._read()
+
+    assert not buffer.keyframes and buffer.switch_to_all_frames

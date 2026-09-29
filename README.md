@@ -403,10 +403,10 @@ gedecodeerd en wordt de detectie flink trager.
 De detector bewaart van elke camera 1 beeld per seconde van de laatste 20 seconden, op
 hooguit 2560 pixels breed (zo groot toont Telegram ze ook). Begint er een sprong, dan houdt
 hij de beelden vast vanaf 10 seconden ervoor tot de sprong is afgehandeld, hoe lang die ook
-duurt. Bij een aparte 4K-stream (`hires.source`) decodeert hij alleen de sleutelbeelden:
-ongeveer 190 MB per stream in plaats van 420 MB, en de helft van de rekentijd. In het log
-staat per camera hoe vaak er een beeld komt; komt dat te weinig voor, zet dan
-`"keyframes_only": false`. Telegram weigert foto's boven 10 MB en toont
+duurt. Bij een aparte 4K-stream (`hires.source`) decodeert hij eerst alleen de sleutelbeelden:
+ongeveer 190 MB per stream in plaats van 420 MB. Komen die minder vaak dan om de 2 seconden
+(UniFi stuurt er een om de 5 seconden), dan zou het 4K-beeld te ver van de detectie
+liggen; hij decodeert die camera dan toch helemaal (ongeveer 330 MB) en zegt dat in het log. Telegram weigert foto's boven 10 MB en toont
 ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
 onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
 

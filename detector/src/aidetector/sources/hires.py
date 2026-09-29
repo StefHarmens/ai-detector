@@ -27,6 +27,10 @@ _JPEG_END = b"\xff\xd9"
 _READ_SIZE = 1 << 16
 # Frames are never held longer than this, even if a mount is not released.
 _MAX_HOLD = timedelta(minutes=3)
+# Keyframes this far apart (UniFi sends one every 5 s) put the 4K frame too
+# far from the detection frame and leave too few frames around a mount, so
+# such a stream is decoded in full after all.
+_MAX_KEYFRAME_INTERVAL = 2.0
 
 
 def split_jpegs(buffer: bytearray) -> list[bytes]:
@@ -61,6 +65,9 @@ class HiresBuffer:
         self.fed = 0.0
         self.first: datetime | None = None
         self.interval_logged = False
+        # Starts as configured; switches off when the keyframes are too sparse.
+        self.keyframes = config.keyframes_only
+        self.switch_to_all_frames = False
         # Start of the frames to keep while a mount is going on.
         self.held: datetime | None = None
         self.frames: deque[HiresFrame] = deque()
@@ -103,11 +110,11 @@ class HiresBuffer:
         # Frame threads each hold 4K frames: one thread halves the memory
         # (about 350 MB per camera), and hardware decoding needs no more.
         command += ["-threads", "1"]
-        if self.config.keyframes_only:
+        if self.keyframes:
             command += ["-skip_frame", "nokey"]
         # FFmpeg's qscale 2 (best) to 31 (worst), mapped from a JPEG quality.
         qscale = max(2, min(31, round(31 - (self.config.quality / 100) * 29)))
-        if self.config.keyframes_only:
+        if self.keyframes:
             # At most one frame per 1/fps seconds, without the duplicates the
             # fps filter adds when keyframes come less often.
             filters = [
@@ -182,11 +189,20 @@ class HiresBuffer:
                 logger.warning("High-resolution frame from %s cannot be decoded", self.name)
         elif not self.interval_logged and frame.date > self.first:
             self.interval_logged = True
-            logger.info(
-                "High-resolution frames from %s every %.1f s",
-                self.name,
-                (frame.date - self.first).total_seconds(),
-            )
+            interval = (frame.date - self.first).total_seconds()
+            if self.keyframes and interval > _MAX_KEYFRAME_INTERVAL:
+                logger.info(
+                    "High-resolution frames from %s every %.1f s: keyframes are too far"
+                    " apart, decoding all frames instead",
+                    self.name,
+                    interval,
+                )
+                self.keyframes = False
+                self.switch_to_all_frames = True
+                # Measure again once all frames are decoded.
+                self.first, self.interval_logged = None, False
+            else:
+                logger.info("High-resolution frames from %s every %.1f s", self.name, interval)
 
     def frames_between(self, start: datetime, end: datetime) -> list[HiresFrame]:
         with self.lock:
@@ -198,6 +214,9 @@ class HiresBuffer:
                 self._read()
             except Exception:
                 logger.exception("High-resolution stream failed for %s", self.name)
+            if self.switch_to_all_frames:
+                self.switch_to_all_frames = False
+                continue
             self.stop_event.wait(5)
 
     def _read(self) -> None:
@@ -225,12 +244,14 @@ class HiresBuffer:
                 buffer += chunk
                 for jpeg in split_jpegs(buffer):
                     self.add(HiresFrame(datetime.now(), jpeg))
+                if self.switch_to_all_frames:
+                    return
         finally:
             if self.process.poll() is None:
                 self.process.kill()
             code = self.process.wait()
             drain.join(timeout=2)
-            if not self.stop_event.is_set():
+            if not self.stop_event.is_set() and not self.switch_to_all_frames:
                 logger.warning(
                     "High-resolution stream of %s stopped (exit %s), retrying in 5 s: %s",
                     self.name,

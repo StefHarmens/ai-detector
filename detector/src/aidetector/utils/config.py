@@ -149,7 +149,8 @@ class HiresConfig:
     quality: int = 85
     hwaccel: str | None = "auto"
     # Decode only the keyframes of a separate stream: far less memory and CPU,
-    # at most one frame per keyframe interval of the camera (often 1-2 s).
+    # at most one frame per keyframe interval of the camera. A camera whose
+    # keyframes are more than 2 s apart (UniFi: 5 s) is decoded in full.
     keyframes_only: bool = True
     # Kept frames are made this wide at most. Telegram shows photos at most
     # 2560 px, and a cow crop stays twice as sharp as from the 1280 frame, at
