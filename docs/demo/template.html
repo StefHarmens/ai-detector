@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CowCatcher koeherkenning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a phone-width chat replay on the right, the explanation of what is real and what is simulated beside it; stacked on a phone. */
+:root {
+  --ground: #e6ebe4;
+  --chat: #d7dfd3;
+  --surface: #ffffff;
+  --mine: #dcefd0;
+  --ink: #1c2420;
+  --muted: #5d6b63;
+  --line: #c3ccc0;
+  --accent: #a3372a;
+  --accent-soft: #f4dcd6;
+  --button: #eef2ec;
+  --button-ink: #24463a;
+  --note: #fbf6e4;
+  --note-line: #d9b44a;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "Figtree", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #141a17; --chat: #1b2320; --surface: #26302b; --mine: #2d4a36;
+    --ink: #e7ece8; --muted: #9caba2; --line: #34413a;
+    --accent: #e0796a; --accent-soft: #4a2622; --button: #2f3a34; --button-ink: #cfe6d6;
+    --note: #2e2a1c; --note-line: #b8952f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #141a17; --chat: #1b2320; --surface: #26302b; --mine: #2d4a36;
+  --ink: #e7ece8; --muted: #9caba2; --line: #34413a;
+  --accent: #e0796a; --accent-soft: #4a2622; --button: #2f3a34; --button-ink: #cfe6d6;
+  --note: #2e2a1c; --note-line: #b8952f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground); color: var(--ink); font-family: var(--body);
+  font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 28px 48px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 440px); align-items: start; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+header { grid-column: 1 / -1; display: grid; gap: 6px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-size: clamp(28px, 4vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; max-width: 62ch; color: var(--muted); font-size: 16px; }
+aside { display: grid; gap: 22px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+@media (max-width: 860px) { aside { position: static; order: 2; } }
+aside h2 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
+aside ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+aside p { margin: 0; }
+.facts { display: grid; gap: 14px; }
+.fact { border-top: 1px solid var(--line); padding-top: 12px; }
+.tag { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 4px; margin-bottom: 6px; }
+.tag.real { background: var(--button); color: var(--button-ink); }
+.tag.fake { background: var(--accent-soft); color: var(--accent); }
+.finding { display: grid; gap: 8px; background: var(--note); border-left: 3px solid var(--note-line); padding: 12px 14px; border-radius: 0 6px 6px 0; }
+.phone { background: var(--chat); border-radius: 22px; border: 1px solid var(--line); overflow: hidden; display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center;
+  font-family: var(--display); font-weight: 700; font-size: 15px; flex: none; }
+.bar strong { display: block; font-size: 15px; }
+.bar span { color: var(--muted); font-size: 12px; }
+.log { padding: 14px 12px 18px; display: flex; flex-direction: column; gap: 8px; max-height: 78vh; overflow-y: auto; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
+.row { display: flex; flex-direction: column; max-width: 88%; min-width: 0; }
+.row.bot { align-self: flex-start; }
+.row.me { align-self: flex-end; align-items: flex-end; }
+.bubble { background: var(--surface); border-radius: 14px 14px 14px 4px; padding: 7px 10px 6px; min-width: 0;
+  box-shadow: 0 1px 0 rgba(0,0,0,.06); overflow-wrap: anywhere; }
+.me .bubble { background: var(--mine); border-radius: 14px 14px 4px 14px; }
+.bubble.photo { padding: 4px 4px 6px; }
+.bubble img { display: block; border-radius: 10px; max-width: 100%; }
+.bubble img.cow { height: 190px; width: auto; max-width: 100%; object-fit: contain; background: #0f1411; margin: 0 auto; }
+.text { white-space: pre-line; padding: 4px 6px 0; }
+.photo .text { padding: 6px 6px 0; }
+.quote { border-left: 3px solid var(--accent); padding: 2px 8px; margin: 2px 0 4px; font-size: 13px; color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 0 6px 6px 0; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.doc { margin: 6px 0 2px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--surface) 60%, transparent);
+  font: 12px/1.45 var(--mono); overflow-x: auto; white-space: pre; }
+.ask { font-size: 12px; color: var(--muted); padding: 2px 6px 0; font-style: italic; }
+.keys { display: grid; gap: 4px; margin-top: 4px; }
+.keys div { display: flex; gap: 4px; flex-wrap: wrap; }
+.keys span { flex: 1 1 0; min-width: max-content; background: color-mix(in srgb, var(--surface) 70%, var(--button)); color: var(--button-ink);
+  border-radius: 8px; padding: 6px 8px; font-size: 13px; font-weight: 500; text-align: center; transition: background .2s, transform .2s; }
+.keys span.pressed { background: var(--accent); color: #fff; transform: scale(.97); }
+.changed { animation: flash 1.2s ease-out; }
+@keyframes flash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 1px 0 rgba(0,0,0,.06); } }
+@media (prefers-reduced-motion: reduce) { .changed { animation: none; } .keys span { transition: none; } }
+.center { align-self: center; font-size: 12px; color: var(--muted); text-align: center; max-width: 90%; }
+.time { font-family: var(--mono); background: color-mix(in srgb, var(--surface) 55%, transparent); padding: 2px 10px; border-radius: 10px; }
+.tap { font-style: italic; }
+.toast { background: var(--ink); color: var(--ground); padding: 4px 10px; border-radius: 12px; font-size: 12px; }
+.note { align-self: stretch; background: var(--note); border-left: 3px solid var(--note-line); border-radius: 0 8px 8px 0;
+  padding: 8px 12px; font-size: 13.5px; margin: 6px 0; }
+.note b { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); display: block; }
+.example { align-self: stretch; display: grid; gap: 8px; border: 1.5px dashed var(--note-line); border-radius: 12px; padding: 10px; margin: 6px 0; }
+.example > b { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.example > p { margin: 0; font-size: 13px; color: var(--muted); }
+.placeholder { height: 120px; border-radius: 10px; display: grid; place-items: center; font-size: 12px; color: var(--muted);
+  background: repeating-linear-gradient(45deg, var(--button), var(--button) 8px, var(--surface) 8px, var(--surface) 16px); }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; background: var(--surface); border-top: 1px solid var(--line); align-items: center; }
+button { font: 600 14px var(--body); border-radius: 10px; border: 1px solid var(--line); background: var(--button); color: var(--button-ink);
+  padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:focus-visible { outline: 3px solid var(--note-line); outline-offset: 2px; }
+button:disabled { opacity: .45; cursor: default; }
+.chat-only header, .chat-only aside, .chat-only .controls { display: none; }
+.chat-only .wrap { grid-template-columns: minmax(0, 1fr); max-width: 460px; }
+.chat-only .log { max-height: none; }
+.progress { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Demo · PR #9 · koeherkenning</div>
+    <h1>Zo ziet de boer het in Telegram</h1>
+    <p class="lede">Drie echte sprongen uit de stal, door de nieuwe code gehaald. Alles wat de bot hieronder zegt en toont, komt uit die code; alleen de verbinding met Telegram is nagebootst. Eén blok is een voorbeeld en staat er zo ook bij.</p>
+  </header>
+
+  <aside>
+    <section>
+      <h2>Wat je ziet</h2>
+      <ul>
+        <li>Koeien en pinken in één keer: de CSV-export naar de bot sturen</li>
+        <li>Pinken zonder halsband komen erin op werknummer, met naam</li>
+        <li>Per sprong één foto met beide koeien</li>
+        <li>Antwoorden op die foto: <code>30 12</code>, een naam, of <code>?</code></li>
+        <li>Een nieuwe koe met haar levensnummer</li>
+        <li>Een voorbeeld van de knoppen zodra de bot koeien herkent</li>
+        <li>Nummer 12 naar een pink met <code>/wissel</code>, en pink Anna die na het afkalven halsband 31 krijgt</li>
+        <li>Het overzicht van 18:00 met de telling per koe</li>
+      </ul>
+    </section>
+    <section class="facts">
+      <h2>Echt en nagebootst</h2>
+      <div class="fact"><span class="tag real">echt</span><p>De code uit PR #9, het koemodel (YOLO11s-seg, dat ook de stal wegmaskeert) en DINOv2, de stalbeelden uit <code>example/good</code> en de percentages op de knoppen.</p></div>
+      <div class="fact"><span class="tag fake">nagebootst</span><p>Telegram zelf, en het blok met de herkende koeien (zonder foto). Van de pinkenstal zijn geen beelden, dus de pinken zie je in de CSV en de commando's; de drie sprongen komen uit de koeienstal. Het is het 1280-beeld, geen 4K. De koeien en levensnummers (NL000000030 …) zijn verzonnen, en de antwoorden van de boer heb ik zelf gespeeld.</p></div>
+    </section>
+    <div class="finding">
+      <h2>Wat er in deze versie bij is</h2>
+      <p>Pinken zonder halsband: de CSV neemt per regel het halsbandnummer, en anders het werknummer. De bot zegt hoeveel dieren op welk nummer zijn gekomen. Antwoorden en <code>/weg</code> werken ook met een naam.</p>
+      <p>Een pink die afkalft, krijgt met <code>/koe</code> haar halsbandnummer en blijft hetzelfde dier. De koeien- en pinkencamera delen één register; elke chat telt zijn eigen sprongen.</p>
+      <p>Verder: één bericht per sprong, de stal weggemaskeerd bij het herkennen (andere koeien die als dezelfde scoren: van 33,5% naar 2,1%), en beelden van ná de sprong als tweede kans om te splitsen.</p>
+    </div>
+  </aside>
+
+  <div class="phone" aria-label="Chat met de CowCatcher-bot">
+    <div class="bar">
+      <div class="avatar" aria-hidden="true">CC</div>
+      <div><strong>CowCatcher</strong><span id="day">bot · demo</span></div>
+    </div>
+    <div class="log" id="log" aria-live="polite"></div>
+    <div class="controls">
+      <button class="primary" id="next" type="button">Volgende stap</button>
+      <button id="all" type="button">Alles tonen</button>
+      <button id="restart" type="button">Opnieuw</button>
+      <span class="progress" id="progress"></span>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="data">__DATA__</script>
+<script>
+(() => {
+  const steps = JSON.parse(document.getElementById("data").textContent);
+  const log = document.getElementById("log");
+  const progress = document.getElementById("progress");
+  const nextButton = document.getElementById("next");
+  const messages = new Map();
+  const texts = new Map();
+
+  // A chunk is one thing the farmer does plus how the bot reacts, so each
+  // click shows one exchange.
+  const chunks = [];
+  steps.forEach((step, index) => {
+    if (index === 0 || ["time", "farmer", "tap", "example"].includes(step.type)) chunks.push([]);
+    chunks[chunks.length - 1].push(step);
+  });
+  let shown = 0;
+
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  const keys = (rows) => {
+    const box = el("div", "keys");
+    rows.forEach((row) => {
+      const line = el("div");
+      row.forEach((b) => line.appendChild(el("span", "", b.text)));
+      box.appendChild(line);
+    });
+    return box;
+  };
+
+  const quote = (id) => {
+    if (!id || !texts.has(id)) return null;
+    return el("div", "quote", texts.get(id).split("\n")[0] || "Foto");
+  };
+
+  function render(step, animate) {
+    if (step.type === "time") {
+      log.appendChild(el("div", "center time", step.text));
+    } else if (step.type === "note") {
+      const note = el("div", "note");
+      note.appendChild(el("b", "", "Uitleg"));
+      note.appendChild(document.createTextNode(step.text));
+      log.appendChild(note);
+    } else if (step.type === "message" || step.type === "farmer") {
+      const mine = step.type === "farmer";
+      const row = el("div", "row " + (mine ? "me" : "bot"));
+      const bubble = el("div", "bubble" + (step.kind === "photo" ? " photo" : ""));
+      const q = quote(step.reply_to);
+      if (q) bubble.appendChild(q);
+      if (step.image) {
+        const img = el("img", "");
+        img.src = "data:image/jpeg;base64," + step.image;
+        img.alt = step.text.startsWith("🐄") ? "Foto van beide koeien naast elkaar" : "Melding: beeld van de sprong met kader";
+        bubble.appendChild(img);
+      }
+      const text = el("div", "text", step.text);
+      bubble.appendChild(text);
+      if (step.document) {
+        const doc = el("pre", "doc", step.document.trim());
+        bubble.appendChild(doc);
+      }
+      if (step.force_reply !== undefined) bubble.appendChild(el("div", "ask", "↩︎ De bot wacht op een getypt antwoord"));
+      row.appendChild(bubble);
+      let box = null;
+      if (step.buttons && step.buttons.length) { box = keys(step.buttons); row.appendChild(box); }
+      log.appendChild(row);
+      messages.set(step.id, { bubble, text, row, box });
+      texts.set(step.id, step.text);
+    } else if (step.type === "edit") {
+      const target = messages.get(step.id);
+      if (!target) return;
+      if (step.text !== undefined && step.text !== target.text.textContent) {
+        target.text.textContent = step.text;
+        texts.set(step.id, step.text);
+        if (animate) { target.bubble.classList.remove("changed"); void target.bubble.offsetWidth; target.bubble.classList.add("changed"); }
+      }
+      const box = keys(step.buttons);
+      if (target.box) target.box.replaceWith(box); else target.row.appendChild(box);
+      target.box = box;
+    } else if (step.type === "tap") {
+      const target = messages.get(step.id);
+      if (target && target.box) {
+        target.box.querySelectorAll("span").forEach((span) => {
+          if (span.textContent === step.text) {
+            span.classList.add("pressed");
+            if (animate) setTimeout(() => span.classList.remove("pressed"), 1400);
+          }
+        });
+      }
+      log.appendChild(el("div", "center tap", "Boer tikt op " + step.text));
+    } else if (step.type === "example") {
+      const box = el("div", "example");
+      box.appendChild(el("b", "", "Voorbeeld · geen echte foto"));
+      box.appendChild(el("p", "", "Zo ziet het eruit als de bot twee losse koeien vindt en al foto's van ze heeft. Teksten en knoppen komen uit de echte code; de percentages zijn bedacht."));
+      step.items.forEach((item) => {
+        const row = el("div", "row bot");
+        const bubble = el("div", "bubble photo");
+        bubble.appendChild(el("div", "placeholder", "4K-uitsnede van één koe"));
+        bubble.appendChild(el("div", "text", item.text));
+        row.appendChild(bubble);
+        row.appendChild(keys(item.buttons));
+        box.appendChild(row);
+      });
+      log.appendChild(box);
+    } else if (step.type === "toast") {
+      log.appendChild(el("div", "center toast", step.text));
+    }
+  }
+
+  function update() {
+    progress.textContent = shown + " / " + chunks.length;
+    nextButton.textContent = shown >= chunks.length ? "Afspelen vanaf begin" : "Volgende stap";
+  }
+
+  function reset() {
+    log.replaceChildren(); messages.clear(); texts.clear(); shown = 0;
+  }
+
+  function showNext(animate) {
+    if (shown >= chunks.length) return;
+    chunks[shown].forEach((step) => render(step, animate));
+    shown += 1;
+    if (animate) log.scrollTop = log.scrollHeight;
+    update();
+  }
+
+  function showAll() {
+    reset();
+    while (shown < chunks.length) showNext(false);
+    document.querySelectorAll(".keys span.pressed").forEach((s) => s.classList.remove("pressed"));
+    log.scrollTop = 0;
+    update();
+  }
+
+  nextButton.addEventListener("click", () => {
+    if (shown >= chunks.length) reset();
+    showNext(true);
+  });
+  document.getElementById("all").addEventListener("click", showAll);
+  document.getElementById("restart").addEventListener("click", () => { reset(); showNext(true); });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowRight" && !event.target.closest("input, textarea")) showNext(true);
+  });
+
+  // At rest the whole conversation is visible; "Opnieuw" plays it step by step.
+  showAll();
+  // #chat shows only the whole conversation, for screenshots in the README.
+  if (location.hash === "#chat") document.documentElement.classList.add("chat-only");
+})();
+</script>
+</body>
+</html>

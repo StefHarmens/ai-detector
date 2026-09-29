@@ -206,6 +206,50 @@ Per koe (🔥 = besprongen, mogelijk tochtig):
 • Niet herkend: 1 koe
 ```
 
+### Demo
+
+Zo ziet het er in Telegram uit. De demo draait de echte code op de stalbeelden in
+`example/good`; alleen Telegram is nagebootst. De koeien, levensnummers en antwoorden van
+de boer zijn verzonnen.
+
+**Koeien en pinken invoeren**: de CSV-export naar de bot sturen. Pinken zonder halsband
+komen erin op werknummer.
+
+<img src="docs/demo/1-koeien-invoeren.png" alt="De boer stuurt koeien.csv; de bot leest 5 dieren in, 3 op halsbandnummer en 2 op werknummer" width="444">
+
+**Een sprong beantwoorden**: na de melding komt één foto met beide koeien. Vindt de bot
+geen twee losse koeien, dan toont hij de sprong per rol. De boer antwoordt op de foto met
+twee nummers, eerst wie sprong.
+
+<img src="docs/demo/2-sprong-beantwoorden.png" alt="Foto met links de koe die sprong en rechts de koe eronder; de boer antwoordt 30 12" width="444">
+
+**Een pink krijgt een halsband**: nummer 12 gaat naar pink Nel, en pink Anna krijgt na het
+afkalven halsband 31. Beide blijven hetzelfde dier.
+
+<img src="docs/demo/3-pink-krijgt-halsband.png" alt="/wissel 12 geeft nummer 12 aan pink Nel; /koe 31 geeft pink Anna halsband 31" width="444">
+
+**Zodra de bot koeien herkent** (voorbeeld, zonder echte foto): per koe de meest
+gelijkende koeien als knop, en een koe die hij duidelijk herkent vult hij zelf in.
+
+<img src="docs/demo/4-herkende-koeien.png" alt="Voorbeeld met knoppen per koe en een automatisch herkende koe 30" width="444">
+
+**Het overzicht** van 08:00 en 16:00 telt per koe hoe vaak ze besprongen werd (🔥) en
+hoe vaak ze zelf sprong.
+
+<img src="docs/demo/5-overzicht.png" alt="Overzicht sprongen met de telling per koe" width="444">
+
+Het hele gesprek staat in [docs/demo/koeherkenning.html](docs/demo/koeherkenning.html):
+download het bestand en open het in een browser, dan kun je het stap voor stap afspelen.
+GitHub zelf toont alleen de broncode. Na een wijziging maak je de demo opnieuw met:
+
+```bash
+cd detector
+uv run python ../docs/demo/maak_demo.py
+```
+
+De schermafbeeldingen hierboven maak je daarna opnieuw met `koeherkenning.html#chat`, dat
+alleen het gesprek toont.
+
 ### Levensnummer, halsbandnummer en werknummer
 
 Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe noemt, is
