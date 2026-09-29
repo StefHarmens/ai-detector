@@ -194,6 +194,22 @@ class SummaryConfig:
 
 
 @dataclass(kw_only=True)
+class CowsConfig:
+    # Defaults to <feedback_directory>/koeien.
+    directory: Path | None = None
+    # Generic model that finds single cows; COCO has the class "cow".
+    segment_model: str = "yolo11s.pt"
+    segment_confidence: float = 0.25
+    reid_model: str = "https://huggingface.co/onnx-community/dinov2-small/resolve/main/onnx/model.onnx"
+    # A cow is filled in without asking when her score is at least accept_score,
+    # beats the next cow by accept_margin and her folder has min_photos photos.
+    accept_score: float = 0.85
+    accept_margin: float = 0.05
+    min_photos: int = 5
+    candidates: int = 3
+
+
+@dataclass(kw_only=True)
 class ChatConfig(ExporterConfig):
     token: str = field(repr=False)
     chat: str
@@ -206,6 +222,7 @@ class ChatConfig(ExporterConfig):
     video_width: int | None = 1280
     video_crf: int = 28
     summary: SummaryConfig | None = None
+    cows: CowsConfig | None = None
 
 
 @dataclass(kw_only=True)

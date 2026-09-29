@@ -28,7 +28,11 @@ def _patch_windows_path_checkpoints() -> None:
 
 
 def _run_command() -> bool:
-    if len(sys.argv) < 2 or sys.argv[1] not in ("train-feedback", "review-feedback"):
+    if len(sys.argv) < 2 or sys.argv[1] not in (
+        "train-feedback",
+        "review-feedback",
+        "import-koeien",
+    ):
         return False
 
     command = sys.argv[1]
@@ -39,6 +43,10 @@ def _run_command() -> bool:
         from aidetector.review import main as review_feedback
 
         review_feedback()
+    elif command == "import-koeien":
+        from aidetector.cows.importer import main as import_cows
+
+        import_cows()
     else:
         from aidetector.training import main as train_feedback
 

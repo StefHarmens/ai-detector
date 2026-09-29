@@ -34,3 +34,17 @@ def test_review_feedback_subcommand_dispatches_without_starting_detector(monkeyp
     aidetector.main()
 
     assert calls == [["aidetector.command", "--source", "twijfel"]]
+
+
+def test_import_koeien_subcommand_dispatches_without_starting_detector(monkeypatch):
+    import aidetector.cows.importer
+
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["aidetector.command", "import-koeien", "koeien.csv"])
+    monkeypatch.setattr(aidetector.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(aidetector.cows.importer, "main", lambda: calls.append(sys.argv))
+    monkeypatch.setattr(aidetector, "start", lambda: calls.append("detector"))
+
+    aidetector.main()
+
+    assert calls == [["aidetector.command", "koeien.csv"]]

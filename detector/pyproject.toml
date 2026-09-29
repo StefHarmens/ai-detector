@@ -37,6 +37,7 @@ main = "aidetector:main"
 generate-schema = "aidetector.utils.generate_schema:main"
 train-feedback = "aidetector.training:main"
 review-feedback = "aidetector.review:main"
+import-koeien = "aidetector.cows.importer:main"
 
 [dependency-groups]
 dev = [
