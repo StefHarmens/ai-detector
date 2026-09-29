@@ -400,10 +400,13 @@ gedecodeerd en wordt de detectie flink trager.
 }
 ```
 
-De detector bewaart van elke 4K-camera 1 beeld per seconde van de laatste 90 seconden,
-ongeveer 1 tot 2 MB per beeld (100 à 200 MB per camera); met `"seconds": 60` of
-`"quality": 80` wordt dat minder. Een aparte 4K-stream (`hires.source`) kost daarbovenop
-ongeveer 350 MB om te decoderen. Telegram weigert foto's boven 10 MB en toont
+De detector bewaart van elke camera 1 beeld per seconde van de laatste 20 seconden, op
+hooguit 2560 pixels breed (zo groot toont Telegram ze ook). Begint er een sprong, dan houdt
+hij de beelden vast vanaf 10 seconden ervoor tot de sprong is afgehandeld, hoe lang die ook
+duurt. Bij een aparte 4K-stream (`hires.source`) decodeert hij alleen de sleutelbeelden:
+ongeveer 190 MB per stream in plaats van 420 MB, en de helft van de rekentijd. In het log
+staat per camera hoe vaak er een beeld komt; komt dat te weinig voor, zet dan
+`"keyframes_only": false`. Telegram weigert foto's boven 10 MB en toont
 ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
 onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
 

@@ -538,7 +538,7 @@
           "type": "number"
         },
         "seconds": {
-          "default": 90,
+          "default": 20,
           "title": "Seconds",
           "type": "integer"
         },
@@ -563,6 +563,23 @@
           ],
           "default": "auto",
           "title": "Hwaccel"
+        },
+        "keyframes_only": {
+          "default": true,
+          "title": "Keyframes Only",
+          "type": "boolean"
+        },
+        "max_width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 2560,
+          "title": "Max Width"
         }
       },
       "title": "HiresConfig",

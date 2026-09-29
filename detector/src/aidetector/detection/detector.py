@@ -60,7 +60,7 @@ class Detector:
         self.detections = defaultdict(list)
         self.detection = detection
         self.yolo_config = yolo_config
-        self.hires = hires_buffers(detection)
+        self.hires = hires_buffers(detection, camera_names(detection))
         self.source_provider = SourceProvider(detection, self._feed_hires)
         self.yolo_runner = (
             YoloRunner(yolo_config, onnx_config, self.source_provider.sources)
@@ -232,6 +232,8 @@ class Detector:
                 self._export(source)
 
             if detections:
+                if not self.detections[source]:
+                    self._hold_hires(source, detections[0].date)
                 for detection in detections:
                     self.detections[source].append(detection)
 
@@ -239,6 +241,15 @@ class Detector:
                 self._export(source)
 
     def _export(self, source: str):
+        try:
+            self._export_event(source)
+        finally:
+            # The frames of this mount are copied or not needed any more.
+            buffer = self.hires.get(source)
+            if buffer is not None:
+                buffer.release()
+
+    def _export_event(self, source: str):
         all_detections = self.detections[source]
         for detection in all_detections:
             detection.source = source
@@ -305,6 +316,13 @@ class Detector:
             if any(detection.confidence for detection in all_detections):
                 self._export_review(all_detections)
         self.detections[source] = []
+
+    def _hold_hires(self, source: str, start: datetime) -> None:
+        """A mount starts: its 4K frames, from before_seconds before it, stay
+        until it is handled, however long it lasts."""
+        buffer = self.hires.get(source)
+        if buffer is not None:
+            buffer.hold(start - timedelta(seconds=buffer.config.before_seconds))
 
     def _feed_hires(self, source: str, frame: ndarray) -> None:
         buffer = self.hires.get(source)

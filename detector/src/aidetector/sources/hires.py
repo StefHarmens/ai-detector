@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import subprocess
 import time
 from collections import deque
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 _JPEG_START = b"\xff\xd8"
 _JPEG_END = b"\xff\xd9"
 _READ_SIZE = 1 << 16
+# Frames are never held longer than this, even if a mount is not released.
+_MAX_HOLD = timedelta(minutes=3)
 
 
 def split_jpegs(buffer: bytearray) -> list[bytes]:
@@ -49,11 +52,17 @@ class HiresBuffer:
     keeps the last frames as JPEG, so an event can use the frames from just
     before it started."""
 
-    def __init__(self, source: str | None, config: HiresConfig):
+    def __init__(self, source: str | None, config: HiresConfig, name: str = "camera"):
         # None: frames come from the detection stream through feed().
         self.source = source
         self.config = config
+        # The camera name for the log; the stream link holds a secret key.
+        self.name = name
         self.fed = 0.0
+        self.first: datetime | None = None
+        self.interval_logged = False
+        # Start of the frames to keep while a mount is going on.
+        self.held: datetime | None = None
         self.frames: deque[HiresFrame] = deque()
         self.lock = Lock()
         self.stop_event = Event()
@@ -72,6 +81,12 @@ class HiresBuffer:
         if now - self.fed < 1 / self.config.fps:
             return
         self.fed = now
+        width = frame.shape[1]
+        if self.config.max_width and width > self.config.max_width:
+            height = round(frame.shape[0] * self.config.max_width / width)
+            frame = cv2.resize(
+                frame, (self.config.max_width, height), interpolation=cv2.INTER_AREA
+            )
         success, encoded = cv2.imencode(
             ".jpg", frame, (int(cv2.IMWRITE_JPEG_QUALITY), self.config.quality)
         )
@@ -88,14 +103,28 @@ class HiresBuffer:
         # Frame threads each hold 4K frames: one thread halves the memory
         # (about 350 MB per camera), and hardware decoding needs no more.
         command += ["-threads", "1"]
+        if self.config.keyframes_only:
+            command += ["-skip_frame", "nokey"]
         # FFmpeg's qscale 2 (best) to 31 (worst), mapped from a JPEG quality.
         qscale = max(2, min(31, round(31 - (self.config.quality / 100) * 29)))
+        if self.config.keyframes_only:
+            # At most one frame per 1/fps seconds, without the duplicates the
+            # fps filter adds when keyframes come less often.
+            filters = [
+                f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{1 / self.config.fps:g})'"
+            ]
+        else:
+            filters = [f"fps={self.config.fps}"]
+        if self.config.max_width:
+            filters.append(f"scale='min(iw\\,{self.config.max_width})':-2")
         return command + [
             "-i",
             self.source,
             "-an",
             "-vf",
-            f"fps={self.config.fps}",
+            ",".join(filters),
+            "-fps_mode",
+            "vfr",
             "-c:v",
             "mjpeg",
             "-q:v",
@@ -120,11 +149,44 @@ class HiresBuffer:
             process.kill()
 
     def add(self, frame: HiresFrame) -> None:
+        self._log_start(frame)
         with self.lock:
             self.frames.append(frame)
             oldest = frame.date - timedelta(seconds=self.config.seconds)
+            if self.held is not None:
+                # Keep the frames of the mount that is still going on, but
+                # never more than the longest event could need.
+                oldest = max(min(oldest, self.held), frame.date - _MAX_HOLD)
             while self.frames and self.frames[0].date < oldest:
                 self.frames.popleft()
+
+    def hold(self, since: datetime) -> None:
+        """A mount started: keep the frames from `since` until release()."""
+        with self.lock:
+            self.held = since if self.held is None else min(self.held, since)
+
+    def release(self) -> None:
+        with self.lock:
+            self.held = None
+
+    def _log_start(self, frame: HiresFrame) -> None:
+        """Logs once which size a camera delivers and how often, since with
+        keyframes only the camera's keyframe interval sets the rate."""
+        if self.first is None:
+            self.first = frame.date
+            try:
+                height, width = frame.jpg.shape[:2]
+                logger.info("High-resolution frames from %s: %dx%d", self.name, width, height)
+            except Exception:
+                # Only the log line; the frame is kept anyway.
+                logger.warning("High-resolution frame from %s cannot be decoded", self.name)
+        elif not self.interval_logged and frame.date > self.first:
+            self.interval_logged = True
+            logger.info(
+                "High-resolution frames from %s every %.1f s",
+                self.name,
+                (frame.date - self.first).total_seconds(),
+            )
 
     def frames_between(self, start: datetime, end: datetime) -> list[HiresFrame]:
         with self.lock:
@@ -135,15 +197,25 @@ class HiresBuffer:
             try:
                 self._read()
             except Exception:
-                logger.exception("High-resolution stream failed for a camera")
+                logger.exception("High-resolution stream failed for %s", self.name)
             self.stop_event.wait(5)
 
     def _read(self) -> None:
         self.process = subprocess.Popen(
-            self.command(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            self.command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        stdout = self.process.stdout
-        assert stdout is not None
+        stdout, stderr = self.process.stdout, self.process.stderr
+        assert stdout is not None and stderr is not None
+        # Drained all the time, so a stream of decode warnings cannot fill
+        # the pipe and stop FFmpeg; the last lines say why it stopped.
+        errors: deque[str] = deque(maxlen=3)
+        drain = Thread(
+            target=lambda: errors.extend(
+                line.decode(errors="replace").strip() for line in stderr if line.strip()
+            ),
+            daemon=True,
+        )
+        drain.start()
         buffer = bytearray()
         try:
             while not self.stop_event.is_set():
@@ -156,18 +228,44 @@ class HiresBuffer:
         finally:
             if self.process.poll() is None:
                 self.process.kill()
-            self.process.wait()
+            code = self.process.wait()
+            drain.join(timeout=2)
+            if not self.stop_event.is_set():
+                logger.warning(
+                    "High-resolution stream of %s stopped (exit %s), retrying in 5 s: %s",
+                    self.name,
+                    code,
+                    hide_keys(" | ".join(errors)) or "no message",
+                )
 
 
-def hires_buffers(detection: DetectionConfig) -> dict[str, HiresBuffer]:
+_STREAM_KEY = re.compile(r"(rtsps?://[^/\s]+/)\S*")
+
+
+def hide_keys(text: str) -> str:
+    """Stream links hold a secret key; logs get pasted into chats."""
+    return _STREAM_KEY.sub(r"\1<key>", text)
+
+
+def hires_buffers(
+    detection: DetectionConfig, names: dict[str, str] | None = None
+) -> dict[str, HiresBuffer]:
     """Returns a buffer per detection source that has a high-resolution stream."""
     if detection.hires is None:
         return {}
     sources = (
         [detection.source] if isinstance(detection.source, str) else detection.source
     )
+    names = names or {}
+
+    def name(index: int, source: str) -> str:
+        return names.get(source) or f"Camera {index + 1}"
+
     if detection.hires.source is None:
-        return {source: HiresBuffer(None, detection.hires) for source in sources}
+        return {
+            source: HiresBuffer(None, detection.hires, name(index, source))
+            for index, source in enumerate(sources)
+        }
     hires_sources = (
         [detection.hires.source]
         if isinstance(detection.hires.source, str)
@@ -179,8 +277,8 @@ def hires_buffers(detection: DetectionConfig) -> dict[str, HiresBuffer]:
             f" got {len(hires_sources)} for {len(sources)} sources"
         )
     return {
-        source: HiresBuffer(hires_source, detection.hires)
-        for source, hires_source in zip(sources, hires_sources)
+        source: HiresBuffer(hires_source, detection.hires, name(index, source))
+        for index, (source, hires_source) in enumerate(zip(sources, hires_sources))
         if hires_source
     }
 

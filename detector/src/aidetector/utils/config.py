@@ -142,11 +142,19 @@ class HiresConfig:
     # made smaller for detection, and nothing is decoded twice.
     source: str | list[str | None] | None = None
     fps: float = 1
-    # How long frames are kept; must cover before_seconds plus the longest event.
-    seconds: int = 90
+    # How long frames are kept outside a mount; must cover before_seconds.
+    # During a mount its frames are kept until it is handled.
+    seconds: int = 20
     before_seconds: int = 10
     quality: int = 85
     hwaccel: str | None = "auto"
+    # Decode only the keyframes of a separate stream: far less memory and CPU,
+    # at most one frame per keyframe interval of the camera (often 1-2 s).
+    keyframes_only: bool = True
+    # Kept frames are made this wide at most. Telegram shows photos at most
+    # 2560 px, and a cow crop stays twice as sharp as from the 1280 frame, at
+    # half the memory of 4K.
+    max_width: int | None = 2560
 
 
 @dataclass(kw_only=True)

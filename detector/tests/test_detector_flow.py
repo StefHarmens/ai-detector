@@ -185,6 +185,27 @@ def test_export_gives_the_best_detection_the_4k_frames_from_before_the_event():
     ]
 
 
+def test_a_mount_holds_its_4k_frames_until_it_is_exported():
+    from aidetector.sources.hires import HiresBuffer
+    from aidetector.utils.config import HiresConfig
+
+    source = "camera"
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(model="model.pt", confidence=0.8, time_max=60, timeout=5)
+    detector.exporters = [RecordingExporter()]
+    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10))
+    detector.hires = {source: buffer}
+    start = datetime.now()
+
+    detector._process(source, [make_detection(start, {"cow": 0.9})])
+    assert buffer.held == start - timedelta(seconds=10)
+    detector._process(source, [make_detection(start + timedelta(seconds=1), {"cow": 0.9})])
+    assert buffer.held == start - timedelta(seconds=10)
+
+    detector._export(source)
+    assert buffer.held is None
+
+
 def test_validator_without_vlms_defaults_to_validated_true():
     from aidetector.detection.validator import Validator
 

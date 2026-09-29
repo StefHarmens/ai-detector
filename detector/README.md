@@ -144,10 +144,12 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | :--------------- | :----------- | :---------- |
 | `source`         |              | One stream per `detection.source`, in the same order; `null` for a camera without one. Leave out to keep the frames of `detection.source` itself. |
 | `fps`            | `1`          | Frames per second to keep. |
-| `seconds`        | `90`         | How long frames are kept; must cover `before_seconds` plus `yolo.time_max` and `yolo.timeout`. |
+| `seconds`        | `20`         | How long frames are kept outside a mount; must cover `before_seconds`. From the start of a mount its frames are held until it is handled, however long it lasts (at most 3 minutes). |
 | `before_seconds` | `10`         | How far before the event the frames start. |
 | `quality`        | `85`         | JPEG quality of the kept frames. |
 | `hwaccel`        | `"auto"`     | FFmpeg hardware decoding; `null` to decode on the CPU. |
+| `keyframes_only` | `true`       | Decode only the keyframes of a separate stream: about a third less memory and half the CPU per 4K stream. Frames then come at most once per keyframe interval of the camera; the log says how often. |
+| `max_width`      | `2560`       | Kept frames are made this wide at most, which halves their memory. Telegram shows photos at most 2560 px; `null` keeps full 4K. |
 
 ---
 
