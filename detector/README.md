@@ -402,7 +402,12 @@ automatically are never filed, so mistakes do not teach the model.
    possibly in heat) and jumped. Mounts marked **Fout** are not counted.
 
 Cows are kept by I&R life number, because collar numbers are given to a new cow once
-the old one leaves. `koeien.json` stores which number each cow had when, so history
+the old one leaves. The number is the one the farmer calls her by: her collar number, or
+her work number (werknummer) for a heifer without a collar; answers may also use her
+name (`Anna 12`). When a heifer gets a collar, `/koe 31 <life number>` gives her the new
+number and she keeps her history. The CSV import takes, per row, the collar number and
+else the work number. Detectors whose `telegram.cows` use the same folder (e.g. a heifer
+camera in its own chat) share one register; each chat counts its own mounts. `koeien.json` stores which number each cow had when, so history
 stays with the right cow.
 
 ```text

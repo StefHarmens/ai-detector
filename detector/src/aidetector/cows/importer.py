@@ -6,36 +6,50 @@ from aidetector.cows.registry import CowRegistry, NumberTaken
 
 # Column names as they appear in exports of herd management programs.
 _LIFE_COLUMNS = ("levensnummer", "life number", "lifenumber", "i&r")
-_NUMBER_COLUMNS = ("werknummer", "halsband", "diernummer", "nummer", "number")
+# The farmer calls a cow by her collar number; a heifer without a collar by
+# her work number. The first column with a value in a row is used.
+_NUMBER_COLUMNS = (
+    ("halsband", "responder", "collar"),
+    ("werknummer", "diernummer"),
+    ("nummer", "number"),
+)
 _NAME_COLUMNS = ("naam", "name", "roepnaam")
 
 
-def _column(header: list[str], names: tuple[str, ...]) -> int | None:
+def _column(header: list[str], names: tuple[str, ...], skip: set[int]) -> int | None:
     lowered = [column.strip().lower() for column in header]
     for name in names:
         for index, column in enumerate(lowered):
-            if name in column:
+            if index not in skip and name in column:
                 return index
     return None
 
 
+def _cell(row: list[str], index: int | None) -> str:
+    return row[index].strip() if index is not None and index < len(row) else ""
+
+
 def import_cows(path: Path, registry: CowRegistry) -> tuple[int, list[str]]:
-    """Adds each row of the CSV (collar number, life number, optional name) and
-    returns the number added and the problems per row."""
+    """Adds each row of the CSV (collar or work number, life number, optional
+    name) and returns the number added and the problems per row."""
     text = path.read_text(encoding="utf-8-sig")
     dialect = csv.Sniffer().sniff(text.splitlines()[0], delimiters=";,\t")
     rows = list(csv.reader(text.splitlines(), dialect))
     if not rows:
         return 0, ["Het bestand is leeg"]
     header = rows[0]
-    life, number, name = (
-        _column(header, _LIFE_COLUMNS),
-        _column(header, _NUMBER_COLUMNS),
-        _column(header, _NAME_COLUMNS),
-    )
-    if life is None or number is None or life == number:
+    life = _column(header, _LIFE_COLUMNS, set())
+    taken = {life} if life is not None else set()
+    numbers: list[int] = []
+    for names in _NUMBER_COLUMNS:
+        index = _column(header, names, taken)
+        if index is not None:
+            numbers.append(index)
+            taken.add(index)
+    name = _column(header, _NAME_COLUMNS, taken)
+    if life is None or not numbers:
         # No recognised header: number, life number, name.
-        life, number, name = 1, 0, 2
+        life, numbers, name = 1, [0], 2
     else:
         rows = rows[1:]
 
@@ -44,8 +58,8 @@ def import_cows(path: Path, registry: CowRegistry) -> tuple[int, list[str]]:
         if not any(cell.strip() for cell in row):
             continue
         try:
-            cow_name = row[name].strip() if name is not None and name < len(row) else ""
-            registry.add(row[number], row[life], cow_name or None)
+            number = next((_cell(row, index) for index in numbers if _cell(row, index)), "")
+            registry.add(number, _cell(row, life), _cell(row, name) or None)
             added += 1
         except NumberTaken as error:
             problems.append(
@@ -76,8 +90,9 @@ def _configured_directory() -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="import-koeien",
-        description="Leest koeien uit een CSV met halsbandnummer, levensnummer en"
-        " (optioneel) naam, bijvoorbeeld een export van het managementprogramma.",
+        description="Leest koeien en pinken uit een CSV met halsband- of werknummer,"
+        " levensnummer en (optioneel) naam, bijvoorbeeld een export van het"
+        " managementprogramma.",
     )
     parser.add_argument("csv", type=Path)
     parser.add_argument(

@@ -4,7 +4,7 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 
 # Country code and 9 to 12 digits, e.g. NL123456789. The check digit is not
 # verified: the rule differs per country.
@@ -40,7 +40,7 @@ def normalize_life_number(value: str) -> str:
 def normalize_number(value: str) -> str:
     number = value.strip().lstrip("#")
     if not number.isdigit():
-        raise ValueError(f"{value!r} is geen halsbandnummer")
+        raise ValueError(f"{value!r} is geen nummer")
     return str(int(number))
 
 
@@ -75,8 +75,10 @@ class RegistryData:
 
 
 class CowRegistry:
-    """Keeps the cows by I&R life number, which collar number each had when,
-    and one photo folder per cow."""
+    """Keeps the cows by I&R life number, which number each had when, and one
+    photo folder per cow. The number is the one the farmer calls her by: her
+    collar number, or her work number (werknummer) for a heifer without a
+    collar yet. When a heifer gets a collar, only her number changes."""
 
     def __init__(self, directory: Path):
         self.directory = directory
@@ -112,6 +114,15 @@ class CowRegistry:
             ),
             None,
         )
+
+    def with_name(self, name: str) -> list[str]:
+        """The active cows with this name, ignoring case."""
+        wanted = name.strip().casefold()
+        return [
+            cow.life_number
+            for cow in self.active_cows()
+            if cow.name and cow.name.strip().casefold() == wanted
+        ]
 
     def label(self, life_number: str | None, at: Moment = None) -> str:
         """The name the farmer knows a cow by: her collar number at that moment.
@@ -291,3 +302,18 @@ class NumberTaken(ValueError):
         super().__init__(f"Nummer {number} hoort bij {holder}")
         self.number = number
         self.holder = holder
+
+
+_registries: dict[Path, CowRegistry] = {}
+_registries_lock = Lock()
+
+
+def get_registry(directory: Path) -> CowRegistry:
+    """One registry per folder, so the chats of several cameras (e.g. the
+    heifers and the cows) share the same cows: a heifer that calves stays the
+    same animal."""
+    key = directory.expanduser().resolve()
+    with _registries_lock:
+        if key not in _registries:
+            _registries[key] = CowRegistry(key)
+        return _registries[key]

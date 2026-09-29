@@ -17,9 +17,20 @@ def test_unknown_and_new_cows():
     assert parse_answers("#07") == [Answer("7")]
 
 
+def test_heifers_can_be_answered_by_name():
+    assert parse_answers("Anna 12") == [Answer(None, name="Anna"), Answer("12")]
+    # "Nel" is a name, not the start of a life number; "Jo" too.
+    assert parse_answers("44 Nel") == [Answer("44"), Answer(None, name="Nel")]
+    assert parse_answers("? Jo") == [Answer(None), Answer(None, name="Jo")]
+    assert parse_answers("44 NL 1234 5678 9 Anna") == [
+        Answer("44", "NL123456789"),
+        Answer(None, name="Anna"),
+    ]
+
+
 def test_nonsense_is_refused():
-    with pytest.raises(ValueError, match="halsbandnummer"):
-        parse_answers("Bertha")
+    with pytest.raises(ValueError, match="geen nummer of naam"):
+        parse_answers("3x")
     with pytest.raises(ValueError, match="levensnummer"):
         parse_answers("44 NL12")
 

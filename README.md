@@ -206,11 +206,13 @@ Per koe (🔥 = besprongen, mogelijk tochtig):
 • Niet herkend: 1 koe
 ```
 
-### Levensnummer en halsbandnummer
+### Levensnummer, halsbandnummer en werknummer
 
-Koeien worden bewaard op hun **I&R-levensnummer**. Het halsbandnummer is alleen een label
-met een datum, want nummer 30 gaat naar een pink als de oude 30 weg is. Zo blijven oude
-sprongen bij de oude koe. Commando's in de chat:
+Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe noemt, is
+alleen een label met een tijdstip, want nummer 30 gaat naar een pink als de oude 30 weg is.
+Zo blijven oude sprongen bij de oude koe. Dat nummer is het halsbandnummer, of bij een
+pink zonder halsband haar werknummer. Antwoorden kan ook met een naam (`Anna 12`).
+Commando's in de chat:
 
 | Commando | Wat het doet |
 | :------- | :----------- |
@@ -221,6 +223,22 @@ sprongen bij de oude koe. Commando's in de chat:
 | `/overzicht 7` | Sprongen per koe over de laatste 7 dagen. |
 
 De commando's staan ook in het menu van de chat, onder de /-knop.
+
+### Pinken
+
+De camera bij de pinken werkt hetzelfde. Pinken hebben nog geen halsband, dus je voert ze
+in met hun werknummer en naam: `/koe 5101 NL100000001 Anna`, of met de CSV-export. In de
+CSV neemt de bot per regel het halsbandnummer, en als dat leeg is het werknummer. Koeien
+en pinken kunnen dus in één bestand.
+
+Kalft een pink af en krijgt ze een halsband, geef haar dan dat nummer: `/koe 31
+NL100000001`. Ze blijft hetzelfde dier, met haar sprongen en foto's; alleen haar nummer
+verandert vanaf dat moment.
+
+Zet in de detector van de pinkencamera ook `"cows": {}` onder `telegram`, met dezelfde
+`feedback_directory` als bij de koeien. Dan delen beide camera's één register met alle
+dieren. Meldt de pinkencamera in een eigen chat, dan telt het overzicht in die chat alleen
+de sprongen van de pinken.
 
 Alle koeien in één keer invoeren: stuur de CSV-export uit het managementprogramma
 (kolommen zoals `Werknummer;Levensnummer;Naam`) als bestand naar de bot. Op de Mac mini

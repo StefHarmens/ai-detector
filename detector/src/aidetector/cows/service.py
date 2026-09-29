@@ -20,8 +20,8 @@ from aidetector.cows.answers import parse_answers
 from aidetector.cows.importer import import_cows
 from aidetector.cows.photos import control_image, side_by_side
 from aidetector.cows.registry import (
-    CowRegistry,
     NumberTaken,
+    get_registry,
     normalize_life_number,
     normalize_number,
 )
@@ -37,7 +37,8 @@ from aidetector.media.video import get_image, telegram_photo
 from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import CowsConfig, Detection
 
-SIGHTINGS_FILE = "sprongen.jsonl"
+# One file of mounts per chat: each chat's overview counts its own camera(s).
+SIGHTINGS_FILE = "sprongen-{chat}.jsonl"
 CROPS_FOLDER = ".meldingen"
 FRAMES_FOLDER = "beelden"
 IMPORT_FOLDER = ".import"
@@ -50,7 +51,7 @@ _MESSAGE_LIMIT = 4000
 
 HELP = """🐄 Koeien herkennen
 
-Bij elke sprong stuur ik één foto met de twee koeien. Tik het goede nummer aan, of antwoord op de foto met de nummers: eerst wie sprong, dan wie werd besprongen, bijv. 30 12.
+Bij elke sprong stuur ik één foto met de twee koeien. Tik het goede nummer aan, of antwoord op de foto met de nummers of namen: eerst A (of wie sprong), dan B, bijv. 30 12 of Anna 12.
 • Onbekend? Typ een vraagteken: ? 12
 • Een nieuwe koe? Typ nummer en levensnummer: 44 NL123456789 12
 • Iets fout? Antwoord nog eens met de goede nummers.
@@ -58,9 +59,10 @@ Bij elke sprong stuur ik één foto met de twee koeien. Tik het goede nummer aan
 Van elke koe die je aantikt leer ik haar vachtpatroon. Heeft een koe 5 foto's en herken ik haar duidelijk, dan vul ik haar zelf in.
 
 Koeien beheren
+Het nummer is het halsbandnummer, of het werknummer bij een pink zonder halsband. Krijgt de pink een halsband, geef haar dan dat nummer met /koe; haar sprongen en foto's blijven bij haar.
 /koe 30 NL123456789 Bertha – nummer 30 hoort bij deze koe (naam mag weg)
 /wissel 30 NL987654321 – nummer 30 gaat naar een andere koe, bijv. een pink
-/weg 30 – de koe met nummer 30 is van het bedrijf
+/weg 30 – de koe met nummer 30 (of naam) is van het bedrijf
 /koeien – alle koeien met hun nummer en aantal foto's
 /overzicht 7 – sprongen per koe over de laatste 7 dagen
 
@@ -69,7 +71,7 @@ Alle koeien in één keer: stuur mij de export uit het managementprogramma als C
 COMMANDS = [
     ("koeien", "Alle koeien met nummer en foto's"),
     ("overzicht", "Sprongen per koe, bijv. /overzicht 7"),
-    ("koe", "Nummer koppelen: /koe 30 NL123456789 Naam"),
+    ("koe", "Nummer of werknummer koppelen: /koe 30 NL123456789 Naam"),
     ("wissel", "Nummer naar andere koe: /wissel 30 NL987654321"),
     ("weg", "Koe is van het bedrijf: /weg 30"),
     ("help", "Uitleg over het herkennen"),
@@ -191,8 +193,10 @@ class CowService:
         self.chat = chat
         self.config = config
         self.directory = directory
-        self.registry = CowRegistry(directory)
-        self.sightings_path = directory / SIGHTINGS_FILE
+        # Shared with the other chats that use this folder.
+        self.registry = get_registry(directory)
+        safe_chat = re.sub(r"[^A-Za-z0-9_-]", "_", str(chat))
+        self.sightings_path = directory / SIGHTINGS_FILE.format(chat=safe_chat)
         self.lock = RLock()
         self.model_lock = Lock()
         self.splitter = splitter
@@ -431,7 +435,7 @@ class CowService:
             first, second = ("A", "B") if sighting.split else ("wie sprong", "wie werd besprongen")
             lines.append(
                 f"\n{'Tik een nummer aan, of antwoord' if any(sighting.candidates) else 'Antwoord'}"
-                f" op deze foto met de nummers, eerst {first} dan {second}: 30 12"
+                f" op deze foto met de nummers of namen, eerst {first} dan {second}: 30 12"
             )
         else:
             lines.append("\nIets fout? Antwoord op deze foto met de goede nummers.")
@@ -558,7 +562,7 @@ class CowService:
             "sendMessage",
             {
                 "chat_id": self.chat,
-                "text": f"Typ de nummers, eerst {first} dan {second}: 30 12\n"
+                "text": f"Typ de nummers of namen, eerst {first} dan {second}: 30 12\n"
                 "Onbekend: ?   Nieuwe koe: 44 NL123456789",
                 "reply_to_message_id": str(sighting.message or ""),
                 "allow_sending_without_reply": "true",
@@ -644,13 +648,13 @@ class CowService:
         """Reads typed numbers for the cows of a mount: two numbers fill both,
         one number fills the cow that is still open."""
         names = self._names(sighting)
-        example = "Voorbeeld: 30 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
+        example = "Voorbeeld: 30 12 of Anna 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
         try:
             answers = parse_answers(text)
         except ValueError as error:
             return f"⚠️ {error}\n{example}"
         if not answers or len(answers) > 2:
-            return f"Typ één of twee nummers, eerst {names[0]} dan {names[1]}.\n{example}"
+            return f"Typ één of twee nummers of namen, eerst {names[0]} dan {names[1]}.\n{example}"
         if len(answers) == 2:
             slots = [0, 1]
         else:
@@ -661,9 +665,24 @@ class CowService:
         chosen: dict[int, str | None] = {}
         problems = []
         for slot, answer in zip(slots, answers):
-            if answer.number is None:
+            if answer.unknown:
                 chosen[slot] = None
                 continue
+            if answer.name is not None:
+                named = self.registry.with_name(answer.name)
+                if len(named) == 1:
+                    chosen[slot] = named[0]
+                elif named:
+                    problems.append(
+                        f"Er zijn {len(named)} dieren die {answer.name} heten, typ het nummer."
+                    )
+                else:
+                    problems.append(
+                        f"Geen koe of pink die {answer.name} heet. Typ het nummer, of zet "
+                        f"haar erin met /koe <nummer> <levensnummer> {answer.name}"
+                    )
+                continue
+            assert answer.number is not None
             try:
                 if answer.life_number:
                     cow = self.registry.add(
@@ -786,13 +805,17 @@ class CowService:
 
     def _command_gone(self, arguments: list[str]) -> str:
         if not arguments:
-            return "Gebruik: /weg 30 of /weg NL123456789"
+            return "Gebruik: /weg 30, /weg Anna of /weg NL123456789"
         value = "".join(arguments)
-        cow = (
-            self.registry.cow_with_number(value)
-            if value.lstrip("#").isdigit()
-            else normalize_life_number(value)
-        )
+        if value.lstrip("#").isdigit():
+            cow = self.registry.cow_with_number(value)
+        elif any(character.isdigit() for character in value):
+            cow = normalize_life_number(value)
+        else:
+            named = self.registry.with_name(" ".join(arguments))
+            if len(named) > 1:
+                return f"Er zijn {len(named)} dieren die {' '.join(arguments)} heten, gebruik het nummer."
+            cow = named[0] if named else None
         if cow is None or self.registry.cow(cow) is None:
             return f"Geen koe gevonden voor {value}"
         label = self.registry.label(cow)

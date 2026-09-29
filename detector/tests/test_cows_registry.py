@@ -143,3 +143,21 @@ def test_import_without_header_uses_number_life_number_name(tmp_path):
 
     assert import_cows(export, registry) == (2, [])
     assert registry.label(OLD) == "30 (Bertha)"
+
+
+def test_import_takes_the_collar_number_and_else_the_work_number(tmp_path):
+    from aidetector.cows.importer import import_cows
+
+    export = tmp_path / "export.csv"
+    export.write_text(
+        "Levensnummer;Werknummer;Halsbandnummer;Naam\n"
+        "NL123456789;4012;30;Bertha\n"
+        # A heifer without a collar yet.
+        "NL100000001;5101;;Anna\n"
+    )
+    registry = CowRegistry(tmp_path / "koeien")
+
+    assert import_cows(export, registry) == (2, [])
+    assert registry.label(OLD) == "30 (Bertha)"
+    assert registry.label("NL100000001") == "5101 (Anna)"
+    assert registry.with_name("anna") == ["NL100000001"]

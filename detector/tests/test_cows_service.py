@@ -161,7 +161,7 @@ def test_one_photo_with_both_cows_and_their_candidates(tmp_path, telegram):
         "A werd besprongen (gok): ❓",
         "B sprong (gok): ❓",
     ]
-    assert "antwoord op deze foto met de nummers, eerst A dan B: 30 12" in photos[0]["caption"]
+    assert "antwoord op deze foto met de nummers of namen, eerst A dan B: 30 12" in photos[0]["caption"]
     assert buttons(photos[0]["reply_markup"]) == [
         ["A: 30 (Bertha) · 70%", "A: 12 · 60%"],
         ["B: 12 · 80%"],
@@ -246,7 +246,46 @@ def test_one_number_fills_the_open_cow_and_new_cows_need_a_life_number(tmp_path,
     assert service.registry.cow_with_number("44", START) == "NL555555555"
     assert reply(service, "12").startswith("Beide koeien zijn al ingevuld")
     assert reply(service, "30 30") == "Twee keer dezelfde koe: een koe springt niet op zichzelf."
-    assert reply(service, "dertig").startswith("⚠️ 'dertig' is geen halsbandnummer")
+    assert reply(service, "3x").startswith("⚠️ '3x' is geen nummer of naam")
+
+
+def test_heifers_without_a_collar_by_work_number_and_name(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+    # A heifer is added with her work number; she has no collar yet.
+    assert service.handle_message({"text": "/koe 1234 NL100000001 Anna"}).startswith("✅ Nummer 1234 is nu 1234 (Anna)")
+    service.handle_message({"text": "/koe 1235 NL100000002 Anna"})
+    service.handle_message({"text": "/koe 1236 NL100000003 Nel"})
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert reply(service, "nel anna").splitlines() == [
+        "✅ Opgeslagen: A = 1236 (Nel)",
+        "Er zijn 2 dieren die anna heten, typ het nummer.",
+    ]
+    assert reply(service, "Tessa").startswith("Geen koe of pink die Tessa heet")
+    assert reply(service, "1234") == "✅ Opgeslagen: B = 1234 (Anna)"
+    assert sighting.cows == ["NL100000003", "NL100000001"]
+
+    # After calving she gets collar 31: the same animal, with a new number.
+    service.handle_message({"text": "/koe 31 NL100000001"})
+    assert service.registry.label("NL100000001") == "31 (Anna)"
+    assert service.handle_message({"text": "/weg Nel"}).startswith("✅ 1236 (Nel) · NL100000003 is gearchiveerd")
+
+
+def test_the_heifer_camera_shares_the_cows_but_counts_its_own_mounts(tmp_path, telegram):
+    cows = make_service(tmp_path, pair(), [[], []])
+    heifers = CowService(
+        "token", "heifer-chat", tmp_path, CowsConfig(), splitter=FakeSplitter(pair()), gallery=FakeGallery([[], []])
+    )
+    heifers.handle_message({"text": "/koe 1234 NL100000001 Anna"})
+
+    # The cows' chat knows the heifer too.
+    assert cows.registry.label("NL100000001") == "1234 (Anna)"
+    heifers.identify(*mount(), alert=42, event="e1", feedback="f1")
+    reply(heifers, "Anna ?")
+
+    window = (START - timedelta(hours=1), START + timedelta(hours=1))
+    assert "1234 (Anna)" in heifers.overview_text(*window)
+    assert cows.overview_text(*window) == ""
 
 
 def test_typing_button_asks_and_the_answer_survives_a_restart(tmp_path, telegram):
@@ -254,7 +293,7 @@ def test_typing_button_asks_and_the_answer_survives_a_restart(tmp_path, telegram
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     assert service.handle_callback(f"cow:{sighting.id}:-:n") == "Typ de nummers als antwoord"
-    assert telegram.sent("sendMessage")[-1]["text"].startswith("Typ de nummers, eerst A dan B: 30 12")
+    assert telegram.sent("sendMessage")[-1]["text"].startswith("Typ de nummers of namen, eerst A dan B: 30 12")
     prompt = telegram.last_id
 
     # A restart happens after every change to config.json.
@@ -282,6 +321,7 @@ def test_without_two_cows_the_photo_shows_the_jump_per_role(tmp_path, telegram):
     photo = telegram.sent("sendPhoto")[0]
     assert photo["caption"].splitlines()[:3] == ["🐄 Wie zijn het?", "Sprong: ❓", "Werd besprongen: ❓"]
     assert "eerst wie sprong dan wie werd besprongen: 30 12" in photo["caption"]
+    assert "nummers of namen" in photo["caption"]
     assert buttons(photo["reply_markup"]) == [
         ["✏️ Nummers typen"],
         ["❔ Sprong onbekend", "❔ Besprongen onbekend"],
