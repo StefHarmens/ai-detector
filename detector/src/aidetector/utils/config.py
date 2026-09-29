@@ -366,6 +366,15 @@ def format_validation_errors(error: ValidationError) -> str:
     return "\n".join(messages)
 
 
+def _folder_hint() -> str:
+    """Started from the wrong folder (e.g. Downloads) the program does not
+    find config.json, since it looks next to itself."""
+    return (
+        f"The detector reads config.json next to the program, in {Path.cwd()}. "
+        "Is the program in the same folder as your config.json? Move it there and start it again."
+    )
+
+
 def load_config() -> Config:
     config_path = Path("config.json")
     if not config_path.exists():
@@ -373,10 +382,13 @@ def load_config() -> Config:
         if template:
             with open(config_path, "w") as f:
                 json.dump(template, f, indent=4)
-            logger.warning(f"Created {config_path} from template. Please edit the configuration before running.")
-            raise FileNotFoundError(f"Configure before running: {config_path}")
+            logger.warning(
+                f"Created an empty {config_path.resolve()} from the template. {_folder_hint()}"
+            )
+            raise FileNotFoundError(f"Configure before running: {config_path.resolve()}")
         else:
-            logger.error(f"Configuration file not found: {config_path}")
+            logger.error(f"Configuration file not found: {config_path.resolve()}")
+            logger.error(_folder_hint())
             logger.error("Create a config.json file. See: https://github.com/StefHarmens/ai-detector")
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
@@ -403,9 +415,12 @@ def load_config() -> Config:
     try:
         return Config(**config_json)
     except ValidationError as e:
-        logger.error(f"Configuration validation failed for {config_path}:")
-        logger.error(format_validation_errors(e))
-        raise ValueError(f"Configuration validation failed for {config_path}:\n{format_validation_errors(e)}")
+        message = f"Configuration validation failed for {config_path.resolve()}:\n{format_validation_errors(e)}"
+        if "detectors" not in config_json:
+            # Most likely the empty config.json made on a first start elsewhere.
+            message += f"\n{_folder_hint()}"
+        logger.error(message)
+        raise ValueError(message)
 
 
 config = load_config()

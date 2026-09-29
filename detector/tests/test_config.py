@@ -29,3 +29,21 @@ def test_schema_urls_use_own_repository():
 
     assert "StefHarmens/ai-detector" in schema_url
     assert "StefHarmens/ai-detector" in template_url
+
+
+def test_a_config_without_detectors_says_which_folder_was_read(tmp_path, monkeypatch):
+    import pytest
+
+    from aidetector.utils.config import load_config, schema_url
+
+    # What a first start in the wrong folder (e.g. Downloads) leaves behind.
+    (tmp_path / "config.json").write_text(json.dumps({"$schema": schema_url}))
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError) as error:
+        load_config()
+
+    message = str(error.value)
+    assert "detectors: Field required" in message
+    assert f"next to the program, in {tmp_path}" in message
+    assert "same folder as your config.json" in message

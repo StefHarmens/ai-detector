@@ -414,6 +414,10 @@ alle opties.
 
 ## Detector starten
 
+Het programma leest `config.json` uit de map waar het zelf staat. Zet een nieuwe versie
+dus eerst in dezelfde map als `config.json` (niet starten vanuit Downloads): anders maakt
+hij daar een lege `config.json` en blijft hij melden `detectors: Field required`.
+
 ```bash
 cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
 chmod +x aidetector-osx-v0.7.5.command
