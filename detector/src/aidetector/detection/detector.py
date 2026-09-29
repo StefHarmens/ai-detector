@@ -11,6 +11,7 @@ from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.exporter import Exporter
 from aidetector.exporters.telegram import TelegramExporter
 from aidetector.exporters.webhook import WebhookExporter
+from aidetector.sources.hires import HiresBuffer, hires_buffers
 from aidetector.sources.source import SourceProvider
 from aidetector.utils.config import (
     ChatConfig,
@@ -46,6 +47,7 @@ class Detector:
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
     camera_names: dict[str, str]
+    hires: dict[str, HiresBuffer]
 
     def __init__(
         self,
@@ -71,6 +73,7 @@ class Detector:
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
         self.camera_names = camera_names(detection)
+        self.hires = hires_buffers(detection)
         # The frame thread and the timeout monitor both finish events.
         self.lock = Lock()
 
@@ -193,6 +196,8 @@ class Detector:
             finally:
                 self.stop()
 
+        for buffer in self.hires.values():
+            buffer.start()
         Thread(target=monitor_timeouts, daemon=True).start()
         thread = Thread(target=frame_producer)
         thread.start()
@@ -203,6 +208,8 @@ class Detector:
         collected and waits until all exports are sent."""
         self.running = False
         self.source_provider.close()
+        for buffer in self.hires.values():
+            buffer.stop()
         with self.lock:
             for source in list(self.detections):
                 if self.detections[source]:
@@ -239,6 +246,7 @@ class Detector:
         detections = self._alert_detections(all_detections)
         if self._has_min_detections(detections):
             best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
+            self._attach_hires(source, best_detection, detections)
 
             matching_confs = (
                 matching_confidences(
@@ -297,6 +305,19 @@ class Detector:
             if any(detection.confidence for detection in all_detections):
                 self._export_review(all_detections)
         self.detections[source] = []
+
+    def _attach_hires(
+        self, source: str, best_detection: Detection, detections: list[Detection]
+    ) -> None:
+        """Copies the high-resolution frames of the event now, before the buffer
+        drops them while the exporters are still busy."""
+        buffer = self.hires.get(source)
+        if buffer is None:
+            return
+        start = detections[0].date - timedelta(seconds=buffer.config.before_seconds)
+        best_detection.hires = buffer.frames_between(start, datetime.now())
+        if not best_detection.hires:
+            self.logger.warning("No high-resolution frames for this event on %s", source)
 
     def _alert_detections(self, detections: list[Detection]) -> list[Detection]:
         """Drops the boxes below yolo.confidence, which only count for review."""

@@ -1,0 +1,106 @@
+import subprocess
+from datetime import datetime, timedelta
+
+import numpy as np
+import pytest
+from imageio_ffmpeg import get_ffmpeg_exe
+
+from aidetector.media.video import get_image
+from aidetector.sources.hires import (
+    HiresBuffer,
+    hires_buffers,
+    hires_detection,
+    split_jpegs,
+)
+from aidetector.utils.config import (
+    Crop,
+    Detection,
+    DetectionConfig,
+    HiresConfig,
+    HiresFrame,
+    ImageSet,
+)
+
+START = datetime(2026, 10, 2, 8, 0, 0)
+
+
+def jpeg(width: int = 64, height: int = 36, value: int = 0) -> bytes:
+    return get_image(np.full((height, width, 3), value, dtype=np.uint8), 90)
+
+
+def test_split_jpegs_keeps_an_incomplete_image_for_the_next_read():
+    first, second = jpeg(value=10), jpeg(value=200)
+    buffer = bytearray(b"junk" + first + second[:20])
+
+    assert split_jpegs(buffer) == [first]
+    buffer += second[20:]
+    assert split_jpegs(buffer) == [second]
+    assert buffer == bytearray()
+
+
+def test_buffer_keeps_only_the_configured_seconds():
+    buffer = HiresBuffer("rtsp://camera", HiresConfig(source="x", seconds=30))
+    for offset in range(0, 60, 10):
+        buffer.add(HiresFrame(START + timedelta(seconds=offset), b""))
+
+    assert [frame.date for frame in buffer.frames] == [
+        START + timedelta(seconds=offset) for offset in (20, 30, 40, 50)
+    ]
+    assert len(buffer.frames_between(START + timedelta(seconds=25), START + timedelta(seconds=45))) == 2
+
+
+def test_hires_sources_must_match_the_detection_sources():
+    detection = DetectionConfig(
+        source=["cam-a", "cam-b"], hires=HiresConfig(source=["rtsp://a-4k", None])
+    )
+    assert list(hires_buffers(detection)) == ["cam-a"]
+
+    with pytest.raises(ValueError, match="one stream"):
+        hires_buffers(
+            DetectionConfig(source=["cam-a", "cam-b"], hires=HiresConfig(source="rtsp://a"))
+        )
+
+
+def test_hires_detection_scales_the_boxes_to_the_4k_frame():
+    detection = Detection(
+        START,
+        ImageSet(np.zeros((720, 1280, 3), dtype=np.uint8), [Crop(100, 200, 300, 400, "mounting", 0.9)]),
+        {"mounting": 0.9},
+        camera="Stal",
+    )
+    detection.hires = [
+        HiresFrame(START - timedelta(seconds=5), jpeg(3840, 2160)),
+        HiresFrame(START + timedelta(milliseconds=300), jpeg(3840, 2160, 50)),
+    ]
+
+    hires = hires_detection(detection)
+
+    assert hires is not None
+    assert hires.date == START + timedelta(milliseconds=300)
+    assert (hires.images.width, hires.images.height) == (3840, 2160)
+    crop = hires.images.crops[0]
+    assert (crop.x1, crop.y1, crop.x2, crop.y2) == (300, 600, 900, 1200)
+    assert hires.camera == "Stal"
+
+
+def test_hires_detection_without_frames_is_none():
+    detection = Detection(START, ImageSet(np.zeros((36, 64, 3), dtype=np.uint8)), {})
+    assert hires_detection(detection) is None
+
+
+def test_buffer_reads_frames_from_ffmpeg(tmp_path):
+    video = tmp_path / "barn.mp4"
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc=size=640x360:rate=10:duration=3", "-pix_fmt", "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+    buffer = HiresBuffer(str(video), HiresConfig(source=str(video), fps=2, hwaccel=None))
+
+    buffer._read()
+
+    assert 4 <= len(buffer.frames) <= 8
+    assert buffer.frames[0].jpg.shape == (360, 640, 3)

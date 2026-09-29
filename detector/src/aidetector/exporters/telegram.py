@@ -17,6 +17,7 @@ from aidetector.media.video import (
     get_image,
     get_plot,
 )
+from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import (
     ChatConfig,
     Detection,
@@ -336,7 +337,8 @@ class TelegramExporter(WebhookExporter):
             )
 
         if self.telegram.include_crop and best_detection.images.crop_region:
-            c = get_crop(best_detection)
+            # The 4K frame shows the coat pattern much sharper than the detection frame.
+            c = get_crop(hires_detection(best_detection) or best_detection)
             if c is not None:
                 crop = get_image(c)
                 if self.config.data_max is not None:

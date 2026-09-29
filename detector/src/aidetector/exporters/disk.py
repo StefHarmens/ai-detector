@@ -3,7 +3,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from aidetector.exporters.exporter import Exporter
-from aidetector.media.video import generate_mp4, get_image, get_plot
+from aidetector.media.video import generate_mp4, get_crop, get_image, get_plot
+from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import (
     Detection,
     DiskConfig,
@@ -63,6 +64,15 @@ class DiskExporter(Exporter[DiskConfig]):
             clean_image_path = timestamped_directory / "clean.jpg"
             with open(clean_image_path, "wb") as f:
                 f.write(get_image(best_detection.images.jpg))
+        hires = hires_detection(best_detection)
+        hires_crop = (
+            get_crop(hires, aspect_ratio=None, padding=self.config.crop_padding, plot=False)
+            if hires
+            else None
+        )
+        if hires_crop is not None:
+            with open(timestamped_directory / "hires.jpg", "wb") as f:
+                f.write(get_image(hires_crop, 95))
         video = generate_mp4(detections, padding=self.config.crop_padding)
         if video:
             video_path = timestamped_directory / "video.mp4"

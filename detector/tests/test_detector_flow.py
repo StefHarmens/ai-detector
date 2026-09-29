@@ -112,6 +112,7 @@ def make_detector() -> Detector:
     detector.last_detection_time = {}
     detector.last_frame_time = datetime.min
     detector.camera_names = {}
+    detector.hires = {}
     detector.lock = Lock()
     detector.running = True
     return detector
@@ -156,6 +157,32 @@ def test_export_validates_exports_and_clears_detections():
     assert best_detection.confidence == {"cow": 0.9}
     assert len(detections) == 2
     assert validated is True
+
+
+def test_export_gives_the_best_detection_the_4k_frames_from_before_the_event():
+    from aidetector.sources.hires import HiresBuffer
+    from aidetector.utils.config import HiresConfig, HiresFrame
+
+    source = "camera"
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    start = datetime.now() - timedelta(seconds=5)
+    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10, seconds=600))
+    for offset in (-30, -8, -2, 1, 3):
+        buffer.add(HiresFrame(start + timedelta(seconds=offset), b"jpeg"))
+    detector.hires = {source: buffer}
+    detector.detections[source] = [
+        make_detection(start, {"cow": 0.7}),
+        make_detection(start + timedelta(seconds=2), {"cow": 0.9}),
+    ]
+
+    detector._export(source)
+
+    best_detection = exporter.calls[0][0]
+    assert [frame.date - start for frame in best_detection.hires] == [
+        timedelta(seconds=offset) for offset in (-8, -2, 1, 3)
+    ]
 
 
 def test_validator_without_vlms_defaults_to_validated_true():

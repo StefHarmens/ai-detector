@@ -88,6 +88,21 @@ class ImageSet:
         )
 
 
+class HiresFrame:
+    """A frame from the high-resolution stream of a camera, kept as JPEG."""
+
+    def __init__(self, date: datetime, jpeg: bytes):
+        self.date = date
+        self.jpeg = jpeg
+
+    @property
+    def jpg(self) -> ndarray:
+        image = cv2.imdecode(np.frombuffer(self.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("Failed to decode high-resolution frame")
+        return image
+
+
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class Detection:
     date: datetime
@@ -95,6 +110,9 @@ class Detection:
     confidence: Confidence
     source: str | None = None
     camera: str | None = None
+    # Frames of the high-resolution stream from just before the event until its
+    # end; only set on the best detection of an exported event.
+    hires: list[HiresFrame] | None = None
 
 
 @dataclass(kw_only=True)
@@ -115,12 +133,26 @@ class YoloConfig:
 
 
 @dataclass(kw_only=True)
+class HiresConfig:
+    # One stream per detection source, in the same order; null for a camera
+    # without a high-resolution stream.
+    source: str | list[str | None]
+    fps: float = 1
+    # How long frames are kept; must cover before_seconds plus the longest event.
+    seconds: int = 90
+    before_seconds: int = 10
+    quality: int = 85
+    hwaccel: str | None = "auto"
+
+
+@dataclass(kw_only=True)
 class DetectionConfig:
     source: str | list[str]
     name: str | list[str] | None = None
     interval: float = 0
     frame_retention: int = 15
     frames_width: int = 1280
+    hires: HiresConfig | None = None
 
 
 @dataclass(kw_only=True)
