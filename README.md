@@ -311,9 +311,20 @@ en archiveert de bot niemand; hij waarschuwt dan in de chat. Na elke wijziging s
 een kort bericht, bijvoorbeeld `📋 Koeienlijst bijgewerkt: 2 nieuw, 1 ander nummer, 1 weg
 (archief).`
 
-De bot zoekt zelf de kopregel, ook als er een titel boven staat. Kolommen zoals
-`Levensnummer`, `Werknummer`, `Halsbandnummer` (of `Respondernummer`) en `Naam` worden
-herkend; per dier neemt hij het halsbandnummer, en anders het werknummer.
+De bot zoekt zelf de kopregel, ook als er een titel boven staat. De export uit het
+Lely-programma (kolommen `Diernr`, `Resp 1`, `Levensnummer`, `Gesl`, `Naam`, `Werknummer`,
+`Diercat`) wordt zo gelezen:
+
+- een koe met halsband (er staat een responder in `Resp 1`) krijgt haar **Diernr**;
+- een pink zonder halsband (`Resp 1` leeg) krijgt haar **Werknummer**. Kalft ze af en
+  krijgt ze een halsband, dan neemt de bot bij de volgende export haar Diernr over; haar
+  sprongen en foto's blijven bij haar;
+- kalveren en stieren (`Diercat` kalf of stier, of `Gesl` M) worden overgeslagen; het
+  bericht zegt hoeveel;
+- `Levnr moeder` wordt nooit als levensnummer gelezen.
+
+Andere exports met kolommen zoals `Halsbandnummer` en `Werknummer` werken ook: per dier
+het halsbandnummer, en anders het werknummer.
 
 Zonder `herd_file` kan het ook eenmalig: stuur de export (Excel of CSV) als bestand naar de
 bot. Op de Mac mini kan het ook met:

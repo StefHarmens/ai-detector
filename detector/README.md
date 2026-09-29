@@ -428,7 +428,10 @@ whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeie
 `herd_file`. To add many cows once, send the bot an Excel or CSV file with collar or work
 number, life number and optional name (headers such as `Levensnummer`, `Werknummer`,
 `Halsbandnummer` and `Naam` are recognised, also below a title), or run
-`import-koeien export.xlsx`.
+`import-koeien export.xlsx`. In a Lely export (`Diernr`, `Resp 1`, `Levensnummer`, `Gesl`,
+`Naam`, `Werknummer`, `Diercat`) a cow with a responder gets her `Diernr` and a heifer
+without one her `Werknummer`; calves and male animals are left out, and `Levnr moeder`
+is never taken for the life number.
 
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |

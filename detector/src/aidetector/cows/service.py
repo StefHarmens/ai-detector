@@ -274,6 +274,8 @@ class CowService:
                 if names:
                     shown = ", ".join(names[:10]) + (f" en nog {len(names) - 10}" if len(names) > 10 else "")
                     lines.append(f"{label}: {shown}")
+            if result.added and result.skipped:
+                lines.append(f"Overgeslagen: {result.skipped} kalveren en stieren")
             lines += result.problems[:10]
             self._send_text("\n".join(lines))
         return result

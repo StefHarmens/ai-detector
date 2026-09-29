@@ -39,13 +39,59 @@ def test_excel_export_with_a_title_above_the_header(tmp_path):
         ],
     )
 
-    herd, problems = parse_herd(read_table(path))
+    parsed = parse_herd(read_table(path))
 
-    assert problems == []
-    assert [(animal.number, animal.life_number, animal.name, animal.collar) for animal in herd] == [
+    assert parsed.problems == []
+    assert [(animal.number, animal.life_number, animal.name, animal.collar) for animal in parsed.animals] == [
         ("30", BERTHA, "Bertha", True),
         ("5101", ANNA, "Anna", False),
     ]
+
+
+LELY_HEADER = ["Diernr", "Resp 1", "Levensnummer", "Gesl", "Geb dat", "Naam", "Werknummer", "Diercat", "Levnr moeder", "Aankdat"]
+
+
+def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
+    from datetime import date
+
+    path = excel(
+        tmp_path / "lely.xlsx",
+        [
+            LELY_HEADER,
+            # A cow with a collar (responder): her Diernr.
+            [30, 123456, "NL 0000 0003 0", "V", date(2021, 3, 1), "Bertha", 4030, "Koe", "NL 0000 0099 9", None],
+            # A heifer without a collar yet: her work number, even though
+            # she already has a Diernr.
+            [512, None, ANNA, "V", date(2024, 5, 2), "Anna", 5101, "Pink", BERTHA, None],
+            # A bull calf and a heifer calf are left out.
+            [640, None, "NL000000640", "M", date(2026, 8, 1), None, 6400, "Kalf", ANNA, None],
+            [641, None, "NL000000641", "V", date(2026, 8, 2), None, 6401, "Kalf", BERTHA, None],
+        ],
+    )
+
+    parsed = parse_herd(read_table(path))
+
+    assert parsed.problems == []
+    assert parsed.skipped == 2
+    assert [(animal.number, animal.life_number, animal.name, animal.collar) for animal in parsed.animals] == [
+        ("30", BERTHA, "Bertha", True),
+        ("5101", ANNA, "Anna", False),
+    ]
+
+    # Anna calves and gets a collar: the next export has her responder, so
+    # her Diernr becomes her number and she keeps her history.
+    registry = CowRegistry(tmp_path / "koeien")
+    start = datetime(2026, 10, 2, 8, 0)
+    assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "5101 (Anna)"]
+    calved = excel(
+        tmp_path / "lely.xlsx",
+        [LELY_HEADER, [30, 123456, BERTHA, "V", None, "Bertha", 4030, "Koe", None, None],
+         [512, 654321, ANNA, "V", None, "Anna", 5101, "Koe", BERTHA, None]],
+    )
+    later = start + timedelta(days=60)
+    result = sync_herd(calved, registry, at=later)
+    assert result.renumbered == ["512 (Anna)"]
+    assert registry.label(ANNA, start) == "5101 (Anna)"
 
 
 def herd_file(tmp_path, rows, name="koeien.xlsx"):

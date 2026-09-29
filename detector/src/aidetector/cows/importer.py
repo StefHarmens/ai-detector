@@ -11,16 +11,25 @@ from aidetector.cows.registry import (
     normalize_number,
 )
 
-# Column names as they appear in exports of herd management programs.
-_LIFE_COLUMNS = ("levensnummer", "life number", "lifenumber", "i&r")
-# The farmer calls a cow by her collar number; a heifer without a collar by
-# her work number. The first column with a value in a row is used.
-_NUMBER_COLUMNS = (
-    ("halsband", "responder", "collar"),
-    ("werknummer", "diernummer"),
-    ("nummer", "number"),
-)
+# Column names as they appear in exports of herd management programs, such as
+# Lely's: Diernr, Resp 1, Levensnummer, Gesl, Naam, Werknummer, Diercat.
+_LIFE_COLUMNS = ("levensnummer", "levnr", "life number", "lifenumber", "i&r")
+# "Levnr moeder" is the mother's life number.
+_PARENT_WORDS = ("moeder", "vader", "mother", "father")
+# The farmer calls a cow by her collar number (Lely: Diernr); a heifer without
+# a collar by her work number.
+_COLLAR_COLUMNS = ("halsband", "diernr", "diernummer", "collar")
+_WORK_COLUMNS = ("werknummer", "werknr")
+_OTHER_NUMBER_COLUMNS = ("nummer", "number")
+# The responder hangs on the collar: without one, a heifer has no collar yet.
+_RESPONDER_COLUMNS = ("resp", "transponder")
 _NAME_COLUMNS = ("naam", "name", "roepnaam")
+_SEX_COLUMNS = ("gesl", "sex", "gender")
+_CATEGORY_COLUMNS = ("diercat", "categorie", "category")
+# Only cows and heifers take part; anything unclear stays in rather than
+# being dropped by accident.
+_MALE_VALUES = ("m", "man", "mannelijk", "male", "stier", "bull")
+_SKIPPED_CATEGORIES = ("kalf", "kalveren", "calf", "stier", "bull")
 # Exports often start with a title or the farm's name above the header.
 _HEADER_ROWS = 10
 EXCEL_SUFFIXES = (".xlsx", ".xlsm")
@@ -29,11 +38,17 @@ EXCEL_SUFFIXES = (".xlsx", ".xlsm")
 _MAX_MISSING = 0.2
 
 
-def _column(header: list[str], names: tuple[str, ...], skip: set[int]) -> int | None:
+def _column(
+    header: list[str], names: tuple[str, ...], skip: set[int], avoid: tuple[str, ...] = ()
+) -> int | None:
     lowered = [column.strip().lower() for column in header]
     for name in names:
         for index, column in enumerate(lowered):
-            if index not in skip and name in column:
+            if (
+                index not in skip
+                and name in column
+                and not any(word in column for word in avoid)
+            ):
                 return index
     return None
 
@@ -80,51 +95,107 @@ class HerdRow:
     collar: bool
 
 
-def parse_herd(rows: list[list[str]]) -> tuple[list[HerdRow], list[str]]:
-    """Finds the header and returns the animals with valid numbers, and a
-    problem per row that could not be read."""
-    header_index, life, numbers, name = None, None, [], None
-    for index, row in enumerate(rows[:_HEADER_ROWS]):
-        life = _column(row, _LIFE_COLUMNS, set())
-        if life is None:
-            continue
-        taken = {life}
-        numbers = []
-        for kind, names in enumerate(_NUMBER_COLUMNS):
-            column = _column(row, names, taken)
-            if column is not None:
-                numbers.append((column, kind == 0))
-                taken.add(column)
-        if numbers:
-            header_index, name = index, _column(row, _NAME_COLUMNS, taken)
-            break
-    if header_index is None:
-        # No recognised header: number, life number, name.
-        life, numbers, name, data = 1, [(0, True)], 2, list(enumerate(rows, start=1))
-    else:
-        data = list(enumerate(rows, start=1))[header_index + 1 :]
+@dataclass
+class ParsedHerd:
+    animals: list[HerdRow] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    # Calves and male animals, which are left out.
+    skipped: int = 0
 
-    herd, problems = [], []
+
+@dataclass
+class _Columns:
+    life: int
+    collar: int | None = None
+    work: int | None = None
+    other: int | None = None
+    responder: int | None = None
+    name: int | None = None
+    sex: int | None = None
+    category: int | None = None
+
+    @classmethod
+    def find(cls, header: list[str]) -> "_Columns | None":
+        life = _column(header, _LIFE_COLUMNS, set(), _PARENT_WORDS)
+        if life is None:
+            return None
+        taken = {life}
+
+        def take(names: tuple[str, ...]) -> int | None:
+            index = _column(header, names, taken, _PARENT_WORDS)
+            if index is not None:
+                taken.add(index)
+            return index
+
+        # The responder first, so "Resp 1" is not read as a number column.
+        responder = take(_RESPONDER_COLUMNS)
+        columns = cls(
+            life=life,
+            responder=responder,
+            collar=take(_COLLAR_COLUMNS),
+            work=take(_WORK_COLUMNS),
+            other=take(_OTHER_NUMBER_COLUMNS),
+        )
+        if columns.collar is None and columns.work is None and columns.other is None:
+            return None
+        columns.name = take(_NAME_COLUMNS)
+        columns.sex = take(_SEX_COLUMNS)
+        columns.category = take(_CATEGORY_COLUMNS)
+        return columns
+
+    def number(self, row: list[str]) -> tuple[str, bool]:
+        """Her collar number when she has a collar, else her work number."""
+        collar, work, other = _cell(row, self.collar), _cell(row, self.work), _cell(row, self.other)
+        has_collar = bool(collar) and (self.responder is None or bool(_cell(row, self.responder)))
+        if has_collar:
+            return collar, True
+        if work:
+            return work, False
+        if other:
+            return other, self.work is None and self.collar is None
+        return collar, True
+
+    def skip(self, row: list[str]) -> bool:
+        sex = _cell(row, self.sex).lower()
+        category = _cell(row, self.category).lower()
+        return sex in _MALE_VALUES or any(word in category for word in _SKIPPED_CATEGORIES)
+
+
+def parse_herd(rows: list[list[str]]) -> ParsedHerd:
+    """Finds the header and returns the cows and heifers with valid numbers,
+    a problem per row that could not be read, and how many calves and male
+    animals were left out."""
+    columns, data = None, list(enumerate(rows, start=1))
+    for index, row in enumerate(rows[:_HEADER_ROWS]):
+        columns = _Columns.find(row)
+        if columns is not None:
+            data = data[index + 1 :]
+            break
+    if columns is None:
+        # No recognised header: number, life number, name.
+        columns = _Columns(life=1, collar=0, name=2)
+
+    parsed = ParsedHerd()
     for line, row in data:
         if not any(cell.strip() for cell in row):
             continue
-        number, collar = next(
-            ((_cell(row, index), collar) for index, collar in numbers if _cell(row, index)),
-            ("", True),
-        )
+        if columns.skip(row):
+            parsed.skipped += 1
+            continue
+        number, collar = columns.number(row)
         try:
-            herd.append(
+            parsed.animals.append(
                 HerdRow(
                     line,
                     normalize_number(number),
-                    normalize_life_number(_cell(row, life)),
-                    _cell(row, name) or None,
+                    normalize_life_number(_cell(row, columns.life)),
+                    _cell(row, columns.name) or None,
                     collar,
                 )
             )
         except ValueError as error:
-            problems.append(f"Regel {line}: {error}")
-    return herd, problems
+            parsed.problems.append(f"Regel {line}: {error}")
+    return parsed
 
 
 @dataclass
@@ -134,18 +205,23 @@ class ImportResult:
     # How many animals got their collar number, and how many their work number.
     by_collar: int = 0
     by_work: int = 0
+    skipped: int = 0
 
     def summary(self) -> str:
         """The first line of the reply to the farmer."""
         animals = "dier" if self.added == 1 else "dieren"
         if self.by_collar and self.by_work:
-            return (
+            text = (
                 f"✅ {self.added} {animals} ingelezen: {self.by_collar} op halsbandnummer, "
                 f"{self.by_work} op werknummer (pinken zonder halsband)."
             )
-        if self.by_work:
-            return f"✅ {self.added} {animals} ingelezen op werknummer."
-        return f"✅ {self.added} {'koe' if self.added == 1 else 'koeien'} ingelezen."
+        elif self.by_work:
+            text = f"✅ {self.added} {animals} ingelezen op werknummer."
+        else:
+            text = f"✅ {self.added} {'koe' if self.added == 1 else 'koeien'} ingelezen."
+        if self.skipped:
+            text += f" {self.skipped} kalveren en stieren overgeslagen."
+        return text
 
 
 def import_cows(path: Path, registry: CowRegistry) -> ImportResult:
@@ -155,9 +231,9 @@ def import_cows(path: Path, registry: CowRegistry) -> ImportResult:
     rows = read_table(path)
     if not rows:
         return ImportResult(problems=["Het bestand is leeg"])
-    herd, problems = parse_herd(rows)
-    result = ImportResult(problems=problems)
-    for animal in herd:
+    parsed = parse_herd(rows)
+    result = ImportResult(problems=parsed.problems, skipped=parsed.skipped)
+    for animal in parsed.animals:
         try:
             registry.add(animal.number, animal.life_number, animal.name)
         except NumberTaken as error:
@@ -182,6 +258,7 @@ class SyncResult:
     archived: list[str] = field(default_factory=list)
     returned: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    skipped: int = 0
 
     @property
     def changed(self) -> bool:
@@ -206,11 +283,11 @@ def sync_herd(path: Path, registry: CowRegistry, at: datetime | None = None) -> 
     longer on it are archived. Numbers change in two passes, so two cows can
     swap collars."""
     at = at or datetime.now()
-    herd, problems = parse_herd(read_table(path))
-    result = SyncResult(problems=problems)
+    parsed = parse_herd(read_table(path))
+    result = SyncResult(problems=parsed.problems, skipped=parsed.skipped)
     listed: dict[str, HerdRow] = {}
     numbers: dict[str, str] = {}
-    for animal in herd:
+    for animal in parsed.animals:
         if animal.life_number in listed:
             result.problems.append(f"Regel {animal.line}: {animal.life_number} staat er twee keer in")
         elif animal.number in numbers:
