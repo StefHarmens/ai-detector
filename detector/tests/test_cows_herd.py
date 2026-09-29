@@ -59,13 +59,14 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
         [
             LELY_HEADER,
             # A cow with a collar (responder): her Diernr.
-            [30, 123456, "NL 0000 0003 0", "V", date(2021, 3, 1), "Bertha", 4030, "Koe", "NL 0000 0099 9", None],
+            [30, 123456, "NL 0000 0003 0", "Vrouwelijk", date(2021, 3, 1), "Bertha", 4030, "Koe", "NL 0000 0099 9", None],
             # A heifer without a collar yet: her work number, even though
             # she already has a Diernr.
-            [512, None, ANNA, "V", date(2024, 5, 2), "Anna", 5101, "Pink", BERTHA, None],
-            # A bull calf and a heifer calf are left out.
-            [640, None, "NL000000640", "M", date(2026, 8, 1), None, 6400, "Kalf", ANNA, None],
-            [641, None, "NL000000641", "V", date(2026, 8, 2), None, 6401, "Kalf", BERTHA, None],
+            [512, None, ANNA, "Vrouwelijk", date(2024, 5, 2), "Anna", 5101, "Pink", BERTHA, None],
+            # A bull calf and a heifer calf are left out. Gesl holds
+            # "Vrouwelijk" or "Mannelijk" in the farm's export.
+            [640, None, "NL000000640", "Mannelijk", date(2026, 8, 1), None, 6400, "Kalf", ANNA, None],
+            [641, None, "NL000000641", "Vrouwelijk", date(2026, 8, 2), None, 6401, "Kalf", BERTHA, None],
         ],
     )
 
@@ -85,13 +86,21 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
     assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "5101 (Anna)"]
     calved = excel(
         tmp_path / "lely.xlsx",
-        [LELY_HEADER, [30, 123456, BERTHA, "V", None, "Bertha", 4030, "Koe", None, None],
-         [512, 654321, ANNA, "V", None, "Anna", 5101, "Koe", BERTHA, None]],
+        [LELY_HEADER, [30, 123456, BERTHA, "Vrouwelijk", None, "Bertha", 4030, "Koe", None, None],
+         [512, 654321, ANNA, "Vrouwelijk", None, "Anna", 5101, "Koe", BERTHA, None]],
     )
     later = start + timedelta(days=60)
     result = sync_herd(calved, registry, at=later)
     assert result.renumbered == ["512 (Anna)"]
     assert registry.label(ANNA, start) == "5101 (Anna)"
+
+
+def test_a_male_animal_is_left_out_whatever_its_category():
+    rows = [LELY_HEADER, [700, None, "NL000000700", "Mannelijk", None, None, 7000, "Pink", None, None]]
+
+    parsed = parse_herd(rows)
+
+    assert parsed.animals == [] and parsed.skipped == 1
 
 
 def herd_file(tmp_path, rows, name="koeien.xlsx"):
