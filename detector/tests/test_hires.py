@@ -250,7 +250,7 @@ def test_sparse_keyframes_switch_the_stream_to_all_frames(caplog):
 
     assert buffer.switch_to_all_frames
     assert "-skip_frame" not in buffer.command()
-    assert "fps=1" in " ".join(buffer.command())
+    assert "select=" in " ".join(buffer.command())
     assert "keyframes are too far apart, decoding all frames instead" in caplog.records[-1].getMessage()
 
 
@@ -288,7 +288,7 @@ def test_switching_restarts_the_stream_with_all_frames(tmp_path):
 def test_the_encoder_always_gets_one_fixed_format():
     for keyframes in (True, False):
         command = HiresBuffer("rtsps://nvr/key", HiresConfig(source="x", keyframes_only=keyframes)).command()
-        assert command[command.index("-vf") + 1].endswith(",format=yuvj420p")
+        assert command[command.index("-vf") + 1].endswith(":out_range=full,format=yuv420p")
 
 
 def test_a_stream_without_frames_falls_back_step_by_step(tmp_path):

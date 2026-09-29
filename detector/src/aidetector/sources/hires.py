@@ -105,7 +105,8 @@ class HiresBuffer:
 
     def command(self) -> list[str]:
         assert self.source is not None
-        command = [get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
+        # Warnings too: the line that says why a stream fails is often one.
+        command = [get_ffmpeg_exe(), "-hide_banner", "-loglevel", "warning"]
         if self.source.lower().startswith("rtsp"):
             command += ["-rtsp_transport", "tcp"]
         if self.hwaccel:
@@ -117,20 +118,19 @@ class HiresBuffer:
             command += ["-skip_frame", "nokey"]
         # FFmpeg's qscale 2 (best) to 31 (worst), mapped from a JPEG quality.
         qscale = max(2, min(31, round(31 - (self.config.quality / 100) * 29)))
-        if self.keyframes:
-            # At most one frame per 1/fps seconds, without the duplicates the
-            # fps filter adds when keyframes come less often.
-            filters = [
-                f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{1 / self.config.fps:g})'"
-            ]
-        else:
-            filters = [f"fps={self.config.fps}"]
-        if self.config.max_width:
-            filters.append(f"scale='min(iw\\,{self.config.max_width})':-2")
-        # One fixed format for the JPEG encoder: a live stream can change format
-        # when the decoder switches between hardware and software, which the
-        # encoder refuses ("Invalid argument").
-        filters.append("format=yuvj420p")
+        # At most one frame per 1/fps seconds, for keyframes and all frames
+        # alike: the fps filter adds duplicates when frames come less often,
+        # and on the farm decoding all frames failed with it while this worked.
+        filters = [
+            f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{1 / self.config.fps:g})'"
+        ]
+        width = f"'min(iw\\,{self.config.max_width})'" if self.config.max_width else "iw"
+        # One fixed format for the JPEG encoder, in the full colour range that
+        # JPEG uses: a live stream can change format when the decoder switches
+        # between hardware and software, which the encoder refuses ("Invalid
+        # argument"). The same layout every JPEG has; the size is unchanged.
+        filters.append(f"scale={width}:-2:out_range=full")
+        filters.append("format=yuv420p")
         return command + [
             "-i",
             self.source,
@@ -141,6 +141,11 @@ class HiresBuffer:
             "vfr",
             "-c:v",
             "mjpeg",
+            "-color_range",
+            "pc",
+            # Also accept a limited-range picture, should one slip through.
+            "-strict",
+            "unofficial",
             "-q:v",
             str(qscale),
             "-f",
@@ -243,7 +248,7 @@ class HiresBuffer:
                 line = raw.decode(errors="replace").strip()
                 if not line:
                     continue
-                if len(first) < 3:
+                if len(first) < 5:
                     first.append(line)
                 else:
                     last.append(line)
