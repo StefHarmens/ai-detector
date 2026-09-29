@@ -431,8 +431,10 @@ De detector start zichzelf opnieuw:
 
 - als je `config.json` opslaat; wijzigingen gelden dus direct, zonder handmatige
   herstart;
-- 5 seconden na een crash, ook als de config ongeldig is. Zodra je de fout in
-  `config.json` herstelt, start hij weer normaal.
+- 5 seconden na een crash;
+- bij een fout in `config.json` (bijvoorbeeld een ontbrekende komma) toont hij de foute
+  regel en welke regel waarschijnlijk een komma mist, en wacht hij tot je het bestand
+  opslaat. Camerasleutels en tokens staan daarbij onleesbaar in het log.
 
 Bij een herstart worden meldingen die op dat moment worden verstuurd eerst afgemaakt.
 Een sprong die op dat moment nog bezig is, telt niet mee. Stoppen doe je nog steeds

@@ -115,6 +115,15 @@ def start() -> bool:
         manager.stop()
 
 
+def _wait_for_config_change(path: Path) -> None:
+    """A wrong config.json does not get better by trying again, so wait until
+    the file is saved."""
+    revision = _config_revision(path)
+    logger.info("Fix %s: the detector starts again as soon as it is saved", path)
+    while not _config_changed(path, revision):
+        time.sleep(_WATCH_SECONDS)
+
+
 def _restart() -> None:
     """Starts the program again as a new process, so the new config, models and
     Telegram services start from a clean state."""
@@ -133,12 +142,21 @@ def main():
     multiprocessing.freeze_support()
     if _run_command():
         return
+    from aidetector.utils.errors import ConfigError
+
     try:
         if not start():
             return
     except KeyboardInterrupt:
         logger.info("Shutdown requested")
         return
+    except ConfigError:
+        # The problem itself is already in the log, without a traceback.
+        try:
+            _wait_for_config_change(Path("config.json").resolve())
+        except KeyboardInterrupt:
+            logger.info("Shutdown requested")
+            return
     except Exception:
         logger.exception(
             "Application crashed, restarting in %ss", _RESTART_DELAY_SECONDS

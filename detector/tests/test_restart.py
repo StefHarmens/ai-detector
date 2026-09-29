@@ -124,3 +124,34 @@ def test_loading_a_config_with_schema_leaves_the_file_alone(tmp_path, monkeypatc
     config_module.load_config()
 
     assert config_path.stat().st_mtime_ns == before
+
+
+def test_a_wrong_config_waits_for_the_file_instead_of_restarting_every_5_seconds(monkeypatch, tmp_path):
+    from aidetector.utils.errors import ConfigError
+
+    events = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(aidetector, "_run_command", lambda: False)
+
+    def start():
+        raise ConfigError("Invalid JSON in config.json")
+
+    monkeypatch.setattr(aidetector, "start", start)
+    monkeypatch.setattr(aidetector, "_wait_for_config_change", lambda path: events.append(("wait", path)))
+    monkeypatch.setattr(aidetector.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+    monkeypatch.setattr(aidetector, "_restart", lambda: events.append(("restart",)))
+
+    aidetector.main()
+
+    assert events == [("wait", tmp_path.resolve() / "config.json"), ("restart",)]
+
+
+def test_waiting_for_the_config_ends_when_it_is_saved(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    path.write_text("{ broken")
+    saves = iter(["{ broken", '{"detectors": []}'])
+    monkeypatch.setattr(aidetector.time, "sleep", lambda seconds: path.write_text(next(saves, '{"detectors": []}')))
+
+    aidetector._wait_for_config_change(path)
+
+    assert path.read_text() == '{"detectors": []}'

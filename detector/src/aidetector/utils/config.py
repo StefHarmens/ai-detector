@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import field
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any, Literal
 import cv2
 import numpy as np
 import requests
+from aidetector.utils.errors import ConfigError, MissingConfigError
 from aidetector.utils.version import REF_NAME
 from numpy import ndarray
 from pydantic import ConfigDict, ValidationError
@@ -366,6 +368,42 @@ def format_validation_errors(error: ValidationError) -> str:
     return "\n".join(messages)
 
 
+_SECRETS = (
+    (re.compile(r'(rtsps?://[^/"]+/)[^"]*'), r"\1<key>"),
+    (re.compile(r'("(?:token|chat|key)"\s*:\s*")[^"]*'), r"\1<hidden>"),
+)
+
+
+def _hide_secrets(line: str) -> str:
+    for pattern, replacement in _SECRETS:
+        line = pattern.sub(replacement, line)
+    return line
+
+
+def json_error_hint(text: str, error: json.JSONDecodeError) -> str:
+    """Shows the line of a JSON error with a pointer, and the usual cause: a
+    missing comma after the block above. Stream keys and tokens are hidden,
+    since such logs get pasted into chats."""
+    lines = text.splitlines()
+    if not 0 < error.lineno <= len(lines):
+        return ""
+    line = lines[error.lineno - 1]
+    before = line[: error.colno - 1]
+    pointer = "".join("\t" if character == "\t" else " " for character in before) + "^"
+    hint = [f"Line {error.lineno}: {_hide_secrets(line)}", f"Line {error.lineno}: {pointer}"]
+    if error.msg.startswith("Expecting ',' delimiter") and not before.strip():
+        previous = next(
+            (number for number in range(error.lineno - 1, 0, -1) if lines[number - 1].strip()),
+            None,
+        )
+        if previous is not None:
+            hint.append(
+                f"A comma is probably missing at the end of line {previous}: "
+                f"{_hide_secrets(lines[previous - 1].strip())}"
+            )
+    return "\n".join(hint)
+
+
 def _folder_hint() -> str:
     """Started from the wrong folder (e.g. Downloads) the program does not
     find config.json, since it looks next to itself."""
@@ -385,23 +423,24 @@ def load_config() -> Config:
             logger.warning(
                 f"Created an empty {config_path.resolve()} from the template. {_folder_hint()}"
             )
-            raise FileNotFoundError(f"Configure before running: {config_path.resolve()}")
+            raise MissingConfigError(f"Configure before running: {config_path.resolve()}")
         else:
             logger.error(f"Configuration file not found: {config_path.resolve()}")
             logger.error(_folder_hint())
             logger.error("Create a config.json file. See: https://github.com/StefHarmens/ai-detector")
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            raise MissingConfigError(f"Configuration file not found: {config_path.resolve()}")
 
+    text = config_path.read_text()
     try:
-        with open(config_path) as f:
-            config_json = json.load(f)
+        config_json = json.loads(text)
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in {config_path}: {e}")
-        raise ValueError(f"Invalid JSON in {config_path}: {e}")
+        message = f"Invalid JSON in {config_path.resolve()}: {e}\n{json_error_hint(text, e)}".rstrip()
+        logger.error(message)
+        raise ConfigError(message)
 
     if config_json is None:
         logger.error(f"Config file is empty: {config_path}")
-        raise ValueError(f"Config file is empty: {config_path}")
+        raise ConfigError(f"Config file is empty: {config_path}")
 
     try:
         # Only write when needed: the detector restarts when config.json changes.
@@ -420,7 +459,7 @@ def load_config() -> Config:
             # Most likely the empty config.json made on a first start elsewhere.
             message += f"\n{_folder_hint()}"
         logger.error(message)
-        raise ValueError(message)
+        raise ConfigError(message)
 
 
 config = load_config()
