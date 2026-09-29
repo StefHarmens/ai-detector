@@ -283,3 +283,40 @@ def test_switching_restarts_the_stream_with_all_frames(tmp_path):
     buffer._read()
 
     assert not buffer.keyframes and buffer.switch_to_all_frames
+
+
+def test_the_encoder_always_gets_one_fixed_format():
+    for keyframes in (True, False):
+        command = HiresBuffer("rtsps://nvr/key", HiresConfig(source="x", keyframes_only=keyframes)).command()
+        assert command[command.index("-vf") + 1].endswith(",format=yuvj420p")
+
+
+def test_a_stream_without_frames_falls_back_step_by_step(tmp_path):
+    missing = str(tmp_path / "missing.mp4")
+    buffer = HiresBuffer(missing, HiresConfig(source=missing), "Stal Links")
+    # As on the farm: keyframes were too far apart, so all frames are decoded.
+    buffer.keyframes = False
+
+    buffer._read()
+    assert buffer.hwaccel is None and not buffer.keyframes
+
+    buffer._read()
+    assert buffer.keyframes and buffer.all_frames_failed
+    assert "-skip_frame" in buffer.command()
+
+    # Sparse keyframes no longer switch back to all frames.
+    buffer.add(HiresFrame(START, jpeg()))
+    buffer.add(HiresFrame(START + timedelta(seconds=5), jpeg()))
+    assert buffer.keyframes and not buffer.switch_to_all_frames
+
+
+def test_the_log_keeps_the_first_lines_of_an_error(tmp_path, caplog):
+    import logging
+
+    missing = str(tmp_path / "missing.mp4")
+    buffer = HiresBuffer(missing, HiresConfig(source=missing, hwaccel=None), "Stal Links")
+
+    with caplog.at_level(logging.WARNING, logger="aidetector.sources.hires"):
+        buffer._read()
+
+    assert "missing.mp4" in caplog.records[-1].getMessage()

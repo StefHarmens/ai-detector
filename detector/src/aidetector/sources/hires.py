@@ -65,9 +65,12 @@ class HiresBuffer:
         self.fed = 0.0
         self.first: datetime | None = None
         self.interval_logged = False
-        # Starts as configured; switches off when the keyframes are too sparse.
+        # Start as configured and change when a way of reading fails.
         self.keyframes = config.keyframes_only
+        self.hwaccel = config.hwaccel
         self.switch_to_all_frames = False
+        # Decoding all frames gave no frames at all: stay with keyframes.
+        self.all_frames_failed = False
         # Start of the frames to keep while a mount is going on.
         self.held: datetime | None = None
         self.frames: deque[HiresFrame] = deque()
@@ -105,8 +108,8 @@ class HiresBuffer:
         command = [get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
         if self.source.lower().startswith("rtsp"):
             command += ["-rtsp_transport", "tcp"]
-        if self.config.hwaccel:
-            command += ["-hwaccel", self.config.hwaccel]
+        if self.hwaccel:
+            command += ["-hwaccel", self.hwaccel]
         # Frame threads each hold 4K frames: one thread halves the memory
         # (about 350 MB per camera), and hardware decoding needs no more.
         command += ["-threads", "1"]
@@ -124,6 +127,10 @@ class HiresBuffer:
             filters = [f"fps={self.config.fps}"]
         if self.config.max_width:
             filters.append(f"scale='min(iw\\,{self.config.max_width})':-2")
+        # One fixed format for the JPEG encoder: a live stream can change format
+        # when the decoder switches between hardware and software, which the
+        # encoder refuses ("Invalid argument").
+        filters.append("format=yuvj420p")
         return command + [
             "-i",
             self.source,
@@ -190,7 +197,7 @@ class HiresBuffer:
         elif not self.interval_logged and frame.date > self.first:
             self.interval_logged = True
             interval = (frame.date - self.first).total_seconds()
-            if self.keyframes and interval > _MAX_KEYFRAME_INTERVAL:
+            if self.keyframes and interval > _MAX_KEYFRAME_INTERVAL and not self.all_frames_failed:
                 logger.info(
                     "High-resolution frames from %s every %.1f s: keyframes are too far"
                     " apart, decoding all frames instead",
@@ -226,16 +233,25 @@ class HiresBuffer:
         stdout, stderr = self.process.stdout, self.process.stderr
         assert stdout is not None and stderr is not None
         # Drained all the time, so a stream of decode warnings cannot fill
-        # the pipe and stop FFmpeg; the last lines say why it stopped.
-        errors: deque[str] = deque(maxlen=3)
-        drain = Thread(
-            target=lambda: errors.extend(
-                line.decode(errors="replace").strip() for line in stderr if line.strip()
-            ),
-            daemon=True,
-        )
+        # the pipe and stop FFmpeg. The first lines usually hold the cause,
+        # the last ones how it ended.
+        first: list[str] = []
+        last: deque[str] = deque(maxlen=2)
+
+        def drain_errors() -> None:
+            for raw in stderr:
+                line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
+                if len(first) < 3:
+                    first.append(line)
+                else:
+                    last.append(line)
+
+        drain = Thread(target=drain_errors, daemon=True)
         drain.start()
         buffer = bytearray()
+        frames = 0
         try:
             while not self.stop_event.is_set():
                 chunk = os.read(stdout.fileno(), _READ_SIZE)
@@ -243,6 +259,7 @@ class HiresBuffer:
                     return
                 buffer += chunk
                 for jpeg in split_jpegs(buffer):
+                    frames += 1
                     self.add(HiresFrame(datetime.now(), jpeg))
                 if self.switch_to_all_frames:
                     return
@@ -256,8 +273,22 @@ class HiresBuffer:
                     "High-resolution stream of %s stopped (exit %s), retrying in 5 s: %s",
                     self.name,
                     code,
-                    hide_keys(" | ".join(errors)) or "no message",
+                    hide_keys(" | ".join([*first, *last])) or "no message",
                 )
+                if frames == 0:
+                    self._fall_back()
+
+    def _fall_back(self) -> None:
+        """Not a single frame: read the stream in a simpler way next time.
+        First without hardware decoding, then with keyframes only again,
+        which worked on the farm when decoding all frames did not."""
+        if self.hwaccel:
+            logger.info("Reading %s without hardware decoding", self.name)
+            self.hwaccel = None
+        elif not self.keyframes and self.config.keyframes_only:
+            logger.info("Reading %s with keyframes only again", self.name)
+            self.keyframes = True
+            self.all_frames_failed = True
 
 
 _STREAM_KEY = re.compile(r"(rtsps?://[^/\s]+/)\S*")
