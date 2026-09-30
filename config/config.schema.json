@@ -214,6 +214,16 @@
           "default": 3,
           "title": "Candidates",
           "type": "integer"
+        },
+        "telegram": {
+          "default": false,
+          "title": "Telegram",
+          "type": "boolean"
+        },
+        "video_days": {
+          "default": 90,
+          "title": "Video Days",
+          "type": "integer"
         }
       },
       "title": "CowsConfig",
