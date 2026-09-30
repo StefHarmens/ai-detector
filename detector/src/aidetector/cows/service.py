@@ -16,7 +16,7 @@ import cv2
 import requests
 from numpy import ndarray
 
-from aidetector.cows.answers import parse_answers
+from aidetector.cows.answers import Answer, parse_answers
 from aidetector.cows.importer import EXCEL_SUFFIXES, SyncResult, import_cows, sync_herd
 from aidetector.cows.photos import control_image, side_by_side
 from aidetector.cows.registry import (
@@ -541,8 +541,16 @@ class CowService:
             )
         return json.dumps({"inline_keyboard": rows})
 
-    def _refresh(self, sighting: Sighting) -> None:
+    def _refresh(self, sighting: Sighting, quiet: bool = False) -> None:
+        """Shows the new state on the Telegram photo. From the web page (quiet)
+        a failing Telegram only logs: the choice is saved either way."""
         if sighting.message is None:
+            return
+        if quiet:
+            try:
+                self._refresh(sighting)
+            except Exception:
+                self.logger.warning("Could not update the cow photo in Telegram", exc_info=True)
             return
         try:
             _call(
@@ -580,8 +588,9 @@ class CowService:
 
     # Farmer input
 
-    def handle_callback(self, data: str) -> str:
-        """Handles a button and returns the short text to show the farmer."""
+    def handle_callback(self, data: str, quiet: bool = False) -> str:
+        """Handles a button and returns the short text to show the farmer. The
+        web page uses the same buttons (quiet, see _refresh)."""
         if data.startswith("cowswitch:"):
             return self._answer_switch(data)
         _, sighting_id, slot_text, action = data.split(":")
@@ -594,7 +603,7 @@ class CowService:
                 sighting.mounter = 1 - sighting.mounter
                 sighting.role_certain = True
                 self._store(sighting)
-            self._refresh(sighting)
+            self._refresh(sighting, quiet)
             return "Rollen omgedraaid"
         if action == "n":
             self._ask_numbers(sighting)
@@ -605,11 +614,11 @@ class CowService:
         name = self._names(sighting)[slot]
         if action == "u":
             self._set(sighting, slot, None)
-            self._refresh(sighting)
+            self._refresh(sighting, quiet)
             return f"{name}: onbekend"
         if action == "x":
             self._set(sighting, slot, None, file=False)
-            self._refresh(sighting)
+            self._refresh(sighting, quiet)
             return f"Foto {name} gebruik ik niet"
         if action.startswith("c"):
             index = int(action[1:])
@@ -617,7 +626,7 @@ class CowService:
                 return "Deze keuze bestaat niet meer."
             cow = sighting.candidates[slot][index][0]
             self._set(sighting, slot, cow)
-            self._refresh(sighting)
+            self._refresh(sighting, quiet)
             return f"{name}: {self.registry.label(cow, sighting.when)}"
         raise ValueError(f"Unknown cow action {action}")
 
@@ -731,46 +740,10 @@ class CowService:
         chosen: dict[int, str | None] = {}
         problems = []
         for slot, answer in zip(slots, answers):
-            if answer.unknown:
-                chosen[slot] = None
-                continue
-            if answer.name is not None:
-                named = self.registry.with_name(answer.name)
-                if len(named) == 1:
-                    chosen[slot] = named[0]
-                elif named:
-                    problems.append(
-                        f"Er zijn {len(named)} dieren die {answer.name} heten, typ het nummer."
-                    )
-                else:
-                    problems.append(
-                        f"Geen koe of pink die {answer.name} heet. Typ het nummer, of zet "
-                        f"haar erin met /koe <nummer> <levensnummer> {answer.name}"
-                    )
-                continue
-            assert answer.number is not None
             try:
-                if answer.life_number:
-                    cow = self.registry.add(
-                        answer.number, answer.life_number, at=sighting.when
-                    ).life_number
-                else:
-                    cow = self.registry.cow_with_number(
-                        answer.number, sighting.when
-                    ) or self.registry.cow_with_number(answer.number)
-                    if cow is None:
-                        problems.append(
-                            f"Nummer {answer.number} ken ik nog niet. Typ nummer en "
-                            f"levensnummer, bijv. {answer.number} NL123456789"
-                        )
-                        continue
-            except NumberTaken as error:
-                problems.append(
-                    f"Nummer {error.number} hoort al bij {error.holder}. Andere koe? "
-                    f"Stuur /wissel {error.number} <levensnummer>"
-                )
-                continue
-            chosen[slot] = cow
+                chosen[slot] = self._resolve(sighting, answer)
+            except ValueError as error:
+                problems.append(str(error))
         known = [cow for cow in chosen.values() if cow is not None]
         if len(known) == 2 and known[0] == known[1]:
             return "Twee keer dezelfde koe: een koe springt niet op zichzelf."
@@ -786,6 +759,75 @@ class CowService:
             for slot, cow in sorted(chosen.items())
         )
         return "\n".join(([f"✅ Opgeslagen: {saved}"] if saved else []) + problems)
+
+    def _resolve(self, sighting: Sighting, answer: Answer) -> str | None:
+        """The cow the farmer means, None for unknown; a ValueError says in
+        Dutch why she cannot be found."""
+        if answer.unknown:
+            return None
+        if answer.name is not None:
+            named = self.registry.with_name(answer.name)
+            if len(named) == 1:
+                return named[0]
+            if named:
+                raise ValueError(
+                    f"Er zijn {len(named)} dieren die {answer.name} heten, typ het nummer."
+                )
+            raise ValueError(
+                f"Geen koe of pink die {answer.name} heet. Typ het nummer, of zet "
+                f"haar erin met /koe <nummer> <levensnummer> {answer.name}"
+            )
+        assert answer.number is not None
+        try:
+            if answer.life_number:
+                return self.registry.add(
+                    answer.number, answer.life_number, at=sighting.when
+                ).life_number
+        except NumberTaken as error:
+            raise ValueError(
+                f"Nummer {error.number} hoort al bij {error.holder}. Andere koe? "
+                f"Stuur /wissel {error.number} <levensnummer>"
+            ) from error
+        cow = self.registry.cow_with_number(
+            answer.number, sighting.when
+        ) or self.registry.cow_with_number(answer.number)
+        if cow is None:
+            raise ValueError(
+                f"Nummer {answer.number} ken ik nog niet. Typ nummer en "
+                f"levensnummer, bijv. {answer.number} NL123456789"
+            )
+        return cow
+
+    def set_cow(self, sighting_id: str, slot: int, value: str) -> str:
+        """Fills in one cow of a mount from the web page: a number, a name, a
+        life number, "?" for unknown or a new cow as "44 NL123456789". Raises
+        ValueError with the reason in Dutch."""
+        with self.lock:
+            sighting = self.sightings.get(sighting_id)
+        if sighting is None:
+            raise KeyError(sighting_id)
+        if slot not in (0, 1):
+            raise ValueError(f"Unknown slot {slot}")
+        cow: str | None
+        try:
+            known = normalize_life_number(value)
+        except ValueError:
+            known = None
+        if known is not None and self.registry.cow(known) is not None:
+            cow = known
+        else:
+            answers = parse_answers(value)
+            if len(answers) != 1:
+                raise ValueError("Typ één nummer of naam, of ? voor onbekend.")
+            cow = self._resolve(sighting, answers[0])
+        if cow is not None and cow == sighting.cows[1 - slot]:
+            raise ValueError("Twee keer dezelfde koe: een koe springt niet op zichzelf.")
+        self._set(sighting, slot, cow)
+        with self.lock:
+            sighting.prompt = None
+            self._store(sighting)
+        self._refresh(sighting, quiet=True)
+        return f"{self._names(sighting)[slot]} = {self.registry.label(cow, sighting.when)}"
 
     def _import_document(self, document: dict[str, Any]) -> str:
         name = str(document.get("file_name") or "koeien.csv")
@@ -948,17 +990,17 @@ class CowService:
 
     # Overview
 
-    def overview_text(self, start: datetime, end: datetime) -> str:
-        """Lines per cow for the summary: how often she was mounted, which
-        points at heat, and how often she jumped herself."""
+    def overview_counts(
+        self, start: datetime, end: datetime
+    ) -> tuple[int, dict[str, list[int]], dict[str, str], int]:
+        """The mounts in the period, and per cow [mounted, mounting] with her
+        label, and how many cows were not filled in."""
         with self.lock:
             sightings = [
                 sighting
                 for sighting in self.sightings.values()
                 if not sighting.false and start <= sighting.when < end
             ]
-        if not sightings:
-            return ""
         counts: dict[str, list[int]] = {}
         labels: dict[str, str] = {}
         unknown = 0
@@ -969,6 +1011,14 @@ class CowService:
                     continue
                 counts.setdefault(cow, [0, 0])[0 if slot != sighting.mounter else 1] += 1
                 labels.setdefault(cow, self.registry.label(cow, sighting.when))
+        return len(sightings), counts, labels, unknown
+
+    def overview_text(self, start: datetime, end: datetime) -> str:
+        """Lines per cow for the summary: how often she was mounted, which
+        points at heat, and how often she jumped herself."""
+        mounts, counts, labels, unknown = self.overview_counts(start, end)
+        if not mounts:
+            return ""
 
         def order(item: tuple[str, list[int]]) -> tuple[int, int, int, str]:
             # Most mounted first, then by collar number (7 before 12).
@@ -1041,6 +1091,12 @@ def split_message(text: str, limit: int = _MESSAGE_LIMIT) -> list[str]:
 
 _cow_services: dict[tuple[str, str], CowService] = {}
 _cow_services_lock = Lock()
+
+
+def cow_services() -> list[CowService]:
+    """The running cow services, one per Telegram chat, for the web page."""
+    with _cow_services_lock:
+        return list(_cow_services.values())
 
 
 def get_cow_service(

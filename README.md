@@ -190,6 +190,8 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
   (eerst wie sprong); deze foto's gaan niet in een koemap.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
+- Liever op een scherm? Op de [web-interface](#web-interface) doe je hetzelfde, met alle
+  open sprongen onder elkaar. Wat je daar invult, verschijnt ook in Telegram.
 
 Het overzicht van 08:00 en 16:00 krijgt dan een telling per koe:
 
@@ -444,6 +446,48 @@ De detector start zichzelf opnieuw:
 Bij een herstart worden meldingen die op dat moment worden verstuurd eerst afgemaakt.
 Een sprong die op dat moment nog bezig is, telt niet mee. Stoppen doe je nog steeds
 met `Ctrl+C`.
+
+## Web-interface
+
+Naast Telegram kun je de koeien ook invullen op een webpagina, op elke computer, tablet of
+telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen:
+
+- **Te beoordelen**: per sprong de foto's van A en B. Tik een voorgestelde koe aan, of typ
+  een nummer of naam (het vak vult aan uit de koeienlijst) en druk op Enter; daarna springt
+  hij door naar B. Verder: **Klopt** voor een koe die de bot zelf herkende, **Onbekend**,
+  **Foto klopt niet**, **Andersom** en **Hele beeld** (het 4K-beeld met het kader). Hetzelfde
+  als in Telegram: `?` is onbekend, een nieuwe koe typ je als `44 NL123456789`.
+- **Koeien**: alle dieren met nummer, naam, levensnummer en aantal foto's. Klik op een koe
+  voor haar foto's; staat er een andere koe op, haal hem dan weg, anders leert de herkenning
+  het verkeerde. Hier geef je ook een nummer aan een koe, wissel je een halsband of
+  archiveer je een koe die weg is. Met `herd_file` blijft de koeienlijst leidend.
+- **Overzicht**: per koe hoe vaak ze besprongen werd en zelf sprong, over 1 tot 30 dagen.
+
+De web-interface is een apart programma. Download `aidetector-web-osx-<versie>.zip` via de
+[releases](https://github.com/StefHarmens/ai-detector/releases) (de release **Web …**), pak
+het uit in dezelfde map als `config.json` en start het naast de detector:
+
+```bash
+cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
+chmod +x aidetector-web-osx-v0.8.0.command
+xattr -dr com.apple.quarantine aidetector-web-osx-v0.8.0.command
+./aidetector-web-osx-v0.8.0.command
+```
+
+Hij opent de pagina zelf in de browser en toont in het venster de adressen voor andere
+apparaten, bijvoorbeeld `http://mac-mini.local` en `http://192.168.1.23`. Vraagt macOS of
+het programma inkomende verbindingen mag accepteren, kies dan **Sta toe**. Laat het venster
+open, net als dat van de detector.
+
+- De pagina is alleen op het eigen netwerk te bereiken en heeft geen wachtwoord. Zet hem niet
+  open naar internet (geen port forwarding in de router).
+- De detector luistert voor de pagina alleen op de Mac zelf (`127.0.0.1:8765`, zie `api` in
+  [detector/README.md](detector/README.md)). Staat er *De detector is niet bereikbaar*, dan
+  draait de detector niet, of is hij nog aan het opstarten.
+- Staat er *Koeien herkennen staat uit*, zet dan `"cows": {}` bij de Telegram-chat.
+- Bewerk `config.json` liever zelf dan via de pagina's onder **Settings**: die zijn niet
+  getest met de opties van deze fork (`cows`, `summary`, `hires`). Alleen de pagina openen
+  verandert `config.json` niet.
 
 ## Twijfelgevallen controleren
 

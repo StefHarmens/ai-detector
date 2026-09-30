@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "ApiConfig": {
+      "description": "The cow page of the web interface talks to the detector here. Keep the\nhost on 127.0.0.1: the web interface runs on the same computer and shows\nthe page on the network itself.",
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "default": 8765,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "title": "ApiConfig",
+      "type": "object"
+    },
     "ChatConfig": {
       "properties": {
         "confidence": {
@@ -1014,6 +1031,16 @@
         }
       ],
       "default": null
+    },
+    "api": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ApiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

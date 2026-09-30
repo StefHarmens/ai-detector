@@ -1,0 +1,448 @@
+"""A small JSON API for the cow page of the web interface. The register and
+the mounts live in the detector's memory, so the web interface asks the
+detector instead of writing the files itself. It listens on this computer
+only; the web interface shows the page on the farm network."""
+
+import json
+import logging
+import re
+from datetime import datetime, timedelta
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
+
+from aidetector.cows.registry import NumberTaken, normalize_life_number, normalize_number
+from aidetector.cows.reid import EMBEDDINGS_FOLDER
+from aidetector.cows.service import (
+    CROPS_FOLDER,
+    CowService,
+    Sighting,
+    cow_services,
+)
+from aidetector.utils.config import ApiConfig
+
+logger = logging.getLogger(__name__)
+
+_SIGHTING_ID = re.compile(r"^[0-9a-f]{1,32}$")
+_PHOTO_NAME = re.compile(r"^[A-Za-z0-9._-]+\.jpg$")
+_SIGHTING_PHOTOS = ("A", "B", "controle")
+_MAX_BODY = 64 * 1024
+
+
+class ApiError(Exception):
+    def __init__(self, status: HTTPStatus, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def _services() -> list[CowService]:
+    services = cow_services()
+    if not services:
+        raise ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            'Koeien herkennen staat uit: zet "cows": {} bij een Telegram-chat in config.json.',
+        )
+    return services
+
+
+def _find(sighting_id: str) -> tuple[CowService, Sighting]:
+    if not _SIGHTING_ID.match(sighting_id):
+        raise ApiError(HTTPStatus.NOT_FOUND, "Deze sprong bestaat niet.")
+    for service in _services():
+        with service.lock:
+            sighting = service.sightings.get(sighting_id)
+        if sighting is not None:
+            return service, sighting
+    raise ApiError(HTTPStatus.NOT_FOUND, "Deze sprong bestaat niet (meer).")
+
+
+def _life_number(value: str) -> str:
+    try:
+        return normalize_life_number(value)
+    except ValueError as error:
+        raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
+
+
+def _latest_photo(service: CowService, life_number: str) -> str | None:
+    photos = service.registry.photos(life_number)
+    return photos[-1].name if photos else None
+
+
+def is_open(sighting: Sighting) -> bool:
+    """Still waiting for the farmer: a cow nobody filled in."""
+    return not sighting.false and None in sighting.how
+
+
+def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
+    registry = service.registry
+    names = service._names(sighting)
+    slots = []
+    for slot in (0, 1):
+        cow = sighting.cows[slot]
+        scores = dict(sighting.candidates[slot])
+        slots.append(
+            {
+                "slot": slot,
+                "name": names[slot],
+                "title": service._title(sighting, slot),
+                "mounter": slot == sighting.mounter,
+                "cow": cow,
+                "label": registry.label(cow, sighting.when) if cow else None,
+                "how": sighting.how[slot],
+                "bad_photo": sighting.bad_photo[slot],
+                "score": scores.get(cow) if cow else None,
+                "candidates": [
+                    {
+                        "cow": candidate,
+                        "label": registry.label(candidate, sighting.when),
+                        "score": score,
+                        "photo": _latest_photo(service, candidate),
+                    }
+                    for candidate, score in sighting.candidates[slot]
+                    if registry.cow(candidate) is not None
+                ],
+            }
+        )
+    folder = service.directory / CROPS_FOLDER / sighting.id
+    return {
+        "id": sighting.id,
+        "chat": service.chat,
+        "date": sighting.date,
+        "camera": sighting.camera,
+        "split": sighting.split,
+        "role_certain": sighting.role_certain,
+        "false": sighting.false,
+        "open": is_open(sighting),
+        "photos": [name for name in _SIGHTING_PHOTOS if (folder / f"{name}.jpg").is_file()],
+        "slots": slots,
+    }
+
+
+def list_sightings(query: dict[str, str]) -> dict[str, Any]:
+    wanted = query.get("filter", "open")
+    camera = query.get("camera") or None
+    offset = max(int(query.get("offset", 0)), 0)
+    limit = min(max(int(query.get("limit", 20)), 1), 100)
+    found: list[tuple[CowService, Sighting]] = []
+    cameras: set[str] = set()
+    open_count = 0
+    for service in _services():
+        with service.lock:
+            sightings = list(service.sightings.values())
+        for sighting in sightings:
+            cameras.add(sighting.camera)
+            if is_open(sighting):
+                open_count += 1
+            if camera and sighting.camera != camera:
+                continue
+            if wanted == "open" and not is_open(sighting):
+                continue
+            if wanted == "herkend" and "auto" not in sighting.how:
+                continue
+            found.append((service, sighting))
+    found.sort(key=lambda item: item[1].date, reverse=True)
+    return {
+        "items": [sighting_view(service, sighting) for service, sighting in found[offset : offset + limit]],
+        "total": len(found),
+        "open": open_count,
+        "cameras": sorted(cameras),
+    }
+
+
+def change_sighting(sighting_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    service, sighting = _find(sighting_id)
+    action = body.get("action")
+    slot = body.get("slot")
+    if action == "andersom":
+        if not sighting.split:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Bij deze sprong zijn de koeien niet gesplitst.")
+        message = service.handle_callback(f"cow:{sighting.id}:-:s", quiet=True)
+    else:
+        if slot not in (0, 1):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Kies koe A of B.")
+        if action == "koe":
+            try:
+                message = service.set_cow(sighting.id, slot, str(body.get("value") or "").strip())
+            except ValueError as error:
+                raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
+        elif action == "onbekend":
+            message = service.handle_callback(f"cow:{sighting.id}:{slot}:u", quiet=True)
+        elif action == "fotofout":
+            if not sighting.split:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Deze foto gaat toch niet in een koemap.")
+            message = service.handle_callback(f"cow:{sighting.id}:{slot}:x", quiet=True)
+        else:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"Onbekende actie {action!r}")
+    return {"message": message, "item": sighting_view(service, sighting)}
+
+
+def list_cows(query: dict[str, str]) -> dict[str, Any]:
+    services = _services()
+    registry = services[0].registry
+    show_archived = query.get("archief") == "1"
+    with registry.lock:
+        cows = [
+            cow
+            for cow in registry.data.cows.values()
+            if show_archived or cow.archived is None
+        ]
+    items = []
+    for cow in cows:
+        number = registry.number_of(cow.life_number)
+        items.append(
+            {
+                "life_number": cow.life_number,
+                "number": number,
+                "name": cow.name,
+                "archived": cow.archived,
+                "label": registry.label(cow.life_number),
+                "photos": len(registry.photos(cow.life_number)),
+                "photo": _latest_photo(services[0], cow.life_number),
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            item["archived"] is not None,
+            int(item["number"]) if item["number"] else 10**9,
+            item["life_number"],
+        )
+    )
+    herd_files = sorted(
+        {str(service.config.herd_file) for service in services if service.config.herd_file}
+    )
+    return {"items": items, "herd_file": herd_files[0] if herd_files else None}
+
+
+def cow_photos(life_number: str) -> dict[str, Any]:
+    service = _services()[0]
+    life_number = _life_number(life_number)
+    if service.registry.cow(life_number) is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Deze koe bestaat niet.")
+    return {
+        "life_number": life_number,
+        "label": service.registry.label(life_number),
+        "photos": [photo.name for photo in reversed(service.registry.photos(life_number))],
+    }
+
+
+def delete_cow_photo(life_number: str, name: str) -> dict[str, Any]:
+    """Takes a wrong photo out of a cow's folder, so recognition no longer
+    learns from it."""
+    service = _services()[0]
+    path = _cow_photo(service, life_number, name)
+    path.unlink()
+    (path.parent / EMBEDDINGS_FOLDER / f"{path.stem}.npy").unlink(missing_ok=True)
+    return {"message": "Foto verwijderd"}
+
+
+def change_cows(body: dict[str, Any]) -> dict[str, Any]:
+    service = _services()[0]
+    registry = service.registry
+    action = body.get("action")
+    name = (str(body.get("name") or "").strip()) or None
+    try:
+        if action == "weg":
+            life_number = _life_number(str(body.get("life_number") or ""))
+            if registry.cow(life_number) is None:
+                raise ApiError(HTTPStatus.NOT_FOUND, "Deze koe bestaat niet.")
+            label = registry.label(life_number)
+            registry.archive(life_number)
+            return {"message": f"{label} is gearchiveerd, haar sprongen blijven bewaard."}
+        number = normalize_number(str(body.get("number") or ""))
+        life_number = _life_number(str(body.get("life_number") or ""))
+        if action == "toevoegen":
+            try:
+                registry.add(number, life_number, name)
+            except NumberTaken as error:
+                raise ApiError(
+                    HTTPStatus.CONFLICT,
+                    f"Nummer {error.number} hoort al bij {registry.label(error.holder)} · "
+                    f"{error.holder}. Kies 'Nummer wisselen' als het naar deze koe gaat.",
+                ) from error
+            return {"message": f"Nummer {number} is nu {registry.label(life_number)} · {life_number}"}
+        if action == "wissel":
+            before = registry.cow_with_number(number)
+            old_label = registry.label(before) if before else None
+            old_left = bool(body.get("old_left"))
+            old = registry.switch(number, life_number, old_left, name)
+            message = f"Nummer {number} is nu {registry.label(life_number)} · {life_number}."
+            if old and old_left:
+                message += f" {old_label} is gearchiveerd."
+            elif old:
+                message += f" {old_label} heeft nu geen nummer."
+            return {"message": message}
+    except ValueError as error:
+        raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
+    raise ApiError(HTTPStatus.BAD_REQUEST, f"Onbekende actie {action!r}")
+
+
+def overview(query: dict[str, str]) -> dict[str, Any]:
+    days = min(max(int(query.get("dagen", 7)), 1), 366)
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    mounts = 0
+    unknown = 0
+    per_cow: dict[str, dict[str, Any]] = {}
+    for service in _services():
+        count, counts, labels, missing = service.overview_counts(start, end)
+        mounts += count
+        unknown += missing
+        for cow, (mounted, mounting) in counts.items():
+            item = per_cow.setdefault(
+                cow, {"cow": cow, "label": labels[cow], "mounted": 0, "mounting": 0}
+            )
+            item["mounted"] += mounted
+            item["mounting"] += mounting
+    items = sorted(
+        per_cow.values(),
+        key=lambda item: (-item["mounted"], -item["mounting"], item["label"]),
+    )
+    return {"days": days, "mounts": mounts, "unknown": unknown, "items": items}
+
+
+def _cow_photo(service: CowService, life_number: str, name: str) -> Path:
+    life_number = _life_number(life_number)
+    if not _PHOTO_NAME.match(name) or service.registry.cow(life_number) is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Foto niet gevonden.")
+    path = service.registry.folder(life_number) / name
+    if not path.is_file():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Foto niet gevonden.")
+    return path
+
+
+def _sighting_photo(sighting_id: str, name: str) -> Path:
+    service, sighting = _find(sighting_id)
+    if name not in _SIGHTING_PHOTOS:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Foto niet gevonden.")
+    path = service.directory / CROPS_FOLDER / sighting.id / f"{name}.jpg"
+    if not path.is_file():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Foto niet gevonden.")
+    return path
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "CowCatcher"
+
+    def log_message(self, format: str, *args: Any) -> None:
+        logger.debug("%s - %s", self.address_string(), format % args)
+
+    def do_GET(self) -> None:
+        self._handle("GET")
+
+    def do_POST(self) -> None:
+        self._handle("POST")
+
+    def do_DELETE(self) -> None:
+        self._handle("DELETE")
+
+    def _handle(self, method: str) -> None:
+        url = urlparse(self.path)
+        parts = [unquote(part) for part in url.path.strip("/").split("/") if part]
+        query = {key: values[-1] for key, values in parse_qs(url.query).items()}
+        try:
+            if parts[:1] != ["api"]:
+                raise ApiError(HTTPStatus.NOT_FOUND, "Niet gevonden.")
+            result = self._route(method, parts[1:], query)
+            if isinstance(result, Path):
+                self._send_file(result)
+            else:
+                self._send_json(HTTPStatus.OK, result)
+        except ApiError as error:
+            self._send_json(error.status, {"error": str(error)})
+        except (KeyError, ValueError) as error:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+        except Exception:
+            logger.exception("Cow API request failed: %s %s", method, url.path)
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Er ging iets mis in de detector, zie het log."})
+
+    def _route(self, method: str, parts: list[str], query: dict[str, str]) -> Any:
+        match method, parts:
+            case "GET", ["status"]:
+                services = cow_services()
+                return {
+                    "cows": bool(services),
+                    "chats": [service.chat for service in services],
+                }
+            case "GET", ["sprongen"]:
+                return list_sightings(query)
+            case "GET", ["sprongen", sighting_id]:
+                service, sighting = _find(sighting_id)
+                return sighting_view(service, sighting)
+            case "POST", ["sprongen", sighting_id]:
+                return change_sighting(sighting_id, self._body())
+            case "GET", ["sprongen", sighting_id, name] if name.endswith(".jpg"):
+                return _sighting_photo(sighting_id, name.removesuffix(".jpg"))
+            case "GET", ["koeien"]:
+                return list_cows(query)
+            case "POST", ["koeien"]:
+                return change_cows(self._body())
+            case "GET", ["koeien", life_number, "fotos"]:
+                return cow_photos(life_number)
+            case "GET", ["koeien", life_number, "fotos", name]:
+                return _cow_photo(_services()[0], life_number, name)
+            case "DELETE", ["koeien", life_number, "fotos", name]:
+                return delete_cow_photo(life_number, name)
+            case "GET", ["overzicht"]:
+                return overview(query)
+        raise ApiError(HTTPStatus.NOT_FOUND, "Niet gevonden.")
+
+    def _body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > _MAX_BODY:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Te groot.")
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError as error:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Geen geldige JSON.") from error
+        if not isinstance(body, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Geen geldige JSON.")
+        return body
+
+    def _send_json(self, status: HTTPStatus, data: Any) -> None:
+        payload = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_file(self, path: Path) -> None:
+        payload = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "private, max-age=60")
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+class CowApi:
+    def __init__(self, config: ApiConfig):
+        self.config = config
+        self.server: ThreadingHTTPServer | None = None
+
+    def start(self) -> None:
+        try:
+            self.server = ThreadingHTTPServer((self.config.host, self.config.port), Handler)
+        except OSError as error:
+            logger.warning(
+                "Cow API could not listen on %s:%s (%s); the cow page of the web "
+                "interface will not work",
+                self.config.host,
+                self.config.port,
+                error,
+            )
+            return
+        self.server.daemon_threads = True
+        Thread(target=self.server.serve_forever, name="cow-api", daemon=True).start()
+        logger.info("Cow API for the web interface on http://%s:%s", self.config.host, self.config.port)
+
+    def stop(self) -> None:
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None

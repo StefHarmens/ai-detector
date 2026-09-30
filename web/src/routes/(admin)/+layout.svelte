@@ -11,6 +11,7 @@
 	import { page } from '$app/state';
 	import GithubIcon from '@lucide/svelte/icons/github';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+	import MilkIcon from '@lucide/svelte/icons/milk';
 
 	let { children } = $props();
 
@@ -18,6 +19,11 @@
 		{
 			title: 'Overview',
 			items: [
+				{
+					title: 'Koeien',
+					url: '/koeien',
+					icon: MilkIcon
+				},
 				{
 					title: 'Detections',
 					url: '/detections',

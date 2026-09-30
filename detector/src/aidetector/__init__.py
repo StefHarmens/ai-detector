@@ -93,6 +93,12 @@ def start() -> bool:
     manager = Manager.from_config(config)
     # The healthcheck thread comes last and never stops by itself.
     threads = manager.start()[: len(manager.detectors)]
+    api = None
+    if config.api is not None:
+        from aidetector.cows.api import CowApi
+
+        api = CowApi(config.api)
+        api.start()
     try:
         while True:
             time.sleep(_WATCH_SECONDS)
@@ -112,6 +118,8 @@ def start() -> bool:
                     f"Detector stopped unexpectedly: {[t.name for t in stopped]}"
                 )
     finally:
+        if api is not None:
+            api.stop()
         manager.stop()
 
 

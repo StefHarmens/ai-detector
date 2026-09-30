@@ -284,6 +284,16 @@ class HealthcheckConfig(HttpConfig):
     timeout: int = 5
 
 
+@dataclass(kw_only=True)
+class ApiConfig:
+    """The cow page of the web interface talks to the detector here. Keep the
+    host on 127.0.0.1: the web interface runs on the same computer and shows
+    the page on the network itself."""
+
+    host: str = "127.0.0.1"
+    port: int = 8765
+
+
 @dataclass
 class DetectorConfig:
     detection: DetectionConfig
@@ -304,6 +314,8 @@ class Config:
     detectors: list[DetectorConfig]
     onnx: OnnxConfig = field(default_factory=OnnxConfig)
     health: HealthcheckConfig | None = None
+    # null turns the API for the web interface off.
+    api: ApiConfig | None = field(default_factory=ApiConfig)
 
 
 template_url = f"https://raw.githubusercontent.com/StefHarmens/ai-detector/{REF_NAME}/config/config.template.json"

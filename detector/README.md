@@ -95,6 +95,7 @@ You can run multiple independent detectors in the same file — useful if you ha
 | `detectors` | **Required** | List of detector definitions. Each detector can watch one or more sources and use its own YOLO/VLM/exporter settings. |
 | `onnx`      |              | Optional ONNX Runtime configuration. Lets you pin a provider and control Windows ML registration. |
 | `health`    |              | Optional HTTP healthcheck pinger. Useful for watchdogs, uptime tools, or Home Assistant-style monitoring. |
+| `api`       | `{}`         | Local API for the cow page of the web interface. `null` turns it off. |
 
 ---
 
@@ -488,6 +489,20 @@ Sends a simple periodic HTTP request while the detector is running. This is usef
 | `timeout`  | `5`          | Request timeout in seconds. |
 | `headers`  |              | Optional HTTP headers map. |
 | `body`     |              | Optional request body sent as raw text. |
+
+---
+
+### `api` *(optional)* — Cow page of the web interface
+
+The register of cows and the mounts live in the detector's memory, so the web interface does
+not write those files itself: it asks the detector through this API. Filling in a cow on the
+web page works exactly like answering in Telegram (same checks, the photo goes into her folder,
+the Telegram photo is updated).
+
+| Field  | Default       | Description |
+| :----- | :------------ | :---------- |
+| `host` | `"127.0.0.1"` | Keep it on this computer: the web interface runs next to the detector and serves the page on the network itself. The API has no password. |
+| `port` | `8765`        | Set `DETECTOR_API_URL` (e.g. `http://127.0.0.1:8766`) for the web interface when you change it. |
 
 ---
 
