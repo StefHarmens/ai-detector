@@ -108,7 +108,7 @@ def test_buffer_reads_frames_from_ffmpeg(tmp_path):
     assert buffer.frames[0].jpg.shape == (360, 640, 3)
 
 
-def test_keyframes_only_and_at_most_2560_wide(tmp_path):
+def test_keyframes_only_and_at_most_max_width(tmp_path):
     video = tmp_path / "barn-4k.mp4"
     # A keyframe every 0.5 s, like a camera with a short keyframe interval.
     subprocess.run(
@@ -119,7 +119,9 @@ def test_keyframes_only_and_at_most_2560_wide(tmp_path):
         ],
         check=True,
     )
-    buffer = HiresBuffer(str(video), HiresConfig(source=str(video), fps=1, hwaccel=None))
+    buffer = HiresBuffer(
+        str(video), HiresConfig(source=str(video), fps=1, hwaccel=None, max_width=2560)
+    )
 
     buffer._read()
 
@@ -145,13 +147,13 @@ def test_without_hires_source_the_detection_stream_itself_is_kept(monkeypatch):
     for _ in range(3):
         buffer.feed(frame)
 
-    # At most one frame per second, kept at 2560 px wide.
+    # At most one frame per second, kept at 4K.
     assert len(buffer.frames) == 2
-    assert buffer.frames[0].jpg.shape == (1440, 2560, 3)
+    assert buffer.frames[0].jpg.shape == (2160, 3840, 3)
 
-    full = HiresBuffer(None, HiresConfig(max_width=None))
-    full.feed(frame)
-    assert full.frames[0].jpg.shape == (2160, 3840, 3)
+    smaller = HiresBuffer(None, HiresConfig(max_width=2560))
+    smaller.feed(frame)
+    assert smaller.frames[0].jpg.shape == (1440, 2560, 3)
 
 
 def test_the_detector_feeds_full_size_frames_to_its_buffers(tmp_path):

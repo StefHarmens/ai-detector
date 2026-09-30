@@ -613,7 +613,7 @@
               "type": "null"
             }
           ],
-          "default": 2560,
+          "default": 3840,
           "title": "Max Width"
         }
       },

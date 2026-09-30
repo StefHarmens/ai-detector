@@ -15,6 +15,9 @@ from aidetector.utils.config import (
 from pydantic.dataclasses import dataclass
 
 
+HIRES_BEST = "hires-best.jpg"
+
+
 class DiskExporter(Exporter[DiskConfig]):
     directory: Path | None
 
@@ -73,6 +76,10 @@ class DiskExporter(Exporter[DiskConfig]):
         if hires_crop is not None:
             with open(timestamped_directory / "hires.jpg", "wb") as f:
                 f.write(get_image(hires_crop, 95))
+        if hires is not None:
+            # The whole 4K frame with the boxes, for the web page.
+            with open(timestamped_directory / HIRES_BEST, "wb") as f:
+                f.write(get_image(get_plot(hires), 90))
         video = generate_mp4(detections, padding=self.config.crop_padding)
         if video:
             video_path = timestamped_directory / "video.mp4"
@@ -98,6 +105,7 @@ class DiskExporter(Exporter[DiskConfig]):
             if crop_region
             else None,
             camera=best_detection.camera,
+            hires=hires is not None,
             width=width,
             height=height,
             boxes=[
@@ -129,6 +137,8 @@ class Metadata:
     duration: float
     crop: dict[str, int] | None = None
     camera: str | None = None
+    # Whether hires.jpg and hires-best.jpg hold the 4K frame.
+    hires: bool = False
     width: int | None = None
     height: int | None = None
     boxes: list[dict[str, int | str]] | None = None

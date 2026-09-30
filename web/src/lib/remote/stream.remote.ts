@@ -8,8 +8,27 @@ function getRedirectTarget(next: string | undefined, fallback: string) {
 	return next?.startsWith('/') && !next.startsWith('//') ? next : fallback;
 }
 
+// The 4K stream of each detection source: detection.hires.source lists one
+// per source, in the same order. Without it the detection stream itself is
+// shown at full size.
+function hiresSources(config: Awaited<ReturnType<typeof getConfig>>['config']) {
+	const sources = new Map<string, string>();
+	for (const detector of config.detectors) {
+		const hires = (detector.detection.hires as { source?: unknown } | null | undefined)?.source;
+		const list = Array.isArray(hires) ? hires : [hires];
+		detector.detection.source.forEach((source, index) => {
+			const high = list[index];
+			if (typeof high === 'string' && /^rtsps?:\/\//i.test(high.trim())) {
+				sources.set(source, high);
+			}
+		});
+	}
+	return sources;
+}
+
 export const getStreams = query(async () => {
 	const { config, app } = await getConfig();
+	const hires = hiresSources(config);
 	const detectorSources = config.detectors.flatMap((detector) => detector.detection.source);
 	const detectorStreams = detectorSources.filter((source) => source.trim().match(/rtsps?:\/\//i));
 	const allStreams = [
@@ -21,6 +40,7 @@ export const getStreams = query(async () => {
 
 	return uniqueStreams.map((stream, index) => ({
 		source: stream.source,
+		hires: hires.get(stream.source) ?? stream.source,
 		label: stream.label ?? 'Stream ' + (index + 1)
 	}));
 });

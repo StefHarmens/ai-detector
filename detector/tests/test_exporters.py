@@ -14,6 +14,7 @@ from aidetector.utils.config import (
     Detection,
     DiskConfig,
     ExporterConfig,
+    HiresFrame,
     ImageSet,
     WebhookConfig,
 )
@@ -84,6 +85,32 @@ def test_disk_exporter_writes_detection_files(tmp_path, monkeypatch):
     assert metadata["confidence"] == 0.9
     assert metadata["detections"] == 2
     assert metadata["crop"] == {"x1": 12, "y1": 12, "x2": 42, "y2": 52}
+    assert metadata["hires"] is False
+    assert not (event_dir / "hires-best.jpg").exists()
+
+
+def test_disk_exporter_keeps_the_whole_4k_frame(tmp_path, monkeypatch):
+    import cv2
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "aidetector.exporters.disk.generate_mp4", lambda *_args, **_kwargs: b"mp4"
+    )
+    detections = make_detections()
+    frame = np.zeros((800, 1200, 3), dtype=np.uint8)
+    detections[-1].hires = [
+        HiresFrame(detections[-1].date, cv2.imencode(".jpg", frame)[1].tobytes())
+    ]
+
+    DiskExporter(DiskConfig(directory=Path("events"))).export(detections[-1], detections, True)
+
+    event_dir = next((tmp_path / "detections" / "events" / "approved").iterdir())
+    best = cv2.imread(str(event_dir / "hires-best.jpg"))
+    assert best.shape == (800, 1200, 3)
+    # The box of the detection, scaled to the 4K frame, is drawn in blue.
+    assert best[300, 120, 0] > 200 and best[300, 60, 0] < 50
+    assert (event_dir / "hires.jpg").exists()
+    assert json.loads((event_dir / "metadata.json").read_text())["hires"] is True
 
 
 def test_webhook_exporter_sends_no_body_for_none_data_type(monkeypatch):

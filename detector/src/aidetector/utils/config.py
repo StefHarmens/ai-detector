@@ -152,10 +152,10 @@ class HiresConfig:
     # at most one frame per keyframe interval of the camera. A camera whose
     # keyframes are more than 2 s apart (UniFi: 5 s) is decoded in full.
     keyframes_only: bool = True
-    # Kept frames are made this wide at most. Telegram shows photos at most
-    # 2560 px, and a cow crop stays twice as sharp as from the 1280 frame, at
-    # half the memory of 4K.
-    max_width: int | None = 2560
+    # Kept frames are made this wide at most: 4K, so the numbers on the cows
+    # can be read on the web page. Telegram photos are made 2560 px anyway;
+    # 2560 here uses about half the memory.
+    max_width: int | None = 3840
 
 
 @dataclass(kw_only=True)

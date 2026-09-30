@@ -48,12 +48,14 @@ def test_both_cows_in_one_photo_with_labels():
     assert photo.shape[1] > 216 + 540
 
 
-def test_control_image_draws_the_mount_box_and_stays_small():
+def test_control_image_draws_the_mount_box():
     import numpy as np
 
     frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
 
     marked = control_image(frame, (0.25, 0.25, 0.5, 0.5))
+    assert marked.shape == (2160, 3840, 3)
+    assert marked[540, 1400, 2] == 255  # red on the top edge of the box
 
-    assert marked.shape == (1080, 1920, 3)
-    assert marked[270, 700, 2] == 255  # red on the top edge of the box
+    small = control_image(frame, (0.25, 0.25, 0.5, 0.5), width=1920)
+    assert small.shape == (1080, 1920, 3)

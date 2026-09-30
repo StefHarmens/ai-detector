@@ -127,7 +127,8 @@ stream and set `hires.source` to a second stream per camera (e.g. the 4K "High" 
 of UniFi Protect). Never set the same streams in both: every 4K stream is then decoded
 twice and detection slows down a lot. When an event is exported, the frames from
 `before_seconds` before it until its end go with it: Telegram (`include_crop`) and disk
-(`hires.jpg`) use them for the crop, and `telegram.cows` uses the frames from before the
+(`hires.jpg`, plus `hires-best.jpg`: the whole 4K frame with the boxes, shown on the
+web page's Detections) use them, and `telegram.cows` uses the frames from before the
 jump to tell the two cows apart. FFmpeg decodes with `hwaccel` (VideoToolbox on a Mac);
 each 4K stream takes about 350 MB of memory and a few percent of one CPU core.
 
@@ -150,7 +151,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | `quality`        | `85`         | JPEG quality of the kept frames. |
 | `hwaccel`        | `"auto"`     | FFmpeg hardware decoding; `null` to decode on the CPU. A stream that gives no frame at all is read without it next time, and then with keyframes only again; the log says so. |
 | `keyframes_only` | `true`       | Decode only the keyframes of a separate stream: about a third less memory and half the CPU per 4K stream. A camera whose keyframes are more than 2 s apart (UniFi sends one every 5 s) is decoded in full after all, since the 4K frame would be too far from the detection frame; the log says so per camera. |
-| `max_width`      | `2560`       | Kept frames are made this wide at most, which halves their memory. Telegram shows photos at most 2560 px; `null` keeps full 4K. |
+| `max_width`      | `3840`       | Kept frames are made this wide at most: 4K, so numbers on the cows can be read on the web page. `2560` halves their memory; Telegram photos are made 2560 px anyway. |
 
 ---
 
@@ -410,10 +411,10 @@ automatically are never filed, so mistakes do not teach the model.
 
 Cows are kept by I&R life number, because collar numbers are given to a new cow once
 the old one leaves. The number is the one the farmer calls her by: her collar number, or
-her work number (werknummer) for a heifer without a collar; answers may also use her
+for a heifer without a collar her Diernr (ear tag) or work number; answers may also use her
 name (`Anna 12`). When a heifer gets a collar, `/koe 31 <life number>` gives her the new
-number and she keeps her history. The CSV import takes, per row, the collar number and
-else the work number. Detectors whose `telegram.cows` use the same folder (e.g. a heifer
+number and she keeps her history. The CSV import takes, per row, the collar number, else the
+Diernr, else the work number. Detectors whose `telegram.cows` use the same folder (e.g. a heifer
 camera in its own chat) share one register; each chat counts its own mounts. `koeien.json` stores which number each cow had when, so history
 stays with the right cow.
 
@@ -436,8 +437,9 @@ whether the old cow left: archive her, or only swap collars), `/weg 30`, `/koeie
 number, life number and optional name (headers such as `Levensnummer`, `Werknummer`,
 `Halsbandnummer` and `Naam` are recognised, also below a title), or run
 `import-koeien export.xlsx`. In a Lely export (`Diernr`, `Resp 1`, `Levensnummer`, `Gesl`,
-`Naam`, `Werknummer`, `Diercat`) a cow with a responder gets her `Diernr` and a heifer
-without one her `Werknummer`; only the categories in `herd_categories` take part, male
+`Naam`, `Werknummer`, `Diercat`) every animal gets her `Diernr` (a heifer without a
+responder has it on her ear tag); the `Werknummer` is stored and shown on the web page
+but is no number, since several animals share one; only the categories in `herd_categories` take part, male
 animals never, and `Levnr moeder` is never taken for the life number.
 
 | Field                | Default       | Description |

@@ -49,10 +49,11 @@ def side_by_side(images: list[ndarray], labels: list[str]) -> ndarray:
     return np.hstack(parts)
 
 
-def control_image(image: ndarray, box: Box, width: int = 1920) -> ndarray:
+def control_image(image: ndarray, box: Box, width: int | None = None) -> ndarray:
     """The frame with the mount box drawn on it. On a 4K frame it shows at a
     glance whether the box of the detection stream falls on the right cows,
-    which it does not when the two streams run apart."""
+    which it does not when the two streams run apart. Kept at full size, so
+    the numbers on the cows can be read."""
     height, frame_width = image.shape[:2]
     marked = image.copy()
     thickness = max(2, frame_width // 640)
@@ -63,7 +64,7 @@ def control_image(image: ndarray, box: Box, width: int = 1920) -> ndarray:
         (0, 0, 255),
         thickness,
     )
-    if frame_width > width:
+    if width and frame_width > width:
         marked = cv2.resize(
             marked, (width, round(height * width / frame_width)), interpolation=cv2.INTER_AREA
         )
