@@ -125,8 +125,8 @@
 	}
 </script>
 
-<div class="grid gap-4 lg:grid-cols-[1fr_22rem]">
-	<div class="flex flex-col gap-3">
+<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+	<div class="flex min-w-0 flex-col gap-3">
 		<div class="flex flex-wrap items-center gap-2">
 			<Input
 				bind:value={search}
@@ -198,14 +198,14 @@
 		{/if}
 	</div>
 
-	<Card.Root class="h-fit">
+	<Card.Root class="h-fit min-w-0">
 		<Card.Header>
 			<Card.Title class="text-base">Koe toevoegen of nummer geven</Card.Title>
 			<Card.Description>
 				Het nummer is het halsbandnummer, of het werknummer bij een pink zonder halsband.
 				{#if list?.herd_file}
-					De koeienlijst <span class="font-mono">{list.herd_file}</span> is leidend: wat daar anders staat,
-					wordt bij de volgende export weer overgenomen.
+					De koeienlijst <span class="font-mono break-all">{list.herd_file}</span> is leidend: wat daar
+					anders staat, wordt bij de volgende export weer overgenomen.
 				{/if}
 			</Card.Description>
 		</Card.Header>
