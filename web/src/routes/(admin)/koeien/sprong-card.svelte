@@ -10,6 +10,7 @@
 	import BanIcon from '@lucide/svelte/icons/ban';
 	import ScissorsIcon from '@lucide/svelte/icons/scissors';
 	import { toast } from 'svelte-sonner';
+	import VideoKnop from './video-knop.svelte';
 	import {
 		api,
 		cowPhoto,
@@ -228,6 +229,9 @@
 		{/each}
 	</Card.Content>
 	<Card.Footer class="flex flex-wrap gap-2">
+		{#if sighting.video}
+			<VideoKnop id={sighting.id} title="{formatDate(sighting.date)} · {sighting.camera}" />
+		{/if}
 		{#if sighting.split}
 			<Button
 				type="button"

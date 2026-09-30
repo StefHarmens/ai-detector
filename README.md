@@ -157,8 +157,23 @@ Een gewijzigde keuze ruimt de eerdere classificatie automatisch op.
 
 ## Koeien herkennen
 
-Met `cows` stuurt de bot na elke melding één foto met beide koeien naast elkaar (A en B),
-met knoppen:
+Met `cows` herkent de detector bij elke sprong de twee koeien. Je vult ze in op de
+[web-interface](#web-interface); de Telegram-chat houdt alleen de meldingen met 👍/👎.
+Wil je in de chat alleen de meldingen, zonder de samenvatting van 08:00 en 16:00, zet dan:
+
+```json
+"summary": { "times": [] },
+"cows": { "herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx" }
+```
+
+Met `"times": []` komt er nog steeds één melding per sprong (herhaalde detecties van
+dezelfde sprong worden samengenomen), maar geen samenvatting. Haal je `summary` helemaal
+weg, dan wordt elke detectie weer een losse melding.
+
+### Ook vragen in Telegram
+
+Met `"cows": { "telegram": true }` stuurt de bot na elke melding ook één foto met beide
+koeien naast elkaar (A en B), met knoppen:
 
 ```text
 🐄 Wie zijn het?
@@ -449,14 +464,15 @@ met `Ctrl+C`.
 
 ## Web-interface
 
-Naast Telegram kun je de koeien ook invullen op een webpagina, op elke computer, tablet of
-telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen:
+Op de webpagina beoordeel je de sprongen en vul je de koeien in, op elke computer, tablet
+of telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen:
 
-- **Te beoordelen**: per sprong de foto's van A en B. Tik een voorgestelde koe aan, of typ
+- **Te beoordelen**: per sprong de foto's van A en B, en **Video** met de video van de
+  melding. Tik een voorgestelde koe aan, of typ
   een nummer of naam (het vak vult aan uit de koeienlijst) en druk op Enter; daarna springt
   hij door naar B. Verder: **Klopt** voor een koe die de bot zelf herkende, **Onbekend**,
-  **Foto klopt niet**, **Andersom** en **Hele beeld** (het 4K-beeld met het kader). Hetzelfde
-  als in Telegram: `?` is onbekend, een nieuwe koe typ je als `44 NL123456789`.
+  **Foto klopt niet**, **Andersom** en **Hele beeld** (het 4K-beeld met het kader). `?` is
+  onbekend, een nieuwe koe typ je als `44 NL123456789`.
   - **Splitsing klopt niet**: de twee foto's zijn niet de twee koeien van de sprong. Ze gaan
     dan in geen enkele koemap (al opgeslagen foto's gaan eruit), en wat de bot erop herkende
     vervalt. Weet je wie het waren, vul ze dan toch in: dan telt de sprong mee.
@@ -469,6 +485,13 @@ telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen
   het verkeerde. Hier geef je ook een nummer aan een koe, wissel je een halsband of
   archiveer je een koe die weg is. Met `herd_file` blijft de koeienlijst leidend.
 - **Overzicht**: per koe hoe vaak ze besprongen werd en zelf sprong, over 1 tot 30 dagen.
+  Klik op een koe voor haar sprongen: wanneer, welke camera, door of op welke koe, met de
+  foto's, **Video** (de video van de melding) en **Hele beeld**. Bij een koe onder
+  **Koeien** staan haar sprongen ook.
+
+De video van elke melding wordt 90 dagen bewaard (`video_days`) in
+`data/koeien/.meldingen/<id>/video.mp4`; sprongen van vóór detector v0.8.0-beta.17 hebben
+geen video op de website.
 
 De web-interface is een apart programma. Download `aidetector-web-osx-<versie>.zip` via de
 [releases](https://github.com/StefHarmens/ai-detector/releases) (de release **Web …**), pak

@@ -38,8 +38,8 @@
 	<header class="space-y-1">
 		<h1 class="text-2xl font-semibold tracking-tight">Koeien</h1>
 		<p class="text-sm text-muted-foreground">
-			Vul per sprong in welke koeien het zijn. Het werkt hetzelfde als antwoorden in Telegram, en de
-			foto in Telegram wordt meteen bijgewerkt.
+			Beoordeel per sprong of het er een was en welke koeien het zijn. In het overzicht zie je per
+			koe hoe vaak ze besprongen werd, met de video's erbij.
 		</p>
 	</header>
 

@@ -539,6 +539,7 @@ class TelegramExporter(WebhookExporter):
             if not files or not payload:
                 self.logger.error("Telegram notification has no media to send")
                 return
+            video = files["video"][1] if "video" in files else None
 
             response = requests.post(
                 self.config.url,
@@ -580,6 +581,7 @@ class TelegramExporter(WebhookExporter):
                         messages[0]["message_id"],
                         event,
                         feedback_id,
+                        video,
                     )
         except Exception:
             self.logger.exception("Failed to send Telegram notification")

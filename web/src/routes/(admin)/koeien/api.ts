@@ -29,6 +29,7 @@ export interface Sighting {
 	split_wrong: boolean;
 	open: boolean;
 	photos: string[];
+	video: boolean;
 	slots: Slot[];
 }
 
@@ -92,6 +93,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
 
 export function sightingPhoto(id: string, name: string): string {
 	return `${BASE}/sprongen/${id}/${name}.jpg`;
+}
+
+export function sightingVideo(id: string): string {
+	return `${BASE}/sprongen/${id}/video.mp4`;
 }
 
 export function cowPhoto(lifeNumber: string, name: string): string {

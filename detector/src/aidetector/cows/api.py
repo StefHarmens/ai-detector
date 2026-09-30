@@ -18,6 +18,7 @@ from aidetector.cows.registry import NumberTaken, normalize_life_number, normali
 from aidetector.cows.reid import EMBEDDINGS_FOLDER
 from aidetector.cows.service import (
     CROPS_FOLDER,
+    VIDEO_FILE,
     CowService,
     Sighting,
     cow_services,
@@ -118,6 +119,7 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
         "split_wrong": sighting.split_wrong,
         "open": is_open(sighting),
         "photos": [name for name in _SIGHTING_PHOTOS if (folder / f"{name}.jpg").is_file()],
+        "video": (folder / VIDEO_FILE).is_file(),
         "slots": slots,
     }
 
@@ -125,6 +127,13 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
 def list_sightings(query: dict[str, str]) -> dict[str, Any]:
     wanted = query.get("filter", "open")
     camera = query.get("camera") or None
+    # The mounts of one cow, for the overview.
+    cow = query.get("koe") or None
+    since = (
+        datetime.now() - timedelta(days=min(max(int(query["dagen"]), 1), 366))
+        if query.get("dagen")
+        else None
+    )
     offset = max(int(query.get("offset", 0)), 0)
     limit = min(max(int(query.get("limit", 20)), 1), 100)
     found: list[tuple[CowService, Sighting]] = []
@@ -138,6 +147,10 @@ def list_sightings(query: dict[str, str]) -> dict[str, Any]:
             if is_open(sighting):
                 open_count += 1
             if camera and sighting.camera != camera:
+                continue
+            if cow and (cow not in sighting.cows or sighting.false):
+                continue
+            if since and sighting.when < since:
                 continue
             if wanted == "open" and not is_open(sighting):
                 continue
@@ -331,6 +344,17 @@ def _sighting_photo(sighting_id: str, name: str) -> Path:
     return path
 
 
+def _sighting_video(sighting_id: str) -> Path:
+    service, sighting = _find(sighting_id)
+    path = service.directory / CROPS_FOLDER / sighting.id / VIDEO_FILE
+    if not path.is_file():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Geen video bij deze sprong.")
+    return path
+
+
+_RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "CowCatcher"
 
@@ -383,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
                 return change_sighting(sighting_id, self._body())
             case "GET", ["sprongen", sighting_id, name] if name.endswith(".jpg"):
                 return _sighting_photo(sighting_id, name.removesuffix(".jpg"))
+            case "GET", ["sprongen", sighting_id, "video.mp4"]:
+                return _sighting_video(sighting_id)
             case "GET", ["koeien"]:
                 return list_cows(query)
             case "POST", ["koeien"]:
@@ -419,13 +445,36 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _send_file(self, path: Path) -> None:
+        """Sends a photo or video. Browsers ask for a video in parts (Range),
+        and Safari plays none without it."""
         payload = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "image/jpeg")
-        self.send_header("Content-Length", str(len(payload)))
+        content_type = "video/mp4" if path.suffix == ".mp4" else "image/jpeg"
+        wanted = _RANGE.match(self.headers.get("Range") or "")
+        status = HTTPStatus.OK
+        start, end = 0, len(payload) - 1
+        if wanted and payload and (wanted[1] or wanted[2]):
+            if wanted[1]:
+                start = int(wanted[1])
+                end = min(int(wanted[2]), end) if wanted[2] else end
+            else:
+                start = max(0, len(payload) - int(wanted[2]))
+            if start > end:
+                self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                self.send_header("Content-Range", f"bytes */{len(payload)}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            status = HTTPStatus.PARTIAL_CONTENT
+        body = payload[start : end + 1]
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(payload)}")
         self.send_header("Cache-Control", "private, max-age=60")
         self.end_headers()
-        self.wfile.write(payload)
+        self.wfile.write(body)
 
 
 class CowApi:

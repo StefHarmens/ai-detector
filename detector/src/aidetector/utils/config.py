@@ -198,6 +198,7 @@ class HttpConfig:
 
 @dataclass(kw_only=True)
 class SummaryConfig:
+    # An empty list sends no overview, but still sends one alert per mount.
     times: list[str] = field(default_factory=lambda: ["08:00", "16:00"])
     merge_seconds: int = 120
     merge_distance: float = 0.25
@@ -232,6 +233,11 @@ class CowsConfig:
     accept_margin: float = 0.08
     min_photos: int = 5
     candidates: int = 3
+    # Ask about the cows in the Telegram chat as well (photo with buttons,
+    # typed numbers, the command menu). Off: only the web page asks.
+    telegram: bool = False
+    # Days a mount's video is kept for the web page; the photos stay.
+    video_days: int = 90
 
 
 @dataclass(kw_only=True)

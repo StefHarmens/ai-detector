@@ -212,7 +212,7 @@ def test_the_service_follows_the_file_and_tells_the_farmer_once(tmp_path, telegr
     # No watcher thread in the test; check_herd is called by hand.
     monkeypatch.setattr(service_module.Thread, "start", lambda self: None)
     path = herd_file(tmp_path, [[BERTHA, 4030, 30, "Bertha"], [ANNA, 5101, None, "Anna"]])
-    service = CowService("token", "chat", tmp_path / "koeien", CowsConfig(herd_file=path))
+    service = CowService("token", "chat", tmp_path / "koeien", CowsConfig(herd_file=path, telegram=True))
     modified = os.path.getmtime(path)
 
     # A file that was saved a moment ago may still be being written.
@@ -226,7 +226,7 @@ def test_the_service_follows_the_file_and_tells_the_farmer_once(tmp_path, telegr
 
     # Unchanged file: nothing happens, also not after a restart.
     assert service.check_herd(now=modified + 120) is None
-    restarted = CowService("token", "other-chat", tmp_path / "koeien", CowsConfig(herd_file=path))
+    restarted = CowService("token", "other-chat", tmp_path / "koeien", CowsConfig(herd_file=path, telegram=True))
     assert restarted.check_herd(now=modified + 120) is None
     assert json.loads((tmp_path / "koeien" / ".koeienlijst.json").read_text())["modified"] == modified
 

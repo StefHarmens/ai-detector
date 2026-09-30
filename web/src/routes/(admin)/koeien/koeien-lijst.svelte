@@ -9,6 +9,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { toast } from 'svelte-sonner';
 	import { api, ApiError, cowPhoto, type Cow, type CowList } from './api';
+	import KoeSprongen from './koe-sprongen.svelte';
 
 	type Props = {
 		list: CowList | null;
@@ -146,8 +147,7 @@
 			<p class="text-sm font-semibold text-destructive">{error}</p>
 		{:else if list && list.items.length === 0}
 			<p class="text-sm text-muted-foreground">
-				Nog geen koeien. Zet de koeienlijst in de instellingen (herd_file), stuur de export naar de
-				Telegram-bot, of voeg ze hier toe.
+				Nog geen koeien. Zet de koeienlijst in de instellingen (herd_file), of voeg ze hier toe.
 			</p>
 		{:else if list}
 			<Table.Root>
@@ -300,6 +300,8 @@
 					verkeerde.
 				</p>
 			{/if}
+			<h3 class="mt-2 text-sm font-semibold">Sprongen</h3>
+			<KoeSprongen cow={selected.life_number} />
 			{#if !selected.archived}
 				<Dialog.Footer>
 					<Button type="button" variant="outline" onclick={() => selected && archive(selected)}>

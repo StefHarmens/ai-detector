@@ -374,7 +374,7 @@ grouped together.
 
 | Field                  | Default     | Description |
 | :--------------------- | :---------- | :---------- |
-| `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. |
+| `times`                | `["08:00", "16:00"]` | Local times (`HH:MM`) to send the overview. Each overview covers the period since the previous time, so the 08:00 overview covers the night. `[]` sends no overview but still sends one alert per mount. |
 | `merge_seconds`        | `120`       | Maximum gap between detections on the same camera to count as the same event, measured from the end of the previous detection. Covers a jump that arrives in parts and cows mounting again right away. |
 | `merge_distance`       | `0.25`      | Maximum distance between detection boxes on the same camera, as a fraction of the image size. |
 | `camera_merge_seconds` | `10`        | Maximum gap between detections on different cameras to count as the same jump. Detections of the same jump overlap in time (gap 0), so this only absorbs small timing differences. |
@@ -452,6 +452,8 @@ animals never, and `Levnr moeder` is never taken for the life number.
 | `accept_margin`      | `0.08`        | How much the best cow must beat the next one. |
 | `min_photos`         | `5`           | Photos a cow needs before she is filled in without asking. |
 | `candidates`         | `3`           | Cows shown as buttons. |
+| `telegram`           | `false`       | Also ask about the cows in the Telegram chat (photo with buttons, typed numbers, command menu, herd list messages). Off: the chat only has the alerts with 👍/👎, and the cows are filled in on the web page. |
+| `video_days`         | `90`          | Days the alert video of each mount is kept for the web page (`.meldingen/<id>/video.mp4`); the photos stay. |
 
 #### 🔗 Webhook (`webhook`)
 

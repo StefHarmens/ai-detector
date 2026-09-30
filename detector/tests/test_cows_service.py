@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timedelta
 from itertools import count
 
@@ -122,7 +123,7 @@ def make_service(tmp_path, split, scores, **config) -> CowService:
         "token",
         "chat",
         tmp_path,
-        CowsConfig(**config),
+        CowsConfig(**{"telegram": True, **config}),
         splitter=FakeSplitter(split),
         gallery=FakeGallery(scores),
     )
@@ -274,7 +275,7 @@ def test_heifers_without_a_collar_by_work_number_and_name(tmp_path, telegram):
 def test_the_heifer_camera_shares_the_cows_but_counts_its_own_mounts(tmp_path, telegram):
     cows = make_service(tmp_path, pair(), [[], []])
     heifers = CowService(
-        "token", "heifer-chat", tmp_path, CowsConfig(), splitter=FakeSplitter(pair()), gallery=FakeGallery([[], []])
+        "token", "heifer-chat", tmp_path, CowsConfig(telegram=True), splitter=FakeSplitter(pair()), gallery=FakeGallery([[], []])
     )
     heifers.handle_message({"text": "/koe 1234 NL100000001 Anna"})
 
@@ -297,7 +298,7 @@ def test_typing_button_asks_and_the_answer_survives_a_restart(tmp_path, telegram
     prompt = telegram.last_id
 
     # A restart happens after every change to config.json.
-    restarted = CowService("token", "chat", tmp_path, CowsConfig(), gallery=FakeGallery([]))
+    restarted = CowService("token", "chat", tmp_path, CowsConfig(telegram=True), gallery=FakeGallery([]))
     answer = restarted.handle_message({"text": "30 12", "reply_to_message": {"message_id": prompt}})
     assert answer == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
 
@@ -422,7 +423,7 @@ def test_overview_counts_both_cows_and_skips_wrong_alerts(tmp_path, telegram):
         "• 12: 2× gesprongen",
     ]
     # A restart keeps the answers.
-    restarted = CowService("token", "chat", tmp_path, CowsConfig())
+    restarted = CowService("token", "chat", tmp_path, CowsConfig(telegram=True))
     assert restarted.overview_text(START - timedelta(hours=1), START + timedelta(hours=1)) == text
 
 
@@ -512,7 +513,7 @@ def test_telegram_alert_starts_recognition_and_routes_farmer_input(tmp_path, mon
             include_image=True,
             include_video=False,
             feedback_directory=tmp_path,
-            cows=CowsConfig(),
+            cows=CowsConfig(telegram=True),
         )
     )
     submitted = []
@@ -577,7 +578,7 @@ def test_a_test_chat_with_cows_leaves_the_farmers_chat_unchanged(tmp_path, monke
     )
     test = TelegramExporter(
         ChatConfig(token="test-bot", chat="stef", include_image=True, include_video=False,
-                   feedback_directory=tmp_path / "data-test", cows=CowsConfig())
+                   feedback_directory=tmp_path / "data-test", cows=CowsConfig(telegram=True))
     )
     submitted = []
     monkeypatch.setattr(test.cows, "submit", lambda *args: submitted.append(args))
@@ -594,3 +595,32 @@ def test_a_test_chat_with_cows_leaves_the_farmers_chat_unchanged(tmp_path, monke
     # Each bot has its own listener, so the farmer's taps stay with the farmer.
     assert farmer.feedback_listener is not test.feedback_listener
     assert "farmer" not in test.feedback_listener.allowed_chats
+
+
+def test_without_telegram_the_cows_stay_out_of_the_chat(tmp_path, telegram):
+    service = CowService(
+        "token", "chat", tmp_path, CowsConfig(), splitter=FakeSplitter(pair()), gallery=FakeGallery([[], []])
+    )
+    service.registry.add("30", BERTHA, "Bertha", at=START - timedelta(days=100))
+
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1", video=b"mp4")
+    service.set_cow(sighting.id, 0, "30")
+    service.set_commands()
+
+    assert [method for method, _ in telegram.calls] == ["deleteMyCommands"]
+    assert service.handle_message({"text": "/koeien"}) is None
+    assert (tmp_path / ".meldingen" / sighting.id / "video.mp4").read_bytes() == b"mp4"
+    assert sighting.cows[0] == BERTHA
+
+
+def test_old_videos_are_cleaned_but_the_photos_stay(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []], video_days=30)
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1", video=b"mp4")
+    folder = tmp_path / ".meldingen" / sighting.id
+    old = service_module.time.time() - 31 * 24 * 3600
+    os.utime(folder / "video.mp4", (old, old))
+    service.cleaned = 0.0
+    service._clean_frames()
+
+    assert not (folder / "video.mp4").exists()
+    assert (folder / "A.jpg").is_file()

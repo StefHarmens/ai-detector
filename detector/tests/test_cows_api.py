@@ -26,17 +26,17 @@ def api(monkeypatch):
     assert server.server is not None
     port = server.server.server_address[1]
 
-    def call(method: str, path: str, body: dict | None = None):
+    def call(method: str, path: str, body: dict | None = None, headers: dict | None = None):
         request = Request(
             f"http://127.0.0.1:{port}/api/{path}",
             method=method,
             data=json.dumps(body).encode() if body is not None else None,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **(headers or {})},
         )
         try:
             with urlopen(request) as response:
                 data = response.read()
-                if response.headers["Content-Type"] == "image/jpeg":
+                if response.headers["Content-Type"] in ("image/jpeg", "video/mp4"):
                     return response.status, data
                 return response.status, json.loads(data)
         except HTTPError as error:
@@ -264,3 +264,37 @@ def test_a_wrong_split_drops_what_was_recognised_from_it(tmp_path, api, telegram
     api("POST", f"sprongen/{sighting.id}", {"action": "splitfout"})
 
     assert sighting.cows == [None, None] and sighting.how == [None, None]
+
+
+def test_the_alert_video_plays_in_parts(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[], []]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1", video=b"0123456789")
+    path = f"sprongen/{sighting.id}/video.mp4"
+
+    assert api("GET", "sprongen")[1]["items"][0]["video"] is True
+    assert api("GET", path) == (200, b"0123456789")
+    assert api("GET", path, headers={"Range": "bytes=2-5"}) == (206, b"2345")
+    assert api("GET", path, headers={"Range": "bytes=7-"}) == (206, b"789")
+    assert api("GET", path, headers={"Range": "bytes=-3"}) == (206, b"789")
+
+
+def test_a_mount_without_video_says_so(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[], []]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert api("GET", "sprongen")[1]["items"][0]["video"] is False
+    assert api("GET", f"sprongen/{sighting.id}/video.mp4")[0] == 404
+
+
+def test_the_mounts_of_one_cow(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[], [], [], []]))
+    first = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    second = service.identify(*mount(), alert=43, event="e2", feedback="f2")
+    service.set_cow(first.id, 0, "30")
+    service.set_cow(second.id, 1, "30")
+    service.set_cow(second.id, 0, "12")
+    service.set_mount(second.id, False)
+
+    body = api("GET", f"sprongen?filter=alles&koe={BERTHA}")[1]
+
+    assert [item["id"] for item in body["items"]] == [first.id]

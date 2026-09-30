@@ -80,8 +80,6 @@ class MountEvent:
 
 
 def parse_times(times: list[str]) -> list[time]:
-    if not times:
-        raise ValueError('summary.times needs at least one time, e.g. "08:00"')
     try:
         return sorted(time.fromisoformat(value) for value in times)
     except ValueError as error:
@@ -362,6 +360,9 @@ class SummaryService:
             if self.started:
                 return
             self.started = True
+        if not self.times:
+            self.logger.info("No summary times: grouping mounts without sending an overview")
+            return
         Thread(target=self._run, name="telegram-summary", daemon=True).start()
 
     def stop(self) -> None:

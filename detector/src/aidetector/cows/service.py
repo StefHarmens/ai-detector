@@ -41,6 +41,7 @@ from aidetector.utils.config import CowsConfig, Detection
 SIGHTINGS_FILE = "sprongen-{chat}.jsonl"
 CROPS_FOLDER = ".meldingen"
 FRAMES_FOLDER = "beelden"
+VIDEO_FILE = "video.mp4"
 IMPORT_FOLDER = ".import"
 HERD_STATE_FILE = ".koeienlijst.json"
 _HERD_CHECK_SECONDS = 30
@@ -295,10 +296,11 @@ class CowService:
         alert: int,
         event: str | None,
         feedback: str | None,
+        video: bytes | None = None,
     ) -> None:
         def task():
             try:
-                self.identify(best_detection, detections, alert, event, feedback)
+                self.identify(best_detection, detections, alert, event, feedback, video)
             except Exception:
                 self.logger.exception("Failed to recognise the cows of a mount")
 
@@ -311,6 +313,7 @@ class CowService:
         alert: int | None,
         event: str | None,
         feedback: str | None,
+        video: bytes | None = None,
     ) -> Sighting | None:
         box = mount_box(best_detection)
         if box is None:
@@ -342,11 +345,15 @@ class CowService:
             photos = self._jump_photos(sighting, jump, box, splitter)
         for slot, photo in enumerate(photos):
             (folder / f"{SLOT_NAMES[slot]}.jpg").write_bytes(get_image(photo, 95))
+        if video:
+            # The alert's own video, to look back at the mount on the web page.
+            (folder / VIDEO_FILE).write_bytes(video)
         self._keep_frames(folder, frames, jump, box)
         with self.lock:
             self.sightings[sighting.id] = sighting
             self._store(sighting)
-        self._send(sighting)
+        if self.config.telegram:
+            self._send(sighting)
         return sighting
 
     def _models(self) -> tuple[CowSplitter, Gallery]:
@@ -446,6 +453,10 @@ class CowService:
         for kept in (self.directory / CROPS_FOLDER).glob(f"*/{FRAMES_FOLDER}"):
             if kept.stat().st_mtime < oldest:
                 shutil.rmtree(kept, ignore_errors=True)
+        oldest_video = time.time() - self.config.video_days * 24 * 3600
+        for video in (self.directory / CROPS_FOLDER).glob(f"*/{VIDEO_FILE}"):
+            if video.stat().st_mtime < oldest_video:
+                video.unlink(missing_ok=True)
 
     # Telegram message
 
@@ -575,7 +586,14 @@ class CowService:
                 raise
 
     def set_commands(self) -> None:
-        """Puts the commands in the menu of the chat, with a Dutch explanation."""
+        """Puts the commands in the menu of the chat, with a Dutch explanation;
+        without cows in Telegram, takes away a menu an earlier version set."""
+        if not self.config.telegram:
+            try:
+                _call(self.api_url, "deleteMyCommands", {})
+            except Exception:
+                self.logger.warning("Could not clear the Telegram command menu", exc_info=True)
+            return
         try:
             _call(
                 self.api_url,
@@ -763,6 +781,9 @@ class CowService:
     def handle_message(self, message: dict[str, Any]) -> str | None:
         """Handles typed numbers, a command or a CSV file and returns the
         reply, or None when the message is not for the cows."""
+        if not self.config.telegram:
+            # The web page asks about the cows; the chat only has the alerts.
+            return None
         if message.get("document"):
             return self._import_document(message["document"])
         text = str(message.get("text") or "").strip()
@@ -1058,6 +1079,9 @@ class CowService:
         return number, "".join(life_parts), name
 
     def _send_text(self, text: str) -> None:
+        if not self.config.telegram:
+            self.logger.info("%s", text)
+            return
         _call(self.api_url, "sendMessage", {"chat_id": self.chat, "text": text})
 
     def feedback(self, feedback_id: str, label: str) -> None:

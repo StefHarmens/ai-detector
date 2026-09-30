@@ -419,3 +419,16 @@ def test_camera_names_hide_stream_urls():
     )
 
     assert list(names.values()) == ["Stal Rechts Achterin", "Camera 2", "clip.mp4"]
+
+
+def test_no_summary_times_still_groups_but_sends_no_overview(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(summary_module.requests, "post", lambda *args, **kwargs: posts.append(args) or Response())
+    service = make_service(tmp_path, times=[])
+
+    assert service.register(*make_mount("cam-a", START)) is not None
+    assert service.register(*make_mount("cam-a", START + timedelta(seconds=90))) is None
+    service.start()
+
+    assert not service.stop_event.is_set()
+    assert posts == []
