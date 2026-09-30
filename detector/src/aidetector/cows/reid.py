@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
 
 import cv2
@@ -20,22 +21,34 @@ EMBEDDINGS_FOLDER = ".embeddings"
 Embed = Callable[[ndarray], ndarray]
 
 
+# Two chats with the same data folder each have a cow service; they must not
+# download the model into the same file at once.
+_DOWNLOAD_LOCK = Lock()
+
+
 def model_file(model: str, directory: Path) -> Path:
     """Downloads the model once when it is a URL."""
     if "://" not in model:
         return Path(model)
     path = directory / ".model" / Path(model.split("?")[0]).name
-    if path.is_file():
-        return path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading recognition model %s", model)
-    temporary = path.with_suffix(".part")
-    with requests.get(model, stream=True, timeout=60) as response:
-        response.raise_for_status()
-        with temporary.open("wb") as file:
-            for chunk in response.iter_content(1 << 20):
-                file.write(chunk)
-    temporary.replace(path)
+    with _DOWNLOAD_LOCK:
+        if path.is_file():
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading recognition model %s", model)
+        # Its own file, so a download that broke off earlier or runs in
+        # another program does not get in the way.
+        with NamedTemporaryFile(dir=path.parent, suffix=".part", delete=False) as file:
+            temporary = Path(file.name)
+        try:
+            with requests.get(model, stream=True, timeout=60) as response:
+                response.raise_for_status()
+                with temporary.open("wb") as file:
+                    for chunk in response.iter_content(1 << 20):
+                        file.write(chunk)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
     return path
 
 
