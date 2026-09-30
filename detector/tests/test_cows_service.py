@@ -179,6 +179,21 @@ def test_one_photo_with_both_cows_and_their_candidates(tmp_path, telegram):
     assert sorted(path.name for path in (folder / "beelden").iterdir()) == ["+007.0s.jpg", "-002.0s.jpg"]
 
 
+def test_numbers_only_sends_the_photo_to_type_the_numbers(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[(BERTHA, 0.7)], [(PINK, 0.8)]], telegram="nummers")
+
+    service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    service.set_commands()
+
+    photo = telegram.sent("sendPhoto")[0]
+    assert buttons(photo["reply_markup"]) == [["✏️ Nummers typen"]]
+    assert "\nAntwoord op deze foto met de nummers of namen, eerst A dan B: 30 12" in photo["caption"]
+    assert reply(service, "30 12") == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+    assert service.handle_message({"text": "/koeien"}) is None
+    assert service.handle_message({"document": {"file_id": "f", "file_name": "koeien.csv"}}) is None
+    assert [method for method, _ in telegram.calls] == ["sendPhoto", "deleteMyCommands", "editMessageCaption"]
+
+
 def test_the_splitter_gets_frames_before_and_after_the_jump(tmp_path, telegram):
     service = make_service(tmp_path, None, [])
 

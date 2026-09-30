@@ -10,6 +10,7 @@
             "yolo": {
                 "model": "https://github.com/CowCatcherAI/CowCatcherAI/releases/download/modelv-14/cowcatcherV15.pt",
                 "confidence": 0.8,
+                "review_confidence": 0.7,
                 "time_max": 30,
                 "timeout": 6,
                 "frames_min": 3
@@ -28,9 +29,15 @@
                     "token": "<your_bot_token>",
                     "chat": "<your_chat_id>"
                 },
-                "disk": {
-                    "directory": "mounts"
-                }
+                "disk": [
+                    {
+                        "directory": "mounts"
+                    },
+                    {
+                        "directory": "data/twijfel",
+                        "review": true
+                    }
+                ]
             }
         }
     ]

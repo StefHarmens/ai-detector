@@ -216,9 +216,17 @@
           "type": "integer"
         },
         "telegram": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "nummers",
+              "type": "string"
+            }
+          ],
           "default": false,
-          "title": "Telegram",
-          "type": "boolean"
+          "title": "Telegram"
         },
         "video_days": {
           "default": 90,

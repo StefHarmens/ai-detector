@@ -234,8 +234,9 @@ class CowsConfig:
     min_photos: int = 5
     candidates: int = 3
     # Ask about the cows in the Telegram chat as well (photo with buttons,
-    # typed numbers, the command menu). Off: only the web page asks.
-    telegram: bool = False
+    # typed numbers, the command menu). "nummers": only the photo, to answer
+    # with the numbers. Off: only the web page asks.
+    telegram: bool | Literal["nummers"] = False
     # Days a mount's video is kept for the web page; the photos stay.
     video_days: int = 90
 

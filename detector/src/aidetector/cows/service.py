@@ -460,6 +460,12 @@ class CowService:
 
     # Telegram message
 
+    @property
+    def _numbers_only(self) -> bool:
+        """The chat only gets the photo, to answer with the numbers; the rest
+        is done on the web page."""
+        return self.config.telegram == "nummers"
+
     def _names(self, sighting: Sighting) -> tuple[str, str]:
         if sighting.split:
             return SLOT_NAMES
@@ -517,7 +523,7 @@ class CowService:
         if None in sighting.how:
             first, second = ("A", "B") if sighting.split else ("wie sprong", "wie werd besprongen")
             lines.append(
-                f"\n{'Tik een nummer aan, of antwoord' if any(sighting.candidates) else 'Antwoord'}"
+                f"\n{'Tik een nummer aan, of antwoord' if any(sighting.candidates) and not self._numbers_only else 'Antwoord'}"
                 f" op deze foto met de nummers of namen, eerst {first} dan {second}: 30 12"
             )
         else:
@@ -527,6 +533,9 @@ class CowService:
     def keyboard(self, sighting: Sighting) -> str:
         at = sighting.when
         prefix = f"cow:{sighting.id}"
+        typing = [{"text": "✏️ Nummers typen", "callback_data": f"{prefix}:-:n"}]
+        if self._numbers_only:
+            return json.dumps({"inline_keyboard": [typing]})
         names = self._names(sighting)
         rows = []
         for slot in (0, 1):
@@ -541,7 +550,7 @@ class CowService:
             ]
             if candidates:
                 rows.append(candidates)
-        rows.append([{"text": "✏️ Nummers typen", "callback_data": f"{prefix}:-:n"}])
+        rows.append(typing)
         rows.append(
             [
                 {"text": f"❔ {names[slot]} onbekend", "callback_data": f"{prefix}:{slot}:u"}
@@ -588,7 +597,7 @@ class CowService:
     def set_commands(self) -> None:
         """Puts the commands in the menu of the chat, with a Dutch explanation;
         without cows in Telegram, takes away a menu an earlier version set."""
-        if not self.config.telegram:
+        if not self.config.telegram or self._numbers_only:
             try:
                 _call(self.api_url, "deleteMyCommands", {})
             except Exception:
@@ -784,7 +793,7 @@ class CowService:
         if not self.config.telegram:
             # The web page asks about the cows; the chat only has the alerts.
             return None
-        if message.get("document"):
+        if message.get("document") and not self._numbers_only:
             return self._import_document(message["document"])
         text = str(message.get("text") or "").strip()
         reply_to = (message.get("reply_to_message") or {}).get("message_id")
@@ -793,7 +802,7 @@ class CowService:
             sighting = self.sightings.get(sighting_id) if sighting_id else None
         if sighting is not None and not text.startswith("/"):
             return self._answer(sighting, text)
-        if not text.startswith("/"):
+        if not text.startswith("/") or self._numbers_only:
             return None
         command, *arguments = text.split()
         command = command.split("@")[0].lower()
@@ -1079,7 +1088,7 @@ class CowService:
         return number, "".join(life_parts), name
 
     def _send_text(self, text: str) -> None:
-        if not self.config.telegram:
+        if not self.config.telegram or self._numbers_only:
             self.logger.info("%s", text)
             return
         _call(self.api_url, "sendMessage", {"chat_id": self.chat, "text": text})

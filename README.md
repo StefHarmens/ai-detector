@@ -207,6 +207,10 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
 - Liever op een scherm? Op de [web-interface](#web-interface) doe je hetzelfde, met alle
   open sprongen onder elkaar. Wat je daar invult, verschijnt ook in Telegram.
+- **Alleen nummers op de telefoon?** Zet `"cows": { "telegram": "nummers" }`. Dan komt de
+  foto wel in Telegram, maar alleen met **✏️ Nummers typen**: je antwoordt met de nummers,
+  en de rest (kandidaten, onbekend, andersom, commando's, koeienlijst) doe je op de
+  web-interface.
 
 Het overzicht van 08:00 en 16:00 krijgt dan een telling per koe:
 
