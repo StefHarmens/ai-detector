@@ -191,3 +191,76 @@ def test_overview_counts_both_cows(tmp_path, api, telegram):
     assert status == 200
     assert body["mounts"] == 1 and body["unknown"] == 1
     assert body["items"] == [{"cow": BERTHA, "label": "30 (Bertha)", "mounted": 1, "mounting": 0}]
+
+
+def test_no_mount_files_it_as_bad_and_stops_counting(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[], []]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    classified = []
+    service.classify = lambda feedback, label: classified.append((feedback, label))
+    path = f"sprongen/{sighting.id}"
+
+    status, body = api("POST", path, {"action": "geensprong"})
+
+    assert status == 200 and body["message"] == "Opgeslagen als geen sprong"
+    assert classified == [("f1", "bad")]
+    assert body["item"]["false"] is True and body["item"]["open"] is False
+    assert api("GET", "sprongen")[1]["total"] == 0
+
+    assert api("POST", path, {"action": "welsprong"})[1]["item"]["false"] is False
+    assert classified[-1] == ("f1", "good")
+
+
+def test_no_mount_still_counts_when_the_training_image_is_gone(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[], []]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    def missing(feedback, label):
+        raise FileNotFoundError("Feedback image not found")
+
+    service.classify = missing
+    status, _ = api("POST", f"sprongen/{sighting.id}", {"action": "geensprong"})
+
+    assert status == 200 and sighting.false is True
+
+
+def test_wrong_split_takes_the_photos_out_but_keeps_the_cows(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, pair(), [[(BERTHA, 0.7)], [(PINK, 0.8)]]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    path = f"sprongen/{sighting.id}"
+    api("POST", path, {"action": "koe", "slot": 0, "value": "30"})
+    assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
+
+    status, body = api("POST", path, {"action": "splitfout"})
+
+    assert status == 200
+    assert body["item"]["split_wrong"] is True
+    assert [slot["candidates"] for slot in body["item"]["slots"]] == [[], []]
+    assert not list((tmp_path / BERTHA).glob("*.jpg"))
+    # The cows still count, but new answers file no photo.
+    api("POST", path, {"action": "koe", "slot": 1, "value": "12"})
+    assert sighting.cows == [BERTHA, PINK]
+    assert not list(tmp_path.glob("NL*/*.jpg"))
+    assert api("POST", path, {"action": "fotofout", "slot": 0})[0] == 400
+
+    api("POST", path, {"action": "splitgoed"})
+    assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
+    assert len(list((tmp_path / PINK).glob("*.jpg"))) == 1
+
+
+def test_a_jump_photo_cannot_be_a_wrong_split(tmp_path, api, telegram):
+    service = register(api, make_service(tmp_path, None, []))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert api("POST", f"sprongen/{sighting.id}", {"action": "splitfout"})[0] == 400
+
+
+def test_a_wrong_split_drops_what_was_recognised_from_it(tmp_path, api, telegram):
+    add_photos(tmp_path, BERTHA, 5)
+    service = register(api, make_service(tmp_path, pair(), [[(BERTHA, 0.95), (PINK, 0.70)], [(PINK, 0.6)]]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    assert sighting.how == ["auto", None]
+
+    api("POST", f"sprongen/{sighting.id}", {"action": "splitfout"})
+
+    assert sighting.cows == [None, None] and sighting.how == [None, None]

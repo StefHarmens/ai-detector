@@ -107,6 +107,9 @@ class Sighting:
     # The open question for typed numbers, so answers work after a restart.
     prompt: int | None = None
     false: bool = False
+    # The farmer said the two photos are not the two cows of the mount: they
+    # never go into a cow folder, but the cows can still be filled in.
+    split_wrong: bool = False
 
     @property
     def when(self) -> datetime:
@@ -215,6 +218,9 @@ class CowService:
         }
         # Pending /wissel questions.
         self.switches: dict[str, tuple[str, str, str | None]] = {}
+        # Files a mount as good or bad like the Telegram buttons below the
+        # alert; set by the Telegram exporter.
+        self.classify: Callable[[str, str], None] | None = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cows")
         self.cleaned = 0.0
         self.stop_event = Event()
@@ -664,9 +670,9 @@ class CowService:
             sighting.how[slot] = "boer"
             sighting.bad_photo[slot] = not file
             self._store(sighting)
-        if not sighting.split:
+        if not sighting.split or sighting.split_wrong:
             return
-        name = f"{sighting.when:%Y-%m-%dT%H-%M-%S}_{sighting.id}_{SLOT_NAMES[slot]}.jpg"
+        name = self._photo_name(sighting, slot)
         if filed:
             # The farmer changed their mind: take the photo from the old folder.
             (self.registry.folder(previous) / name).unlink(missing_ok=True)
@@ -678,6 +684,81 @@ class CowService:
             destination = self.registry.folder(cow)
             destination.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination / name)
+
+    @staticmethod
+    def _photo_name(sighting: Sighting, slot: int) -> str:
+        return f"{sighting.when:%Y-%m-%dT%H-%M-%S}_{sighting.id}_{SLOT_NAMES[slot]}.jpg"
+
+    def _filed_slots(self, sighting: Sighting) -> list[int]:
+        """The slots whose photo is in a cow folder."""
+        if not sighting.split or sighting.split_wrong:
+            return []
+        return [
+            slot
+            for slot in (0, 1)
+            if sighting.how[slot] == "boer"
+            and not sighting.bad_photo[slot]
+            and sighting.cows[slot] is not None
+        ]
+
+    def set_split_wrong(self, sighting_id: str, wrong: bool) -> str:
+        """From the web page: the two photos are not the two cows of the mount.
+        Photos already filed leave the cow folders; with wrong=False they go
+        back."""
+        with self.lock:
+            sighting = self.sightings.get(sighting_id)
+        if sighting is None:
+            raise KeyError(sighting_id)
+        if not sighting.split:
+            raise ValueError("Bij deze sprong zijn de koeien niet gesplitst.")
+        with self.lock:
+            filed = self._filed_slots(sighting)
+            sighting.split_wrong = wrong
+            if wrong:
+                # Recognised from the wrong photos, so not to be trusted.
+                sighting.candidates = [[], []]
+                for slot in (0, 1):
+                    if sighting.how[slot] == "auto":
+                        sighting.cows[slot] = None
+                        sighting.how[slot] = None
+            self._store(sighting)
+        folder = self.directory / CROPS_FOLDER / sighting.id
+        for slot in filed if wrong else self._filed_slots(sighting):
+            destination = self.registry.folder(sighting.cows[slot]) / self._photo_name(sighting, slot)
+            if wrong:
+                destination.unlink(missing_ok=True)
+                continue
+            source = folder / f"{SLOT_NAMES[slot]}_koe.jpg"
+            if not source.is_file():
+                source = folder / f"{SLOT_NAMES[slot]}.jpg"
+            if source.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+        if wrong:
+            return "Splitsing klopt niet: de foto's gaan niet in de koemappen"
+        return "Splitsing klopt toch"
+
+    def set_mount(self, sighting_id: str, is_mount: bool) -> str:
+        """From the web page, the same as Goed/Fout below the alert: the mount
+        is filed for training, and a false one no longer counts."""
+        with self.lock:
+            sighting = self.sightings.get(sighting_id)
+        if sighting is None:
+            raise KeyError(sighting_id)
+        label = "good" if is_mount else "bad"
+        if sighting.feedback is not None:
+            if self.classify is not None:
+                try:
+                    self.classify(sighting.feedback, label)
+                except Exception:
+                    # The count matters more than the training example.
+                    self.logger.warning("Could not file mount %s as %s", sighting.id, label, exc_info=True)
+            self.feedback(sighting.feedback, label)
+        else:
+            with self.lock:
+                sighting.false = not is_mount
+                self._store(sighting)
+        return "Opgeslagen als sprong" if is_mount else "Opgeslagen als geen sprong"
 
     def handle_message(self, message: dict[str, Any]) -> str | None:
         """Handles typed numbers, a command or a CSV file and returns the

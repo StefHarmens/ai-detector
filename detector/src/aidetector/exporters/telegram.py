@@ -55,6 +55,8 @@ class TelegramFeedbackListener:
 
     def register_cows(self, chat: str, cows: CowService) -> None:
         self.cows[str(chat)] = cows
+        # "Geen sprong" on the web page files the mount like the Fout button.
+        cows.classify = self._classify
 
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)

@@ -115,6 +115,7 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
         "split": sighting.split,
         "role_certain": sighting.role_certain,
         "false": sighting.false,
+        "split_wrong": sighting.split_wrong,
         "open": is_open(sighting),
         "photos": [name for name in _SIGHTING_PHOTOS if (folder / f"{name}.jpg").is_file()],
         "slots": slots,
@@ -156,7 +157,14 @@ def change_sighting(sighting_id: str, body: dict[str, Any]) -> dict[str, Any]:
     service, sighting = _find(sighting_id)
     action = body.get("action")
     slot = body.get("slot")
-    if action == "andersom":
+    if action in ("geensprong", "welsprong"):
+        message = service.set_mount(sighting.id, action == "welsprong")
+    elif action in ("splitfout", "splitgoed"):
+        try:
+            message = service.set_split_wrong(sighting.id, action == "splitfout")
+        except ValueError as error:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(error)) from error
+    elif action == "andersom":
         if not sighting.split:
             raise ApiError(HTTPStatus.BAD_REQUEST, "Bij deze sprong zijn de koeien niet gesplitst.")
         message = service.handle_callback(f"cow:{sighting.id}:-:s", quiet=True)
@@ -171,7 +179,7 @@ def change_sighting(sighting_id: str, body: dict[str, Any]) -> dict[str, Any]:
         elif action == "onbekend":
             message = service.handle_callback(f"cow:{sighting.id}:{slot}:u", quiet=True)
         elif action == "fotofout":
-            if not sighting.split:
+            if not sighting.split or sighting.split_wrong:
                 raise ApiError(HTTPStatus.BAD_REQUEST, "Deze foto gaat toch niet in een koemap.")
             message = service.handle_callback(f"cow:{sighting.id}:{slot}:x", quiet=True)
         else:

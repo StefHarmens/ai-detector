@@ -26,6 +26,7 @@ export interface Sighting {
 	split: boolean;
 	role_certain: boolean;
 	false: boolean;
+	split_wrong: boolean;
 	open: boolean;
 	photos: string[];
 	slots: Slot[];

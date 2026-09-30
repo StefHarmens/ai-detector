@@ -457,6 +457,12 @@ telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen
   hij door naar B. Verder: **Klopt** voor een koe die de bot zelf herkende, **Onbekend**,
   **Foto klopt niet**, **Andersom** en **Hele beeld** (het 4K-beeld met het kader). Hetzelfde
   als in Telegram: `?` is onbekend, een nieuwe koe typ je als `44 NL123456789`.
+  - **Splitsing klopt niet**: de twee foto's zijn niet de twee koeien van de sprong. Ze gaan
+    dan in geen enkele koemap (al opgeslagen foto's gaan eruit), en wat de bot erop herkende
+    vervalt. Weet je wie het waren, vul ze dan toch in: dan telt de sprong mee.
+  - **Geen sprong**: hetzelfde als **Fout** onder de melding in Telegram. De sprong telt niet
+    mee en gaat als fout voorbeeld naar `bad` voor het trainen. De knoppen onder de melding
+    in Telegram laten dat niet zien.
 - **Koeien**: alle dieren met nummer, naam, levensnummer en aantal foto's. Klik op een koe
   voor haar foto's; staat er een andere koe op, haal hem dan weg, anders leert de herkenning
   het verkeerde. Hier geef je ook een nummer aan een koe, wissel je een halsband of

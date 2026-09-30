@@ -7,6 +7,8 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import ImageOffIcon from '@lucide/svelte/icons/image-off';
+	import BanIcon from '@lucide/svelte/icons/ban';
+	import ScissorsIcon from '@lucide/svelte/icons/scissors';
 	import { toast } from 'svelte-sonner';
 	import {
 		api,
@@ -92,7 +94,16 @@
 				<Badge class="bg-emerald-600 text-white">Klaar</Badge>
 			{/if}
 		</Card.Title>
-		{#if !sighting.split}
+		{#if sighting.false}
+			<Card.Description>
+				Geen sprong: telt niet mee, en gaat als fout voorbeeld naar het trainen.
+			</Card.Description>
+		{:else if sighting.split_wrong}
+			<Card.Description>
+				De splitsing klopt niet: deze foto's gaan niet in de koemappen. Vul de koeien in als je ze
+				weet, dan telt de sprong wel mee.
+			</Card.Description>
+		{:else if !sighting.split}
 			<Card.Description>
 				De twee koeien waren niet los te zien: links wie sprong, rechts wie werd besprongen. Deze
 				foto's gaan niet in de koemappen.
@@ -130,7 +141,7 @@
 					</Badge>
 				</div>
 
-				{#if slot.candidates.length > 0}
+				{#if slot.candidates.length > 0 && !sighting.split_wrong}
 					<div class="flex flex-wrap gap-2">
 						{#each slot.candidates as candidate (candidate.cow)}
 							{@const chosen = candidate.cow === slot.cow && slot.how === 'boer'}
@@ -200,7 +211,7 @@
 					>
 						Onbekend
 					</Button>
-					{#if sighting.split}
+					{#if sighting.split && !sighting.split_wrong}
 						<Button
 							type="button"
 							size="sm"
@@ -228,6 +239,30 @@
 				<ArrowLeftRightIcon /> Andersom
 			</Button>
 		{/if}
+		{#if sighting.split}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				disabled={busy}
+				title="De twee foto's zijn niet de twee koeien van de sprong"
+				onclick={() => send({ action: sighting.split_wrong ? 'splitgoed' : 'splitfout' })}
+			>
+				<ScissorsIcon />
+				{sighting.split_wrong ? 'Splitsing klopt toch' : 'Splitsing klopt niet'}
+			</Button>
+		{/if}
+		<Button
+			type="button"
+			size="sm"
+			variant={sighting.false ? 'outline' : 'destructive'}
+			disabled={busy}
+			title="Zelfde als Fout onder de melding in Telegram"
+			onclick={() => send({ action: sighting.false ? 'welsprong' : 'geensprong' })}
+		>
+			<BanIcon />
+			{sighting.false ? 'Toch een sprong' : 'Geen sprong'}
+		</Button>
 		{#if sighting.photos.includes('controle')}
 			<Button
 				href={sightingPhoto(sighting.id, 'controle')}
