@@ -4,7 +4,7 @@ import {
 	CONFIG_PATH,
 	saveConfig as saveConfigShared
 } from '$lib/server/shared-paths';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import type { AppConfig, Config } from '$lib/schema';
 import { DEFAULT_SCHEMA_URL } from '$lib/schema';
 
@@ -62,7 +62,9 @@ export const getConfig = query(async (): Promise<{ config: Config; app: AppConfi
 		appConfig.telegrams.push({ label: telegram.chat, token: telegram.token, chat: telegram.chat });
 	});
 
-	await saveConfigShared({ config, app: appConfig });
+	// Only app.json: rewriting config.json on every read would restart the
+	// detector (it restarts when the file changes) and reformat the farmer's file.
+	await writeFile(APP_CONFIG_PATH, JSON.stringify(appConfig, null, 2));
 	return { config, app: appConfig };
 });
 
