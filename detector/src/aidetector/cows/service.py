@@ -47,6 +47,9 @@ HERD_STATE_FILE = ".koeienlijst.json"
 _HERD_CHECK_SECONDS = 30
 # A herd list that changed this recently may still be being saved.
 _HERD_SETTLE_SECONDS = 5
+# Raised when the herd list is read differently, so the same file is read
+# again: 2 gives heifers their Diernr instead of the shared Werknummer.
+_HERD_RULES = 2
 SLOT_NAMES = ("A", "B")
 # Frames kept per side of the jump, to look back at a mount later.
 _KEEP_FRAMES = 3
@@ -64,7 +67,7 @@ Bij elke sprong stuur ik één foto met de twee koeien. Tik het goede nummer aan
 Van elke koe die je aantikt leer ik haar vachtpatroon. Heeft een koe 5 foto's en herken ik haar duidelijk, dan vul ik haar zelf in.
 
 Koeien beheren
-Het nummer is het halsbandnummer, of het werknummer bij een pink zonder halsband. Krijgt de pink een halsband, geef haar dan dat nummer met /koe; haar sprongen en foto's blijven bij haar.
+Het nummer is het halsbandnummer, of bij een pink zonder halsband het diernummer op haar oormerk. Krijgt de pink een halsband, geef haar dan dat nummer met /koe; haar sprongen en foto's blijven bij haar.
 /koe 30 NL123456789 Bertha – nummer 30 hoort bij deze koe (naam mag weg)
 /wissel 30 NL987654321 – nummer 30 gaat naar een andere koe, bijv. een pink
 /weg 30 – de koe met nummer 30 (of naam) is van het bedrijf
@@ -262,13 +265,19 @@ class CowService:
                 state = json.loads(state_path.read_text())
             except (FileNotFoundError, ValueError):
                 state = {}
-            if state.get("file") == str(path) and state.get("modified") == modified:
+            if (
+                state.get("file") == str(path)
+                and state.get("modified") == modified
+                and state.get("rules") == _HERD_RULES
+            ):
                 return None
             if now - modified < _HERD_SETTLE_SECONDS:
                 return None
             result = sync_herd(path, self.registry, categories=self.config.herd_categories)
             self.directory.mkdir(parents=True, exist_ok=True)
-            state_path.write_text(json.dumps({"file": str(path), "modified": modified}))
+            state_path.write_text(
+                json.dumps({"file": str(path), "modified": modified, "rules": _HERD_RULES})
+            )
         self.logger.info("%s", result.summary())
         if result.changed or result.problems:
             lines = [result.summary()]

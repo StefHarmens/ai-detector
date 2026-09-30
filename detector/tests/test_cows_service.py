@@ -409,7 +409,7 @@ def test_a_csv_sent_to_the_bot_adds_the_cows(tmp_path, telegram, monkeypatch):
     answer = service.handle_message({"document": {"file_id": "f", "file_name": "export koeien.csv"}})
 
     assert answer.splitlines() == [
-        "✅ 1 dier ingelezen op werknummer.",
+        "✅ 1 dier ingelezen, zonder halsband.",
         "Regel 3: 'fout' is geen levensnummer, verwacht bijvoorbeeld NL123456789",
     ]
     assert service.registry.label("NL222222222") == "7 (Klaartje)"

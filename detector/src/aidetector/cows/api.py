@@ -218,6 +218,7 @@ def list_cows(query: dict[str, str]) -> dict[str, Any]:
             {
                 "life_number": cow.life_number,
                 "number": number,
+                "work_number": cow.work_number,
                 "name": cow.name,
                 "archived": cow.archived,
                 "label": registry.label(cow.life_number),
@@ -308,13 +309,23 @@ def overview(query: dict[str, str]) -> dict[str, Any]:
     mounts = 0
     unknown = 0
     per_cow: dict[str, dict[str, Any]] = {}
-    for service in _services():
+    services = _services()
+    registry = services[0].registry
+    for service in services:
         count, counts, labels, missing = service.overview_counts(start, end)
         mounts += count
         unknown += missing
         for cow, (mounted, mounting) in counts.items():
+            known = registry.cow(cow)
             item = per_cow.setdefault(
-                cow, {"cow": cow, "label": labels[cow], "mounted": 0, "mounting": 0}
+                cow,
+                {
+                    "cow": cow,
+                    "label": labels[cow],
+                    "work_number": known.work_number if known else None,
+                    "mounted": 0,
+                    "mounting": 0,
+                },
             )
             item["mounted"] += mounted
             item["mounting"] += mounting

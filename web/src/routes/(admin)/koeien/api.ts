@@ -43,6 +43,7 @@ export interface SightingPage {
 export interface Cow {
 	life_number: string;
 	number: string | null;
+	work_number: string | null;
 	name: string | null;
 	archived: string | null;
 	label: string;
@@ -59,7 +60,13 @@ export interface Overview {
 	days: number;
 	mounts: number;
 	unknown: number;
-	items: { cow: string; label: string; mounted: number; mounting: number }[];
+	items: {
+		cow: string;
+		label: string;
+		work_number: string | null;
+		mounted: number;
+		mounting: number;
+	}[];
 }
 
 export class ApiError extends Error {

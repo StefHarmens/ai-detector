@@ -309,7 +309,8 @@ bewaart een extra `hires.jpg` per sprong.
 Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe noemt, is
 alleen een label met een tijdstip, want nummer 30 gaat naar een pink als de oude 30 weg is.
 Zo blijven oude sprongen bij de oude koe. Dat nummer is het halsbandnummer, of bij een
-pink zonder halsband haar werknummer. Antwoorden kan ook met een naam (`Anna 12`).
+pink zonder halsband het diernummer op haar oormerk (of haar werknummer als de lijst geen
+diernummer heeft). Antwoorden kan ook met een naam (`Anna 12`).
 Commando's in de chat:
 
 | Commando | Wat het doet |
@@ -369,16 +370,18 @@ Lely-programma (kolommen `Diernr`, `Resp 1`, `Levensnummer`, `Gesl`, `Naam`, `We
 `Diercat`) wordt zo gelezen:
 
 - een koe met halsband (er staat een responder in `Resp 1`) krijgt haar **Diernr**;
-- een pink zonder halsband (`Resp 1` leeg) krijgt haar **Werknummer**. Kalft ze af en
-  krijgt ze een halsband, dan neemt de bot bij de volgende export haar Diernr over; haar
-  sprongen en foto's blijven bij haar;
+- een pink zonder halsband (`Resp 1` leeg) krijgt ook haar **Diernr**, het nummer op haar
+  oormerk. Kalft ze af en krijgt ze een halsband, dan houdt ze dat nummer; haar sprongen
+  en foto's blijven bij haar;
+- het `Werknummer` wordt bewaard en staat in de web UI bij de koe, maar is geen nummer:
+  in een Lely-export delen meerdere koeien en pinken hetzelfde werknummer;
 - alleen de categorieën uit `herd_categories` doen mee (standaard `Koeien` en
   `Vrouwelijk jongvee`, zoals in `Diercat`); `Vaarskalf`, `Mannelijk` en de rest worden
   overgeslagen, en mannelijke dieren (`Gesl` Mannelijk) altijd. Het bericht zegt hoeveel;
 - `Levnr moeder` wordt nooit als levensnummer gelezen.
 
 Andere exports met kolommen zoals `Halsbandnummer` en `Werknummer` werken ook: per dier
-het halsbandnummer, en anders het werknummer.
+het halsbandnummer, en anders het diernummer of het werknummer.
 
 Zonder `herd_file` kan het ook eenmalig: stuur de export (Excel of CSV) als bestand naar de
 bot. Op de Mac mini kan het ook met:

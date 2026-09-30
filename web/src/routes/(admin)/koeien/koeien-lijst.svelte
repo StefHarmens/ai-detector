@@ -39,7 +39,8 @@
 			return (
 				!wanted ||
 				cow.label.toLowerCase().includes(wanted) ||
-				cow.life_number.toLowerCase().includes(wanted)
+				cow.life_number.toLowerCase().includes(wanted) ||
+				cow.work_number === wanted
 			);
 		})
 	);
@@ -130,7 +131,7 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<Input
 				bind:value={search}
-				placeholder="Zoek op nummer, naam of levensnummer"
+				placeholder="Zoek op nummer, naam, werknummer of levensnummer"
 				class="max-w-sm"
 			/>
 			<Button
@@ -156,6 +157,7 @@
 						<Table.Head class="w-12"></Table.Head>
 						<Table.Head>Nummer</Table.Head>
 						<Table.Head>Naam</Table.Head>
+						<Table.Head>Werknr</Table.Head>
 						<Table.Head class="hidden sm:table-cell">Levensnummer</Table.Head>
 						<Table.Head class="text-end">Foto's</Table.Head>
 					</Table.Row>
@@ -178,6 +180,7 @@
 								{cow.name ?? ''}
 								{#if cow.archived}<Badge variant="secondary">weg sinds {cow.archived}</Badge>{/if}
 							</Table.Cell>
+							<Table.Cell>{cow.work_number ?? ''}</Table.Cell>
 							<Table.Cell class="hidden font-mono text-xs sm:table-cell"
 								>{cow.life_number}</Table.Cell
 							>
@@ -202,7 +205,8 @@
 		<Card.Header>
 			<Card.Title class="text-base">Koe toevoegen of nummer geven</Card.Title>
 			<Card.Description>
-				Het nummer is het halsbandnummer, of het werknummer bij een pink zonder halsband.
+				Het nummer is het halsbandnummer, of bij een pink zonder halsband het diernummer op haar
+				oormerk.
 				{#if list?.herd_file}
 					De koeienlijst <span class="font-mono break-all">{list.herd_file}</span> is leidend: wat daar
 					anders staat, wordt bij de volgende export weer overgenomen.
@@ -264,7 +268,10 @@
 		{#if selected}
 			<Dialog.Header>
 				<Dialog.Title>{selected.label}</Dialog.Title>
-				<Dialog.Description class="font-mono">{selected.life_number}</Dialog.Description>
+				<Dialog.Description>
+					<span class="font-mono">{selected.life_number}</span>
+					{#if selected.work_number}· werknummer {selected.work_number}{/if}
+				</Dialog.Description>
 			</Dialog.Header>
 			{#if photosLoading}
 				<p class="text-sm text-muted-foreground">Laden…</p>

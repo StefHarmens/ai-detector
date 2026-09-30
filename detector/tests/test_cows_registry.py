@@ -133,7 +133,7 @@ def test_import_reads_a_herd_program_export(tmp_path):
         # Line 5 of the file, as the farmer sees it in Excel.
         "Regel 5: 'geen nummer' is geen levensnummer, verwacht bijvoorbeeld NL123456789"
     ]
-    assert result.summary() == "✅ 3 dieren ingelezen op werknummer."
+    assert result.summary() == "✅ 3 dieren ingelezen, zonder halsband."
 
 
 def test_import_without_header_uses_number_life_number_name(tmp_path):

@@ -64,6 +64,7 @@
 			<Table.Header>
 				<Table.Row>
 					<Table.Head>Koe</Table.Head>
+					<Table.Head>Werknr</Table.Head>
 					<Table.Head>Besprongen</Table.Head>
 					<Table.Head class="text-end">Zelf gesprongen</Table.Head>
 				</Table.Row>
@@ -83,6 +84,7 @@
 								{item.mounted > 0 ? '🔥 ' : ''}{item.label}
 							</span>
 						</Table.Cell>
+						<Table.Cell>{item.work_number ?? ''}</Table.Cell>
 						<Table.Cell>
 							<div class="flex items-center gap-2">
 								<div
@@ -96,7 +98,7 @@
 					</Table.Row>
 					{#if expanded === item.cow}
 						<Table.Row class="hover:bg-transparent">
-							<Table.Cell colspan={3} class="bg-muted/30 whitespace-normal">
+							<Table.Cell colspan={4} class="bg-muted/30 whitespace-normal">
 								<KoeSprongen cow={item.cow} {days} />
 							</Table.Cell>
 						</Table.Row>

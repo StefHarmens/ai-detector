@@ -192,7 +192,9 @@ def test_overview_counts_both_cows(tmp_path, api, telegram):
 
     assert status == 200
     assert body["mounts"] == 1 and body["unknown"] == 1
-    assert body["items"] == [{"cow": BERTHA, "label": "30 (Bertha)", "mounted": 1, "mounting": 0}]
+    assert body["items"] == [
+        {"cow": BERTHA, "label": "30 (Bertha)", "work_number": None, "mounted": 1, "mounting": 0}
+    ]
 
 
 def test_no_mount_files_it_as_bad_and_stops_counting(tmp_path, api, telegram):

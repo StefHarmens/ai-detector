@@ -51,7 +51,7 @@ def test_excel_export_with_a_title_above_the_header(tmp_path):
 LELY_HEADER = ["Diernr", "Resp 1", "Levensnummer", "Gesl", "Geb dat", "Naam", "Werknummer", "Diercat", "Levnr moeder", "Aankdat"]
 
 
-def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
+def test_lely_export_diernr_for_cows_and_heifers(tmp_path):
     from datetime import date
 
     path = excel(
@@ -60,8 +60,8 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
             LELY_HEADER,
             # A cow with a collar (responder): her Diernr.
             [30, 123456, "NL 0000 0003 0", "Vrouwelijk", date(2021, 3, 1), "Bertha", 4030, "Koeien", "NL 0000 0099 9", None],
-            # A heifer without a collar yet: her work number, even though
-            # she already has a Diernr.
+            # A heifer without a collar yet: her Diernr too, the number on
+            # her ear tag. The Werknummer is shared by several animals.
             [512, None, ANNA, "Vrouwelijk", date(2024, 5, 2), "Anna", 5101, "Vrouwelijk jongvee", BERTHA, None],
             # Only "Koeien" and "Vrouwelijk jongvee" take part: a bull and a
             # heifer calf ("Vaarskalf") are left out. Gesl holds "Vrouwelijk"
@@ -75,25 +75,48 @@ def test_lely_export_collar_number_for_cows_work_number_for_heifers(tmp_path):
 
     assert parsed.problems == []
     assert parsed.skipped == 2
-    assert [(animal.number, animal.life_number, animal.name, animal.collar) for animal in parsed.animals] == [
-        ("30", BERTHA, "Bertha", True),
-        ("5101", ANNA, "Anna", False),
+    assert [
+        (animal.number, animal.life_number, animal.name, animal.collar, animal.work_number)
+        for animal in parsed.animals
+    ] == [
+        ("30", BERTHA, "Bertha", True, "4030"),
+        ("512", ANNA, "Anna", False, "5101"),
     ]
 
-    # Anna calves and gets a collar: the next export has her responder, so
-    # her Diernr becomes her number and she keeps her history.
+    # Anna calves and gets a collar: the next export has her responder, and
+    # she keeps her number and her history.
     registry = CowRegistry(tmp_path / "koeien")
     start = datetime(2026, 10, 2, 8, 0)
-    assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "5101 (Anna)"]
+    assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "512 (Anna)"]
+    assert registry.cow(ANNA).work_number == "5101"
     calved = excel(
         tmp_path / "lely.xlsx",
         [LELY_HEADER, [30, 123456, BERTHA, "Vrouwelijk", None, "Bertha", 4030, "Koeien", None, None],
-         [512, 654321, ANNA, "Vrouwelijk", None, "Anna", 5101, "Koeien", BERTHA, None]],
+         [512, 654321, ANNA, "Vrouwelijk", None, "Anna", 7, "Koeien", BERTHA, None]],
     )
     later = start + timedelta(days=60)
     result = sync_herd(calved, registry, at=later)
-    assert result.renumbered == ["512 (Anna)"]
-    assert registry.label(ANNA, start) == "5101 (Anna)"
+    assert not result.changed
+    assert registry.label(ANNA, later) == "512 (Anna)"
+    assert registry.cow(ANNA).work_number == "7"
+
+
+def test_animals_sharing_a_work_number_all_take_part(tmp_path):
+    # In the farm's export Werknummer 1 belongs to two cows and two heifers.
+    rows = [
+        LELY_HEADER,
+        [37, 12798017, "NL 8934.8683.9", "Vrouwelijk", None, "LOTTE", 1, "Koeien", None, None],
+        [84, 12798064, "NL 5737.8382.1", "Vrouwelijk", None, "Anne", 1, "Koeien", None, None],
+        [8835, None, "NL 9498.8835.2", "Vrouwelijk", None, "BERTHA", 1, "Vrouwelijk jongvee", None, None],
+        [8764, None, "NL 6905.8764.3", "Vrouwelijk", None, "Anne", 4, "Vrouwelijk jongvee", None, None],
+    ]
+    registry = CowRegistry(tmp_path / "koeien")
+
+    result = sync_herd(excel(tmp_path / "lely.xlsx", rows), registry)
+
+    assert result.problems == []
+    assert result.added == ["37 (LOTTE)", "84 (Anne)", "8835 (BERTHA)", "8764 (Anne)"]
+    assert registry.cow("NL690587643").work_number == "4"
 
 
 def test_only_the_listed_categories_take_part():

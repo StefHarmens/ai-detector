@@ -49,6 +49,9 @@ class Cow:
     life_number: str
     name: str | None = None
     archived: str | None = None
+    # Lely's Werknummer: shown next to the number, but several animals can
+    # share one.
+    work_number: str | None = None
 
 
 @dataclass
@@ -77,8 +80,8 @@ class RegistryData:
 class CowRegistry:
     """Keeps the cows by I&R life number, which number each had when, and one
     photo folder per cow. The number is the one the farmer calls her by: her
-    collar number, or her work number (werknummer) for a heifer without a
-    collar yet. When a heifer gets a collar, only her number changes."""
+    collar number, or for a heifer without a collar yet the number on her ear
+    tag (Diernr) or her work number. When a heifer gets a collar, only her number changes."""
 
     def __init__(self, directory: Path):
         self.directory = directory
@@ -140,7 +143,12 @@ class CowRegistry:
         return label
 
     def add(
-        self, number: str, life_number: str, name: str | None = None, at: Moment = None
+        self,
+        number: str,
+        life_number: str,
+        name: str | None = None,
+        at: Moment = None,
+        work_number: str | None = None,
     ) -> Cow:
         """Gives the collar number to a cow. Fails when another cow still wears
         the number; that needs switch() so the farmer decides about the old cow."""
@@ -152,6 +160,8 @@ class CowRegistry:
             if holder is not None and holder != life_number:
                 raise NumberTaken(number, holder)
             cow = self._ensure_cow(life_number, name)
+            if work_number is not None:
+                cow.work_number = work_number
             if holder is None:
                 self._end_numbers(life_number, at)
                 self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))

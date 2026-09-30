@@ -17,9 +17,12 @@ from aidetector.cows.registry import (
 _LIFE_COLUMNS = ("levensnummer", "levnr", "life number", "lifenumber", "i&r")
 # "Levnr moeder" is the mother's life number.
 _PARENT_WORDS = ("moeder", "vader", "mother", "father")
-# The farmer calls a cow by her collar number (Lely: Diernr); a heifer without
-# a collar by her work number.
-_COLLAR_COLUMNS = ("halsband", "diernr", "diernummer", "collar")
+# The farmer calls a cow by her collar number. Lely has no collar column: its
+# Diernr is unique, on the collar of a cow and on the ear tag of a heifer (the
+# middle digits of her life number). Its Werknummer is not unique (several
+# cows and heifers share one), so it is kept and shown, but is no number.
+_COLLAR_COLUMNS = ("halsband", "collar")
+_ANIMAL_COLUMNS = ("diernr", "diernummer")
 _WORK_COLUMNS = ("werknummer", "werknr")
 _OTHER_NUMBER_COLUMNS = ("nummer", "number")
 # The responder hangs on the collar: without one, a heifer has no collar yet.
@@ -94,8 +97,9 @@ class HerdRow:
     number: str
     life_number: str
     name: str | None
-    # Whether the number is a collar number, or else a work number.
+    # Whether she wears a collar; else the number is on her ear tag.
     collar: bool
+    work_number: str | None = None
 
 
 @dataclass
@@ -110,6 +114,7 @@ class ParsedHerd:
 class _Columns:
     life: int
     collar: int | None = None
+    animal: int | None = None
     work: int | None = None
     other: int | None = None
     responder: int | None = None
@@ -136,10 +141,14 @@ class _Columns:
             life=life,
             responder=responder,
             collar=take(_COLLAR_COLUMNS),
+            animal=take(_ANIMAL_COLUMNS),
             work=take(_WORK_COLUMNS),
             other=take(_OTHER_NUMBER_COLUMNS),
         )
-        if columns.collar is None and columns.work is None and columns.other is None:
+        if all(
+            index is None
+            for index in (columns.collar, columns.animal, columns.work, columns.other)
+        ):
             return None
         columns.name = take(_NAME_COLUMNS)
         columns.sex = take(_SEX_COLUMNS)
@@ -147,16 +156,24 @@ class _Columns:
         return columns
 
     def number(self, row: list[str]) -> tuple[str, bool]:
-        """Her collar number when she has a collar, else her work number."""
-        collar, work, other = _cell(row, self.collar), _cell(row, self.work), _cell(row, self.other)
-        has_collar = bool(collar) and (self.responder is None or bool(_cell(row, self.responder)))
-        if has_collar:
+        """Her collar number when she has a collar, else her Diernr, else her
+        work number; and whether she wears a collar."""
+        collar, animal = _cell(row, self.collar), _cell(row, self.animal)
+        work, other = _cell(row, self.work), _cell(row, self.other)
+        responder = self.responder is None or bool(_cell(row, self.responder))
+        if collar and responder:
             return collar, True
+        if animal:
+            # The responder hangs on the collar: without one, no collar yet.
+            return animal, self.responder is not None and responder
         if work:
             return work, False
         if other:
             return other, self.work is None and self.collar is None
         return collar, True
+
+    def work_number(self, row: list[str]) -> str | None:
+        return _cell(row, self.work) or None
 
     def skip(self, row: list[str], categories: Sequence[str] | None) -> bool:
         if _cell(row, self.sex).lower() in _MALE_VALUES:
@@ -201,6 +218,7 @@ def parse_herd(
                     normalize_life_number(_cell(row, columns.life)),
                     _cell(row, columns.name) or None,
                     collar,
+                    columns.work_number(row),
                 )
             )
         except ValueError as error:
@@ -212,7 +230,8 @@ def parse_herd(
 class ImportResult:
     added: int = 0
     problems: list[str] = field(default_factory=list)
-    # How many animals got their collar number, and how many their work number.
+    # How many animals wear a collar, and how many are known by another number
+    # (a heifer without a collar: her Diernr or work number).
     by_collar: int = 0
     by_work: int = 0
     skipped: int = 0
@@ -223,10 +242,10 @@ class ImportResult:
         if self.by_collar and self.by_work:
             text = (
                 f"✅ {self.added} {animals} ingelezen: {self.by_collar} op halsbandnummer, "
-                f"{self.by_work} op werknummer (pinken zonder halsband)."
+                f"{self.by_work} pinken zonder halsband."
             )
         elif self.by_work:
-            text = f"✅ {self.added} {animals} ingelezen op werknummer."
+            text = f"✅ {self.added} {animals} ingelezen, zonder halsband."
         else:
             text = f"✅ {self.added} {'koe' if self.added == 1 else 'koeien'} ingelezen."
         if self.skipped:
@@ -247,7 +266,9 @@ def import_cows(
     result = ImportResult(problems=parsed.problems, skipped=parsed.skipped)
     for animal in parsed.animals:
         try:
-            registry.add(animal.number, animal.life_number, animal.name)
+            registry.add(
+                animal.number, animal.life_number, animal.name, work_number=animal.work_number
+            )
         except NumberTaken as error:
             result.problems.append(
                 f"Regel {animal.line}: nummer {error.number} hoort al bij {error.holder},"
@@ -341,7 +362,9 @@ def sync_herd(
         known = cow is not None and cow.archived is None
         current = registry.number_of(life_number, at) if known else None
         try:
-            registry.add(animal.number, life_number, animal.name, at=at)
+            registry.add(
+                animal.number, life_number, animal.name, at=at, work_number=animal.work_number
+            )
         except NumberTaken as error:
             result.problems.append(
                 f"Regel {animal.line}: nummer {animal.number} hoort nog bij {error.holder}"
