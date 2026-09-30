@@ -155,13 +155,26 @@ class EventFrames:
     end: datetime
 
 
+_Item = tuple[datetime, bytes, Callable[[], ndarray]]
+
+
+def _one_per_second(items: list[_Item]) -> list[_Item]:
+    """The split was tuned on one 4K frame per second; hires.fps can be higher
+    for the video, so the frames used stay about a second apart."""
+    kept: list[_Item] = []
+    for item in items:
+        if not kept or (item[0] - kept[-1][0]).total_seconds() >= 0.95:
+            kept.append(item)
+    return kept
+
+
 def event_frames(best_detection: Detection, detections: list[Detection]) -> EventFrames:
     """Returns the frames from just before and just after the jump, from the
     4K stream when there is one. Only the frames used are decoded."""
     confident = [detection.date for detection in detections if detection.confidence]
     start = confident[0] if confident else best_detection.date
     end = confident[-1] if confident else best_detection.date
-    items: list[tuple[datetime, bytes, Callable[[], ndarray]]]
+    items: list[_Item]
     if best_detection.hires:
         items = [
             (frame.date, frame.jpeg, lambda frame=frame: frame.jpg)
@@ -173,6 +186,8 @@ def event_frames(best_detection: Detection, detections: list[Detection]) -> Even
             for detection in detections
         ]
     items.sort(key=lambda item: item[0])
+    if best_detection.hires:
+        items = _one_per_second(items)
     chosen = [item for item in items if item[0] < start][-_SIDE_FRAMES:] + [
         item for item in items if item[0] > end
     ][:_SIDE_FRAMES]

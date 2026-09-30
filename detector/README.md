@@ -145,7 +145,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | Field            | Default      | Description |
 | :--------------- | :----------- | :---------- |
 | `source`         |              | One stream per `detection.source`, in the same order; `null` for a camera without one. Leave out to keep the frames of `detection.source` itself. |
-| `fps`            | `1`          | Frames per second to keep. |
+| `fps`            | `4`          | Frames per second to keep. The event videos (disk, Telegram, web page) are made from these 4K frames; each is about 1 MB of memory. Recognition uses one per second. |
 | `seconds`        | `20`         | How long frames are kept outside a mount; must cover `before_seconds`. From the start of a mount its frames are held until it is handled, however long it lasts (at most 3 minutes). |
 | `before_seconds` | `10`         | How far before the event the frames start. |
 | `quality`        | `85`         | JPEG quality of the kept frames. |

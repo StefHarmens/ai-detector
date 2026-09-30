@@ -80,7 +80,13 @@ class DiskExporter(Exporter[DiskConfig]):
             # The whole 4K frame with the boxes, for the web page.
             with open(timestamped_directory / HIRES_BEST, "wb") as f:
                 f.write(get_image(get_plot(hires), 90))
-        video = generate_mp4(detections, padding=self.config.crop_padding)
+        video = generate_mp4(
+            detections,
+            padding=self.config.crop_padding,
+            hires=best_detection.hires,
+            # Near lossless: lossless 4K takes far too much disk.
+            crf=18 if best_detection.hires else 0,
+        )
         if video:
             video_path = timestamped_directory / "video.mp4"
             with open(video_path, "wb") as f:

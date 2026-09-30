@@ -141,7 +141,9 @@ class HiresConfig:
     # already the 4K stream: then its own frames are kept, before they are
     # made smaller for detection, and nothing is decoded twice.
     source: str | list[str | None] | None = None
-    fps: float = 1
+    # Frames kept per second. The event's video is made from them, so 4 keeps
+    # it fluent enough to follow; each 4K frame is about 1 MB of memory.
+    fps: float = 4
     # How long frames are kept outside a mount; must cover before_seconds.
     # During a mount its frames are kept until it is handled.
     seconds: int = 20

@@ -455,6 +455,7 @@ class TelegramExporter(WebhookExporter):
                 crf=self.telegram.video_crf,
                 data_max=self.config.data_max,
                 padding=self.telegram.crop_padding,
+                hires=best_detection.hires,
             )
             if video:
                 files["video"] = (
