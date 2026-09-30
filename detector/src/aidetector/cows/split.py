@@ -19,9 +19,16 @@ Detected = Box | tuple[Box, ndarray | None]
 
 # Search this much around the mount box for the two cows.
 _SEARCH_SCALE = 2.5
-# Share of a cow box that must lie inside the (slightly larger) mount box.
-_MIN_INSIDE = 0.35
+# A cow's center must lie in this much of the mount box.
 _MOUNT_GROW = 1.3
+# In a crowded barn the cow model also finds pieces of cows (0.07-0.2 of the
+# mount box on the farm frames); a whole cow is at least this big. At 0.30 a
+# box around the jump itself got in.
+_MIN_COW_SIZE = 0.35
+# The two cows may overlap this much (IoU), and must cover this share of the
+# mount box together.
+_MAX_PAIR_OVERLAP = 0.3
+_MIN_PAIR_COVER = 0.5
 # Frames used on each side of the jump.
 _SIDE_FRAMES = 6
 _TRACK_IOU = 0.2
@@ -136,27 +143,49 @@ def inside(point: tuple[float, float], box: Box) -> bool:
     return box[0] <= point[0] <= box[2] and box[1] <= point[1] <= box[3]
 
 
-def pick_pair(boxes: Sequence[Box], mount: Box) -> list[Box]:
-    """Returns the two cows that lie most inside the mount box, largest share
-    first, or fewer when there are not two.
+def _overlap_box(a: Box, b: Box) -> Box:
+    if intersection(a, b) == 0:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
 
-    On the barn examples a cow lying in a cubicle next to the mount was picked
-    as one of the two; her center lies outside the mount box, so each cow's
-    center must lie inside it. Asking the farmer is better than a wrong photo
-    in a cow folder."""
+
+def pick_pair(boxes: Sequence[Box], mount: Box) -> list[Box]:
+    """Returns the two cows of the mount, or none when no two separate whole
+    cows fill the mount box together.
+
+    Judged by the farmer on 15 real mounts, the old choice (the two boxes
+    lying most inside the mount box) was right twice: in a crowded barn small
+    pieces of cows lie fully inside and won, giving blurry close-ups, the same
+    cow twice or a neighbour. Only whole cows count now, the pair must not be
+    one cow seen twice, and together they must cover the mount box; that was
+    right 11 times. No pair means no photo in a cow folder, which is better
+    than a wrong one."""
     region = grow(mount, _MOUNT_GROW)
-    scored = [
-        (intersection(box, region) / area(box), box)
+    cows = [
+        box
         for box in boxes
-        if area(box) > 0
+        if area(mount) * _MIN_COW_SIZE <= area(box) < area(mount) * 1.5
         # A box around both cows is not a single cow.
-        and area(box) < area(mount) * 1.5
         and iou(box, mount) < _PAIR_IOU
-        and inside(center(box), mount)
+        and inside(center(box), region)
     ]
-    scored = [item for item in scored if item[0] >= _MIN_INSIDE]
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [box for _, box in scored[:2]]
+    best: tuple[float, list[Box]] | None = None
+    for index, first in enumerate(cows):
+        for second in cows[index + 1 :]:
+            overlap = iou(first, second)
+            if overlap > _MAX_PAIR_OVERLAP:
+                continue
+            cover = (
+                intersection(first, mount)
+                + intersection(second, mount)
+                - intersection(_overlap_box(first, second), mount)
+            ) / area(mount)
+            if cover < _MIN_PAIR_COVER:
+                continue
+            score = cover - overlap
+            if best is None or score > best[0]:
+                best = (score, [first, second])
+    return best[1] if best else []
 
 
 def motion(track: list[Box]) -> float:

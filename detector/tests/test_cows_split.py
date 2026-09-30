@@ -8,7 +8,8 @@ from aidetector.cows.split import CowSplitter, grow, pick_pair, union
 START = datetime(2026, 10, 2, 8, 0, 0)
 MOUNT = (0.40, 0.40, 0.60, 0.70)
 REGION = grow(MOUNT, 2.5)
-STILL = (0.45, 0.40, 0.55, 0.60)
+# A whole cow is at least a third of the mount box; smaller boxes are pieces.
+STILL = (0.44, 0.40, 0.56, 0.62)
 
 
 def frame(index: int) -> np.ndarray:
@@ -92,11 +93,36 @@ def test_a_cow_lying_next_to_the_mount_is_not_one_of_the_pair():
     # On the barn examples: the pair seen as one box, and a neighbour in a
     # cubicle whose center lies outside the mount box.
     both = (0.41, 0.41, 0.59, 0.69)
-    neighbour = (0.52, 0.50, 0.72, 0.62)
+    neighbour = (0.56, 0.50, 0.76, 0.62)
     frames = [(START - timedelta(seconds=1), frame(0))]
 
-    assert pick_pair([both, neighbour, STILL], MOUNT) == [STILL]
+    assert pick_pair([both, neighbour, STILL], MOUNT) == []
     assert CowSplitter(fake_detector({0: [both, neighbour, STILL]})).split(frames, MOUNT, START) is None
+
+
+def test_pieces_of_cows_are_never_one_of_the_pair():
+    # On the farm frames the cow model found backs and heads fully inside the
+    # mount box; they won and gave blurry close-ups.
+    back = (0.46, 0.42, 0.54, 0.50)
+    head = (0.50, 0.55, 0.57, 0.62)
+    near = (0.50, 0.45, 0.62, 0.68)
+
+    assert pick_pair([back, head, STILL], MOUNT) == []
+    assert pick_pair([back, head, STILL, near], MOUNT) == [STILL, near]
+
+
+def test_the_same_cow_twice_is_not_a_pair():
+    twice = (0.45, 0.41, 0.57, 0.63)
+
+    assert pick_pair([STILL, twice], MOUNT) == []
+
+
+def test_two_cows_must_fill_the_mount_box_together():
+    # Two whole cows at one end of the box leave the rest of the mount empty.
+    left = (0.30, 0.40, 0.44, 0.60)
+    corner = (0.34, 0.58, 0.47, 0.78)
+
+    assert pick_pair([left, corner], MOUNT) == []
 
 
 def test_the_mounted_cow_photo_includes_the_cow_below():
@@ -122,7 +148,7 @@ def test_frames_after_the_jump_are_the_second_chance():
     end = START + timedelta(seconds=5)
     before = [(START - timedelta(seconds=1), frame(0))]
     after = [(end + timedelta(seconds=offset), frame(offset)) for offset in (1, 2, 3)]
-    stepping_off = {offset: (0.45 + offset * 0.04, 0.45, 0.57 + offset * 0.04, 0.65) for offset in (1, 2, 3)}
+    stepping_off = {offset: (0.47 + offset * 0.05, 0.45, 0.59 + offset * 0.05, 0.65) for offset in (1, 2, 3)}
     cows = {0: [STILL], **{offset: [STILL, stepping_off[offset]] for offset in (1, 2, 3)}}
 
     pair = CowSplitter(fake_detector(cows)).split(before + after, MOUNT, START, end)
