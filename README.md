@@ -461,8 +461,9 @@ telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbladen
     dan in geen enkele koemap (al opgeslagen foto's gaan eruit), en wat de bot erop herkende
     vervalt. Weet je wie het waren, vul ze dan toch in: dan telt de sprong mee.
   - **Geen sprong**: hetzelfde als **Fout** onder de melding in Telegram. De sprong telt niet
-    mee en gaat als fout voorbeeld naar `bad` voor het trainen. De knoppen onder de melding
-    in Telegram laten dat niet zien.
+    mee en gaat als fout voorbeeld naar `bad` voor het trainen. Onder de melding in Telegram
+    krijgt **Fout** dan het vinkje, net alsof je hem daar aantikte (voor meldingen vanaf
+    detector v0.8.0-beta.16). Andersom zie je een Goed/Fout uit Telegram ook op de website.
 - **Koeien**: alle dieren met nummer, naam, levensnummer en aantal foto's. Klik op een koe
   voor haar foto's; staat er een andere koe op, haal hem dan weg, anders leert de herkenning
   het verkeerde. Hier geef je ook een nummer aan een koe, wissel je een halsband of

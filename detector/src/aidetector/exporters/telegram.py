@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import secrets
 import shutil
 from pathlib import Path
@@ -56,7 +57,7 @@ class TelegramFeedbackListener:
     def register_cows(self, chat: str, cows: CowService) -> None:
         self.cows[str(chat)] = cows
         # "Geen sprong" on the web page files the mount like the Fout button.
-        cows.classify = self._classify
+        cows.classify = self.classify
 
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)
@@ -104,6 +105,50 @@ class TelegramFeedbackListener:
         )
         if response.status_code >= 400:
             raise RuntimeError(response.text)
+        # So a choice on the web page can tick the button here too.
+        try:
+            result = response.json().get("result")
+            if isinstance(result, dict) and "message_id" in result:
+                self._buttons_path(feedback_id).write_text(
+                    json.dumps({"chat": str(chat), "message_id": int(result["message_id"])})
+                )
+        except (ValueError, OSError):
+            self.logger.warning("Could not remember the feedback buttons", exc_info=True)
+
+    def classify(self, feedback_id: str, label: str) -> None:
+        """Files a mount as good or bad from the web page, and ticks the
+        button below the alert in Telegram, as if the farmer tapped it."""
+        try:
+            self._classify(feedback_id, label)
+        finally:
+            self._show_label(feedback_id, label)
+
+    def _buttons_path(self, feedback_id: str) -> Path:
+        return self.feedback_directory / f"{feedback_id}.buttons.json"
+
+    def _show_label(self, feedback_id: str, label: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", feedback_id):
+            return
+        try:
+            buttons = json.loads(self._buttons_path(feedback_id).read_text())
+        except (FileNotFoundError, ValueError):
+            # Alerts from before this version do not know their buttons.
+            return
+        try:
+            response = requests.post(
+                f"{self.api_url}/editMessageReplyMarkup",
+                data={
+                    "chat_id": buttons["chat"],
+                    "message_id": buttons["message_id"],
+                    "reply_markup": self._reply_markup(feedback_id, label),
+                },
+                timeout=10,
+            )
+            # Telegram refuses an edit that changes nothing.
+            if response.status_code >= 400 and "not modified" not in response.text:
+                self.logger.warning("Could not tick the feedback button: %s", response.text)
+        except requests.RequestException:
+            self.logger.warning("Could not tick the feedback button", exc_info=True)
 
     def start(self) -> None:
         with self.start_lock:

@@ -264,3 +264,67 @@ def test_telegram_feedback_uses_configured_directory(tmp_path, monkeypatch):
     assert list((feedback_directory / "good").glob("*.jpg"))
     assert not (working_directory / ".telegram-feedback").exists()
     assert not (working_directory / "good").exists()
+
+
+class _SentResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self, message_id: int = 77):
+        self.message_id = message_id
+
+    def json(self):
+        return {"ok": True, "result": {"message_id": self.message_id}}
+
+
+def test_a_choice_on_the_web_page_ticks_the_telegram_button(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append((url.rsplit("/", 1)[-1], data)) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+    listener.add_buttons("123", 42, feedback_id)
+
+    listener.classify(feedback_id, "bad")
+
+    method, data = posts[-1]
+    assert method == "editMessageReplyMarkup"
+    assert (data["chat_id"], data["message_id"]) == ("123", 77)
+    texts = [button["text"] for button in json.loads(data["reply_markup"])["inline_keyboard"][0]]
+    assert texts == ["👍 Goed", "✅ Fout"]
+    assert list((tmp_path / "bad").glob("*.jpg"))
+
+
+def test_the_telegram_button_is_ticked_even_when_the_image_is_gone(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append(url.rsplit("/", 1)[-1]) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+    listener.add_buttons("123", 42, feedback_id)
+    (tmp_path / ".telegram-feedback" / f"{feedback_id}.jpg").unlink()
+
+    try:
+        listener.classify(feedback_id, "good")
+    except FileNotFoundError:
+        pass
+
+    assert posts[-1] == "editMessageReplyMarkup"
+
+
+def test_older_alerts_without_stored_buttons_are_left_alone(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append(url) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+
+    listener.classify(feedback_id, "bad")
+
+    assert posts == []
