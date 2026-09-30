@@ -12,6 +12,7 @@
 	import GithubIcon from '@lucide/svelte/icons/github';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import MilkIcon from '@lucide/svelte/icons/milk';
+	import CircleHelpIcon from '@lucide/svelte/icons/circle-question-mark';
 
 	let { children } = $props();
 
@@ -23,6 +24,11 @@
 					title: 'Koeien',
 					url: '/koeien',
 					icon: MilkIcon
+				},
+				{
+					title: 'Twijfel',
+					url: '/twijfel',
+					icon: CircleHelpIcon
 				},
 				{
 					title: 'Detections',

@@ -23,7 +23,8 @@ from aidetector.cows.service import (
     Sighting,
     cow_services,
 )
-from aidetector.utils.config import ApiConfig
+from aidetector.review import MEDIA_TYPES, ReviewSession
+from aidetector.utils.config import ApiConfig, Config
 
 logger = logging.getLogger(__name__)
 
@@ -355,6 +356,103 @@ def _sighting_video(sighting_id: str) -> Path:
 _RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
+def review_folders(config: Config) -> list[Path]:
+    """The folders of the disk exporters with review: true, where doubtful
+    and too short mounts go. Resolved like the disk exporter does."""
+    folders: list[Path] = []
+    for detector in config.detectors:
+        disk = detector.exporters.disk if detector.exporters else None
+        for exporter in disk if isinstance(disk, list) else [disk] if disk else []:
+            if exporter.review and exporter.directory:
+                folder = (Path("detections") / exporter.directory).resolve()
+                if folder not in folders:
+                    folders.append(folder)
+    return folders
+
+
+_DOUBT_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})")
+
+
+def _review_session(folders: list[Path], index: int) -> ReviewSession:
+    """A fresh session per request, so new doubtful mounts show up; the
+    choices are kept in the folder itself, as review-feedback does. Good and
+    bad go next to the folder (data/twijfel -> data/good, data/bad)."""
+    if not folders:
+        raise ApiError(
+            HTTPStatus.NOT_FOUND,
+            'Er is geen twijfel-map: zet bij "disk" een export met "review": true in config.json.',
+        )
+    if not 0 <= index < len(folders):
+        raise ApiError(HTTPStatus.NOT_FOUND, "Deze twijfel-map bestaat niet.")
+    folder = folders[index]
+    folder.mkdir(parents=True, exist_ok=True)
+    return ReviewSession(folder, folder.parent)
+
+
+def list_doubts(folders: list[Path], query: dict[str, str]) -> dict[str, Any]:
+    wanted = query.get("filter", "open")
+    offset = max(int(query.get("offset", 0)), 0)
+    limit = min(max(int(query.get("limit", 20)), 1), 100)
+    items = []
+    counts = {"open": 0, "good": 0, "bad": 0, "skip": 0}
+    for index in range(len(folders)):
+        session = _review_session(folders, index)
+        for name, event in session.events.items():
+            decision = session.decisions.get(name)
+            counts[decision or "open"] += 1
+            if wanted == "open" and decision is not None:
+                continue
+            try:
+                metadata = json.loads((event.directory / "metadata.json").read_text())
+            except (OSError, ValueError):
+                metadata = {}
+            match = _DOUBT_DATE.match(name)
+            items.append(
+                {
+                    "folder": index,
+                    "name": name,
+                    "date": f"{match[1]}T{match[2]}:{match[3]}:{match[4]}" if match else None,
+                    "camera": metadata.get("camera") or name[20:] or None,
+                    "confidence": metadata.get("confidence"),
+                    "duration": metadata.get("duration"),
+                    "detections": metadata.get("detections"),
+                    "decision": decision,
+                    "video": (event.directory / "video.mp4").is_file(),
+                }
+            )
+    items.sort(key=lambda item: item["name"], reverse=True)
+    if not folders:
+        _review_session(folders, 0)
+    return {"items": items[offset : offset + limit], "total": len(items), "counts": counts}
+
+
+def decide_doubt(folders: list[Path], index: int, name: str, body: dict[str, Any]) -> dict[str, Any]:
+    session = _review_session(folders, index)
+    if name not in session.events:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Dit twijfelgeval bestaat niet (meer).")
+    decision = body.get("decision")
+    if decision is None:
+        session.clear(name)
+        return {"message": "Keuze gewist", "decision": None}
+    if decision not in ("good", "bad", "skip"):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Kies good, bad of skip.")
+    session.decide(name, decision)
+    return {
+        "message": {"good": "Goed: naar data/good", "bad": "Fout: naar data/bad", "skip": "Overgeslagen"}[decision],
+        "decision": decision,
+    }
+
+
+def _doubt_file(folders: list[Path], index: int, name: str, resource: str) -> Path:
+    session = _review_session(folders, index)
+    if resource not in MEDIA_TYPES:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Niet gevonden.")
+    try:
+        return session.media_path(name, resource)
+    except FileNotFoundError as error:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Niet gevonden.") from error
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "CowCatcher"
 
@@ -421,7 +519,17 @@ class Handler(BaseHTTPRequestHandler):
                 return delete_cow_photo(life_number, name)
             case "GET", ["overzicht"]:
                 return overview(query)
+            case "GET", ["twijfel"]:
+                return list_doubts(self._folders, query)
+            case "GET", ["twijfel", index, name, resource]:
+                return _doubt_file(self._folders, int(index), name, resource)
+            case "POST", ["twijfel", index, name]:
+                return decide_doubt(self._folders, int(index), name, self._body())
         raise ApiError(HTTPStatus.NOT_FOUND, "Niet gevonden.")
+
+    @property
+    def _folders(self) -> list[Path]:
+        return getattr(self.server, "review_folders", [])
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
@@ -478,8 +586,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class CowApi:
-    def __init__(self, config: ApiConfig):
+    def __init__(self, config: ApiConfig, review: list[Path] | None = None):
         self.config = config
+        self.review = review if review is not None else []
         self.server: ThreadingHTTPServer | None = None
 
     def start(self) -> None:
@@ -495,6 +604,7 @@ class CowApi:
             )
             return
         self.server.daemon_threads = True
+        self.server.review_folders = self.review  # type: ignore[attr-defined]
         Thread(target=self.server.serve_forever, name="cow-api", daemon=True).start()
         logger.info("Cow API for the web interface on http://%s:%s", self.config.host, self.config.port)
 

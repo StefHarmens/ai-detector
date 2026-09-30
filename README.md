@@ -485,6 +485,8 @@ of telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbla
   het verkeerde. Hier geef je ook een nummer aan een koe, wissel je een halsband of
   archiveer je een koe die weg is. Met `herd_file` blijft de koeienlijst leidend.
 - **Overzicht**: per koe hoe vaak ze besprongen werd en zelf sprong, over 1 tot 30 dagen.
+  (De pagina **Twijfel** staat in [Twijfelgevallen controleren](#twijfelgevallen-controleren);
+  **Detections** toont alle meldingen uit de schijf-export, zoals `Desktop/video`.)
   Klik op een koe voor haar sprongen: wanneer, welke camera, door of op welke koe, met de
   foto's, **Video** (de video van de melding) en **Hele beeld**. Bij een koe onder
   **Koeien** staan haar sprongen ook.
@@ -533,7 +535,25 @@ Elke gebeurtenis krijgt een eigen map met de video (`video.mp4`), het beeld met 
 (`best.jpg`), het beeld zonder kaders (`clean.jpg`) en `metadata.json`. De mapnaam is
 de tijd plus de camera, bijvoorbeeld `2026-09-27T03-12-00 Stal Rechts Voorin`.
 
-Bekijk ze af en toe met het reviewprogramma (vanaf v0.8.0). De detector mag daarbij gewoon blijven
+Het makkelijkst beoordeel je ze op de [web-interface](#web-interface), op de pagina
+**Twijfel**: per geval de video, hoe zeker YOLO was en hoe lang het duurde, met **Goed**,
+**Fout** en **Weet niet**. Goed en Fout komen direct in `data/good` en `data/bad` (naast de
+twijfel-map), klaar voor de volgende training; **Keuze wissen** maakt een keuze ongedaan. Het
+is hetzelfde als het reviewprogramma hieronder, en wat je op de een kiest, zie je op de ander.
+
+Zet daarvoor in `config.json` een schijf-export met `review` en `review_confidence` bij `yolo`:
+
+```json
+"yolo": { "confidence": 0.8, "review_confidence": 0.7, "...": "..." },
+"exporters": {
+	"disk": [
+		{ "directory": "/Users/cowcatcher/Desktop/video" },
+		{ "directory": "/Users/cowcatcher/Desktop/data/twijfel", "review": true }
+	]
+}
+```
+
+Of bekijk ze met het reviewprogramma (vanaf v0.8.0). De detector mag daarbij gewoon blijven
 draaien:
 
 ```bash

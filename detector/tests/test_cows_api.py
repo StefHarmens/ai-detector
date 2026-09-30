@@ -21,7 +21,8 @@ def telegram(monkeypatch):
 def api(monkeypatch):
     services: dict = {}
     monkeypatch.setattr(service_module, "_cow_services", services)
-    server = CowApi(ApiConfig(port=0))
+    doubts = []
+    server = CowApi(ApiConfig(port=0), doubts)
     server.start()
     assert server.server is not None
     port = server.server.server_address[1]
@@ -43,6 +44,7 @@ def api(monkeypatch):
             return error.code, json.loads(error.read())
 
     call.services = services
+    call.doubts = doubts
     yield call
     server.stop()
 
@@ -298,3 +300,62 @@ def test_the_mounts_of_one_cow(tmp_path, api, telegram):
     body = api("GET", f"sprongen?filter=alles&koe={BERTHA}")[1]
 
     assert [item["id"] for item in body["items"]] == [first.id]
+
+
+def make_doubt(folder, name: str, confidence: float = 0.74) -> None:
+    event = folder / name
+    event.mkdir(parents=True)
+    (event / "clean.jpg").write_bytes(b"\xff\xd8clean")
+    (event / "best.jpg").write_bytes(b"\xff\xd8best")
+    (event / "video.mp4").write_bytes(b"mp4")
+    (event / "metadata.json").write_text(
+        json.dumps({"confidence": confidence, "duration": 4.2, "camera": name[20:]})
+    )
+
+
+def test_doubtful_mounts_are_judged_like_review_feedback(tmp_path, api):
+    folder = tmp_path / "data" / "twijfel"
+    make_doubt(folder, "2026-09-30T09-07-00 Stal Rechts Voorin")
+    make_doubt(folder, "2026-09-30T10-12-30 Camera kleine stal", 0.71)
+    api.doubts.append(folder)
+
+    status, body = api("GET", "twijfel")
+    assert status == 200
+    assert [item["name"] for item in body["items"]] == [
+        "2026-09-30T10-12-30 Camera kleine stal",
+        "2026-09-30T09-07-00 Stal Rechts Voorin",
+    ]
+    assert body["items"][0]["date"] == "2026-09-30T10:12:30"
+    assert body["items"][0]["camera"] == "Camera kleine stal"
+    assert body["counts"] == {"open": 2, "good": 0, "bad": 0, "skip": 0}
+
+    name = "2026-09-30T09-07-00 Stal Rechts Voorin"
+    assert api("GET", f"twijfel/0/{name.replace(' ', '%20')}/best.jpg") == (200, b"\xff\xd8best")
+    status, body = api("POST", f"twijfel/0/{name.replace(' ', '%20')}", {"decision": "good"})
+    assert status == 200 and body["decision"] == "good"
+    assert (tmp_path / "data" / "good" / f"{name}.jpg").read_bytes() == b"\xff\xd8clean"
+    assert api("GET", "twijfel")[1]["total"] == 1
+
+    api("POST", f"twijfel/0/{name.replace(' ', '%20')}", {"decision": "bad"})
+    assert not (tmp_path / "data" / "good" / f"{name}.jpg").exists()
+    assert (tmp_path / "data" / "bad" / f"{name}.json").is_file()
+
+    api("POST", f"twijfel/0/{name.replace(' ', '%20')}", {"decision": None})
+    assert not (tmp_path / "data" / "bad" / f"{name}.jpg").exists()
+    assert api("GET", "twijfel?filter=alles")[1]["counts"]["open"] == 2
+
+
+def test_without_a_doubt_folder_the_page_says_how_to_add_one(api):
+    status, body = api("GET", "twijfel")
+    assert status == 404
+    assert '"review": true' in body["error"]
+
+
+def test_doubt_files_stay_inside_the_folder(tmp_path, api):
+    folder = tmp_path / "data" / "twijfel"
+    make_doubt(folder, "2026-09-30T09-07-00 Stal Rechts Voorin")
+    (tmp_path / "data" / "koeienlijst.xlsx").write_bytes(b"secret")
+    api.doubts.append(folder)
+
+    assert api("GET", "twijfel/0/..%2Fkoeienlijst.xlsx/clean.jpg")[0] == 404
+    assert api("GET", "twijfel/0/2026-09-30T09-07-00%20Stal%20Rechts%20Voorin/metadata.json")[0] == 404

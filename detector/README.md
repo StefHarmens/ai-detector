@@ -264,11 +264,11 @@ Historical events should be reviewed before training, even when their metadata s
 ```bash
 cd "/Users/cowcatcher/Desktop/CowCatcher - Custom/ai-detector"
 docker compose build aidetector
-docker compose run --rm -p 8765:8765 aidetector review-feedback \
+docker compose run --rm -p 8766:8766 aidetector review-feedback \
   --source /data/import --data-root /data --host 0.0.0.0 --no-browser
 ```
 
-Open [http://localhost:8765](http://localhost:8765). Review the video and clean frame,
+Open [http://localhost:8766](http://localhost:8766). Review the video and clean frame,
 then choose **Good**, **Bad**, or **Skip**. The keyboard shortcuts are `G`, `B`, and `S`.
 Progress is stored in `example/import/.review-decisions.json`, so stopping and running
 the command again resumes the review. **Undo** removes the last generated training files
@@ -504,7 +504,7 @@ the Telegram photo is updated).
 | Field  | Default       | Description |
 | :----- | :------------ | :---------- |
 | `host` | `"127.0.0.1"` | Keep it on this computer: the web interface runs next to the detector and serves the page on the network itself. The API has no password. |
-| `port` | `8765`        | Set `DETECTOR_API_URL` (e.g. `http://127.0.0.1:8766`) for the web interface when you change it. |
+| `port` | `8765`        | Set `DETECTOR_API_URL` (e.g. `http://127.0.0.1:8767`) for the web interface when you change it. |
 
 ---
 
