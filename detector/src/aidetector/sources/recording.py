@@ -7,7 +7,7 @@ takes a few percent of a core, where decoding every 4K frame all day took one
 core per camera and still fell behind."""
 
 import logging
-import re
+import math
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -40,7 +40,8 @@ _DECODE_THREADS = 4
 _JPEG_START = b"\xff\xd8"
 _JPEG_END = b"\xff\xd9"
 _READ_SIZE = 1 << 16
-_SHOWINFO_PTS = re.compile(r"\] n:\s*\d+\s+pts:\s*(-?\d+)")
+# The stream types in the PMT, as FFmpeg's names for the bare streams.
+_STREAM_TYPES = {0x1B: "h264", 0x24: "hevc"}
 
 
 def record_command(source: str) -> list[str]:
@@ -219,7 +220,7 @@ def decode_gops(
     hwaccel: str | None,
 ) -> list[HiresFrame]:
     """The frames from start to end as JPEG, about fps per second. Each
-    connection is decoded on its own: its timestamps do not run on."""
+    connection is decoded on its own: its stream does not run on."""
     frames: list[HiresFrame] = []
     run: list[Gop] = []
     for gop in [*gops, None]:
@@ -240,14 +241,19 @@ def _decode_run(
     quality: int,
     hwaccel: str | None,
 ) -> list[HiresFrame]:
-    dates = {pts: date for gop in gops for pts, date in gop.frames if start <= date <= end}
-    if not dates:
+    # The frames in the order they are shown, which the decoder gives them in.
+    dates = sorted(date for gop in gops for _, date in gop.frames)
+    inside = [index for index, date in enumerate(dates) if start <= date <= end]
+    if not inside:
         return []
-    wanted = sorted(dates.items(), key=lambda item: item[1])
-    first_pts, first_date = wanted[0]
-    last_pts = wanted[-1][0]
+    codec = stream_codec(gops[0].tables)
+    if codec is None:
+        logger.warning("The 4K stream is neither H.264 nor HEVC and cannot be decoded")
+        return []
+    first, last = inside[0], inside[-1]
+    step = frame_step(dates, fps)
     process = subprocess.Popen(
-        decode_command(fps, max_width, quality, hwaccel, first_pts, last_pts),
+        decode_command(codec, max_width, quality, hwaccel, first, last, step),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -259,9 +265,8 @@ def _decode_run(
 
     def write() -> None:
         try:
-            stdin.write(gops[0].tables)
             for gop in gops:
-                stdin.write(gop.data)
+                stdin.write(elementary_stream(gop.data))
         except (BrokenPipeError, OSError):
             pass
         finally:
@@ -270,16 +275,12 @@ def _decode_run(
             except OSError:
                 pass
 
-    shown: list[int] = []
     errors: list[str] = []
 
     def read_errors() -> None:
         for raw in stderr:
             line = raw.decode(errors="replace").strip()
-            match = _SHOWINFO_PTS.search(line)
-            if match:
-                shown.append(int(match.group(1)))
-            elif line and "showinfo" not in line:
+            if line:
                 errors.append(line)
 
     writer = Thread(target=write, daemon=True)
@@ -301,57 +302,97 @@ def _decode_run(
         logger.warning(
             "Could not decode the 4K frames of an event (exit %s): %s",
             code,
-            " | ".join(errors[-3:]) or "no message",
+            " | ".join(errors[:3]) or "no message",
         )
         return []
-    frames = []
-    for jpeg, pts in zip(images, shown):
-        date = dates.get(pts)
-        if date is None:
-            # Not a PTS the stream had; place it by its distance to the first.
-            ticks = (pts - first_pts) % _PTS_WRAP
-            date = first_date + timedelta(seconds=ticks / _PTS_CLOCK)
-        frames.append(HiresFrame(date, jpeg))
-    return frames
+    # The n-th image is the n-th frame selected. Should the decoder skip a
+    # damaged frame, the times after it are one frame (some 40 ms) off.
+    shown = range(first, last + 1, step)
+    return [HiresFrame(dates[index], jpeg) for index, jpeg in zip(shown, images)]
+
+
+def frame_step(dates: list[datetime], fps: float) -> int:
+    """Every how many frames of the camera one is taken for about fps per
+    second. A bit more than fps, else a 25 fps camera gives every third
+    frame for 10 fps (8.3 per second) instead of every second."""
+    gaps = sorted(
+        (later - earlier).total_seconds() for earlier, later in zip(dates, dates[1:])
+    )
+    interval = gaps[len(gaps) // 2] if gaps else 0
+    if interval <= 0:
+        return 1
+    return max(1, math.ceil(0.75 / fps / interval - 1e-9))
+
+
+def stream_codec(tables: bytes) -> str | None:
+    """The codec of the video, from the stream type in the PMT."""
+    for offset in range(0, len(tables) - PACKET + 1, PACKET):
+        packet = tables[offset : offset + PACKET]
+        if ((packet[1] & 0x1F) << 8 | packet[2]) != PMT_PID or not packet[1] & 0x40:
+            continue
+        try:
+            start = 4 + (1 + packet[4] if (packet[3] >> 4) & 2 else 0)
+            section = packet[start + 1 + packet[start] :]
+            info = ((section[10] & 0x0F) << 8) | section[11]
+            return _STREAM_TYPES.get(section[12 + info])
+        except IndexError:
+            return None
+    return None
+
+
+def elementary_stream(data: bytes | bytearray) -> bytes:
+    """The video itself from MPEG-TS packets: their payload without the
+    packet and PES headers. The static Linux build of FFmpeg that
+    imageio-ffmpeg ships (7.0.2) crashes on any MPEG-TS it reads, while a
+    bare H.264 or HEVC stream decodes everywhere."""
+    view = memoryview(data)
+    parts = []
+    for offset in range(0, len(view) - PACKET + 1, PACKET):
+        packet = view[offset : offset + PACKET]
+        if ((packet[1] & 0x1F) << 8 | packet[2]) != VIDEO_PID:
+            continue
+        control = (packet[3] >> 4) & 3
+        if not control & 1:
+            continue
+        start = 4 + (1 + packet[4] if control & 2 else 0)
+        if packet[1] & 0x40:
+            if start + 9 > PACKET or packet[start : start + 3] != b"\x00\x00\x01":
+                continue
+            start += 9 + packet[start + 8]
+        if start < PACKET:
+            parts.append(packet[start:])
+    return b"".join(parts)
 
 
 def decode_command(
-    fps: float,
+    codec: str,
     max_width: int | None,
     quality: int,
     hwaccel: str | None,
-    first_pts: int,
-    last_pts: int,
+    first: int,
+    last: int,
+    step: int,
 ) -> list[str]:
-    command = [get_ffmpeg_exe(), "-hide_banner", "-nostats", "-loglevel", "info"]
+    command = [get_ffmpeg_exe(), "-hide_banner", "-nostats", "-loglevel", "warning"]
     if hwaccel:
         command += ["-hwaccel", hwaccel]
     # FFmpeg's qscale 2 (best) to 31 (worst), mapped from a JPEG quality.
     qscale = max(2, min(31, round(31 - (quality / 100) * 29)))
-    # Only the frames of the event, though decoding starts at the keyframe
-    # before it; when the PTS wrapped in between, the event is short of a
-    # day long anyway and all decoded frames are taken.
-    span = f"between(pts\\,{first_pts}\\,{last_pts})" if first_pts <= last_pts else "1"
-    # About fps frames per second. The gap is a bit shorter than 1/fps, else
-    # a 25 fps camera gives every third frame for 10 fps (8.3 per second).
-    gap = f"isnan(prev_selected_t)+gte(t-prev_selected_t\\,{0.75 / fps:g})"
     width = f"'min(iw\\,{max_width})'" if max_width else "iw"
     filters = [
-        f"select='{span}*({gap})'",
+        # Only the frames of the event, though decoding starts at the
+        # keyframe before it, and every step-th of those.
+        f"select='between(n\\,{first}\\,{last})*not(mod(n-{first}\\,{step}))'",
         # One fixed format for the JPEG encoder, in the full colour range
         # that JPEG uses: the hardware decoder gives another one.
         f"scale={width}:-2:out_range=full",
         "format=yuv420p",
-        # The PTS of each frame written, to give it its time.
-        "showinfo",
     ]
     return command + [
         "-threads",
         str(_DECODE_THREADS),
-        # The PTS as the stream has them, which the GOPs know the times of.
-        "-copyts",
         "-f",
-        "mpegts",
+        codec,
         "-i",
         "pipe:0",
         "-an",

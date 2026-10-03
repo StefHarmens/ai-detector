@@ -9,17 +9,20 @@ from aidetector.sources.recording import (
     TsSplitter,
     decode_command,
     decode_gops,
+    frame_step,
     gops_between,
     record_command,
+    stream_codec,
 )
 
 START = datetime(2026, 10, 3, 18, 0, 0)
 
 
 def camera(tmp_path, codec: str = "libx264", seconds: float = 4, size: str = "640x360"):
-    """A video like a camera's: 25 fps and a keyframe every second, in
-    MPEG-TS, which holds its parameter sets as an RTSP stream does."""
-    video = tmp_path / f"camera-{codec}.ts"
+    """A video like a camera's: 25 fps and a keyframe every second, as a
+    bare stream, which holds its parameter sets as an RTSP stream does (and
+    which, unlike MPEG-TS, the Linux build of FFmpeg can read)."""
+    video = tmp_path / ("camera.hevc" if codec == "libx265" else "camera.h264")
     options = ["-preset", "ultrafast"]
     if codec == "libx265":
         options += ["-x265-params", "log-level=none"]
@@ -166,9 +169,31 @@ def test_recording_copies_the_stream_without_decoding_it():
 
 
 def test_decoding_uses_the_hardware_and_one_fixed_format():
-    command = decode_command(10, 3840, 85, "auto", 1000, 9000)
+    command = decode_command("hevc", 3840, 85, "auto", 30, 300, 2)
 
     assert command[command.index("-hwaccel") + 1] == "auto"
+    # The bare stream, not MPEG-TS, which the Linux build cannot read.
+    assert command[command.index("-i") - 1] == "hevc"
     filters = command[command.index("-vf") + 1]
-    assert "between(pts\\,1000\\,9000)" in filters
-    assert ":out_range=full,format=yuv420p,showinfo" in filters
+    assert "between(n\\,30\\,300)*not(mod(n-30\\,2))" in filters
+    assert filters.endswith(":out_range=full,format=yuv420p")
+
+
+@pytest.mark.parametrize(("codec", "name"), [("libx264", "h264"), ("libx265", "hevc")])
+def test_the_codec_is_read_from_the_stream(tmp_path, codec, name):
+    gops = split(recorded(camera(tmp_path, codec, seconds=1)))
+
+    assert stream_codec(gops[0].tables) == name
+
+
+def test_about_fps_frames_per_second_are_taken():
+    def camera_dates(fps: float) -> list[datetime]:
+        return [START + timedelta(seconds=n / fps) for n in range(50)]
+
+    # A 25 fps camera: every second frame for 10, all for 25.
+    assert frame_step(camera_dates(25), 10) == 2
+    assert frame_step(camera_dates(25), 25) == 1
+    assert frame_step(camera_dates(25), 4) == 5
+    assert frame_step(camera_dates(30), 10) == 3
+    assert frame_step(camera_dates(30), 25) == 1
+    assert frame_step(camera_dates(25)[:1], 10) == 1

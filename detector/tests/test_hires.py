@@ -184,7 +184,7 @@ def test_split_jpegs_keeps_an_incomplete_image_for_the_next_read():
 
 def camera(tmp_path, seconds: float = 1.6, size: str = "640x360"):
     """A short camera stream: 25 fps, a keyframe every 0.4 s."""
-    video = tmp_path / "camera.ts"
+    video = tmp_path / "camera.h264"
     subprocess.run(
         [
             get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
