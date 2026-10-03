@@ -108,6 +108,36 @@ def test_buffer_reads_frames_from_ffmpeg(tmp_path):
     assert buffer.frames[0].jpg.shape == (360, 640, 3)
 
 
+def test_buffer_keeps_about_fps_frames_per_second(tmp_path):
+    video = tmp_path / "barn-25fps.mp4"
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc=size=640x360:rate=25:duration=2", "-pix_fmt", "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+    buffer = HiresBuffer(
+        str(video), HiresConfig(source=str(video), fps=10, hwaccel=None, keyframes_only=False)
+    )
+
+    buffer._read()
+
+    # Every second frame of the 25 fps camera, not every third (8.3 per second).
+    assert 20 <= len(buffer.frames) <= 26
+
+
+def test_jpeg_encoder_uses_one_thread():
+    buffer = HiresBuffer("rtsps://nvr/key", HiresConfig(source="rtsps://nvr/key"))
+
+    command = buffer.command()
+
+    # Each encoder thread holds 4K frames: a gigabyte per camera otherwise.
+    encoder = command.index("mjpeg")
+    assert command[encoder + 1 : encoder + 3] == ["-threads", "1"]
+
+
 def test_keyframes_only_and_at_most_max_width(tmp_path):
     video = tmp_path / "barn-4k.mp4"
     # A keyframe every 0.5 s, like a camera with a short keyframe interval.

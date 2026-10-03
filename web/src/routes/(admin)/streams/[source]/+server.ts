@@ -17,13 +17,13 @@ const FORCE_KILL_DELAY_MS = 2_000;
 const MAX_STDERR_TAIL_LENGTH = 4_000;
 
 // The grid shows small previews; ?kwaliteit=4k shows one camera at full size,
-// so the numbers on the cows can be read. Fewer frames keep the Mac mini free.
-const PREVIEW_ARGS = ['-vf', 'fps=8,scale=960:-1:flags=lanczos', '-q:v', '7'];
+// so the numbers on the cows can be read.
+const PREVIEW_ARGS = ['-vf', 'fps=12,scale=960:-1:flags=lanczos', '-q:v', '7'];
 const FULL_ARGS = [
 	'-vf',
 	// One fixed format in the full colour range JPEG uses: the UniFi High
 	// stream otherwise made the encoder fail with "Invalid argument".
-	'fps=5,scale=iw:-2:out_range=full,format=yuv420p',
+	'fps=10,scale=iw:-2:out_range=full,format=yuv420p',
 	'-color_range',
 	'pc',
 	'-strict',
@@ -31,6 +31,11 @@ const FULL_ARGS = [
 	'-q:v',
 	'3'
 ];
+
+// Decoding on the Mac's media engine instead of the CPU; FFmpeg decodes in
+// software by itself when that fails. A 4K view went from half a CPU core to
+// a fifth with it.
+const DECODER_ARGS = process.platform === 'darwin' ? ['-hwaccel', 'videotoolbox'] : [];
 
 type Timeout = ReturnType<typeof setTimeout>;
 
@@ -128,6 +133,7 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal, f
 					'-loglevel',
 					'error',
 					'-nostdin',
+					...DECODER_ARGS,
 					...getRtspInputArgs(source),
 					'-map',
 					'0:v:0',
@@ -136,6 +142,10 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal, f
 					'-dn',
 					'-c:v',
 					'mjpeg',
+					// The encoder starts a thread per CPU core that each hold a
+					// frame: 1.6 GB for one 4K view, against 0.35 GB with one.
+					'-threads',
+					'1',
 					...(full ? FULL_ARGS : PREVIEW_ARGS),
 					'-f',
 					'mpjpeg',

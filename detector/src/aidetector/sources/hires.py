@@ -118,11 +118,13 @@ class HiresBuffer:
             command += ["-skip_frame", "nokey"]
         # FFmpeg's qscale 2 (best) to 31 (worst), mapped from a JPEG quality.
         qscale = max(2, min(31, round(31 - (self.config.quality / 100) * 29)))
-        # At most one frame per 1/fps seconds, for keyframes and all frames
-        # alike: the fps filter adds duplicates when frames come less often,
-        # and on the farm decoding all frames failed with it while this worked.
+        # About fps frames per second, for keyframes and all frames alike: the
+        # fps filter adds duplicates when frames come less often, and on the
+        # farm decoding all frames failed with it while this worked. The gap
+        # is a bit shorter than 1/fps, else a 25 fps camera gives every third
+        # frame for 10 fps (8.3 per second) and every seventh for 4 (3.6).
         filters = [
-            f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{1 / self.config.fps:g})'"
+            f"select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{0.75 / self.config.fps:g})'"
         ]
         width = f"'min(iw\\,{self.config.max_width})'" if self.config.max_width else "iw"
         # One fixed format for the JPEG encoder, in the full colour range that
@@ -141,6 +143,11 @@ class HiresBuffer:
             "vfr",
             "-c:v",
             "mjpeg",
+            # The JPEG encoder starts a thread per CPU core and each holds 4K
+            # frames: about 1 GB per camera, against 0.3 GB with one thread,
+            # which still keeps up with 12 frames per second.
+            "-threads",
+            "1",
             "-color_range",
             "pc",
             # Also accept a limited-range picture, should one slip through.

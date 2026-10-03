@@ -568,7 +568,7 @@
           "title": "Source"
         },
         "fps": {
-          "default": 4,
+          "default": 10,
           "title": "Fps",
           "type": "number"
         },

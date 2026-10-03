@@ -130,7 +130,8 @@ twice and detection slows down a lot. When an event is exported, the frames from
 (`hires.jpg`, plus `hires-best.jpg`: the whole 4K frame with the boxes, shown on the
 web page's Detections) use them, and `telegram.cows` uses the frames from before the
 jump to tell the two cows apart. FFmpeg decodes with `hwaccel` (VideoToolbox on a Mac);
-each 4K stream takes about 350 MB of memory and a few percent of one CPU core.
+each 4K stream takes about 300 MB of memory and a quarter of one CPU core at 10 fps, most
+of it for the JPEG encoding.
 
 Telegram refuses photos over 10 MB and shows them at most 2560 px on the long side, so
 every photo sent to Telegram is scaled to 2560 px and compressed below 9.5 MB. The cow
@@ -145,7 +146,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | Field            | Default      | Description |
 | :--------------- | :----------- | :---------- |
 | `source`         |              | One stream per `detection.source`, in the same order; `null` for a camera without one. Leave out to keep the frames of `detection.source` itself. |
-| `fps`            | `4`          | Frames per second to keep. The event videos (disk, Telegram, web page) are made from these 4K frames; each is about 1 MB of memory. Recognition uses one per second. |
+| `fps`            | `10`         | Frames per second to keep, about: a 25 fps camera gives every second frame (12.5 per second). The event videos (disk, Telegram, web page) are made from these 4K frames; each is about 0.6 MB of memory. Recognition uses one per second. |
 | `seconds`        | `12`         | How long frames are kept outside a mount; must cover `before_seconds`. From the start of a mount its frames are held until it is handled, however long it lasts (at most 3 minutes). |
 | `before_seconds` | `10`         | How far before the event the frames start. |
 | `quality`        | `85`         | JPEG quality of the kept frames. |
