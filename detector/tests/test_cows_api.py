@@ -55,7 +55,7 @@ def register(api, service):
 
 
 def test_without_cows_the_page_says_how_to_turn_them_on(api):
-    assert api("GET", "status") == (200, {"cows": False, "chats": []})
+    assert api("GET", "status") == (200, {"cows": False, "chats": [], "version": "main"})
     status, body = api("GET", "sprongen")
     assert status == 503
     assert '"cows": {}' in body["error"]
@@ -372,3 +372,15 @@ def test_doubt_files_stay_inside_the_folder(tmp_path, api):
 
     assert api("GET", "twijfel/0/..%2Fkoeienlijst.xlsx/clean.jpg")[0] == 404
     assert api("GET", "twijfel/0/2026-09-30T09-07-00%20Stal%20Rechts%20Voorin/metadata.json")[0] == 404
+
+
+@pytest.mark.parametrize(
+    ("ref_name", "expected"),
+    [("detector/v0.9.0", "v0.9.0"), ("main", "main"), ("feat/versions", "feat-versions")],
+)
+def test_version_is_the_release_tag_without_prefix(monkeypatch, ref_name, expected):
+    from aidetector.cows import api as api_module
+
+    monkeypatch.setattr(api_module, "REF_NAME", ref_name)
+
+    assert api_module.version() == expected

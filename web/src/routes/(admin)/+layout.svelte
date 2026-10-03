@@ -5,7 +5,6 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { resolve } from '$app/paths';
 	import logo from '$lib/assets/logo.svg';
-	import { version } from '$lib/version';
 	import TVIcon from '@lucide/svelte/icons/tv';
 	import CameraIcon from '@lucide/svelte/icons/camera';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
@@ -94,13 +93,7 @@
 </script>
 
 <Sidebar.Provider>
-	<AppSidebar
-		title="CowCatcher"
-		subtitle="voor melkveehouderij Hoentjen"
-		{version}
-		{menu}
-		{secondaryMenu}
-	/>
+	<AppSidebar title="CowCatcher" subtitle="voor melkveehouderij Hoentjen" {menu} {secondaryMenu} />
 	<Sidebar.Inset>
 		<header class="flex h-16 shrink-0 items-center gap-2">
 			<div class="flex items-center gap-2 px-4">

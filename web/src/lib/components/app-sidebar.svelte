@@ -5,12 +5,12 @@
 	import logo from '$lib/assets/logo.svg';
 	import type { ComponentProps } from 'svelte';
 	import NavMain from './nav-main.svelte';
+	import VersionInfo from './version-info.svelte';
 	import type { NavMenu, NavItem } from './types';
 
 	let {
 		title,
 		subtitle,
-		version,
 		user,
 		menu,
 		secondaryMenu,
@@ -19,7 +19,6 @@
 	}: {
 		title: string;
 		subtitle: string;
-		version?: string;
 		menu: NavMenu[];
 		secondaryMenu?: NavMenu[];
 		user?: {
@@ -48,9 +47,6 @@
 							<div class="grid flex-1 gap-0.5 text-start text-sm leading-tight">
 								<span class="truncate text-base font-semibold">{title}</span>
 								<span class="text-xs leading-snug">{subtitle}</span>
-								{#if version}
-									<span class="truncate text-xs text-sidebar-foreground/60">{version}</span>
-								{/if}
 							</div>
 						</a>
 					{/snippet}
@@ -66,9 +62,10 @@
 			<NavMain title={item.title} items={item.items} size="sm" class="mt-auto" />
 		{/each}
 	</Sidebar.Content>
-	{#if user}
-		<Sidebar.Footer>
+	<Sidebar.Footer>
+		<VersionInfo />
+		{#if user}
 			<NavUser {user} items={user.items} logout={user.logout} />
-		</Sidebar.Footer>
-	{/if}
+		{/if}
+	</Sidebar.Footer>
 </Sidebar.Root>
