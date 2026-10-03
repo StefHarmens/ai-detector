@@ -56,7 +56,9 @@ gaat mee met elke detector-release.
 ~/CowCatcher/updater/cowcatcher.sh uninstall         # services weg, bestanden blijven
 ```
 
-De logs staan in `~/Library/Logs/CowCatcher/`. Opnieuw `install` draaien kan altijd, bijvoorbeeld
+De logs staan in `~/Library/Logs/CowCatcher/`; de waarschuwingen, fouten en updates daaruit zie je
+ook op de pagina **Logboek** van de [web-interface](#web-interface), met camerasleutels en tokens
+onleesbaar. Opnieuw `install` draaien kan altijd, bijvoorbeeld
 om de poort te wijzigen (`--port 8080`) of van kanaal te wisselen (`--stable`).
 
 ## Mac mini-indeling

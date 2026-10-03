@@ -14,6 +14,7 @@
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import MilkIcon from '@lucide/svelte/icons/milk';
 	import CircleHelpIcon from '@lucide/svelte/icons/circle-question-mark';
+	import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
 
 	let { children } = $props();
 
@@ -40,6 +41,11 @@
 					title: 'Streams',
 					url: '/streams',
 					icon: TVIcon
+				},
+				{
+					title: 'Logboek',
+					url: '/logboek',
+					icon: ScrollTextIcon
 				}
 			]
 		},
