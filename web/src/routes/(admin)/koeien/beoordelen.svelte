@@ -74,7 +74,15 @@
 		camera;
 		void load(true);
 	});
+
+	// Back from Telegram, where a mount may have been marked Fout or filled
+	// in: show the list as it is now.
+	function visible() {
+		if (document.visibilityState === 'visible' && !loading) void load(true);
+	}
 </script>
+
+<svelte:document onvisibilitychange={visible} />
 
 <datalist id={cowListId}>
 	{#each cows as cow (cow.life_number)}

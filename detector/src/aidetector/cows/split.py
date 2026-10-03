@@ -3,6 +3,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from threading import Lock
 
 import numpy as np
 from numpy import ndarray
@@ -337,6 +338,8 @@ def yolo_cow_detector(
     from ultralytics import YOLO
 
     model = YOLO(model_path)
+    # The chats share the model, and predict() is not thread-safe.
+    lock = Lock()
     names = model.names if isinstance(model.names, dict) else dict(enumerate(model.names))
     cow_classes = [int(key) for key, name in names.items() if str(name) == "cow"]
     if not cow_classes:
@@ -344,14 +347,15 @@ def yolo_cow_detector(
 
     def detect(image: ndarray) -> list[Detected]:
         height, width = image.shape[:2]
-        result = model.predict(
-            image,
-            classes=cow_classes,
-            conf=confidence,
-            verbose=False,
-            # Masks at the size of the image, not of the model input.
-            retina_masks=True,
-        )[0]
+        with lock:
+            result = model.predict(
+                image,
+                classes=cow_classes,
+                conf=confidence,
+                verbose=False,
+                # Masks at the size of the image, not of the model input.
+                retina_masks=True,
+            )[0]
         if result.boxes is None:
             return []
         # Tensor and ndarray both copy to plain floats with tolist().

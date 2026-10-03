@@ -50,10 +50,22 @@ def _services() -> list[CowService]:
     return services
 
 
+def _mount_services() -> list[CowService]:
+    """One service per folder of cows: chats that share a folder share its
+    mounts, which would otherwise be listed and counted twice."""
+    seen: set[int] = set()
+    services = []
+    for service in _services():
+        if id(service.mounts) not in seen:
+            seen.add(id(service.mounts))
+            services.append(service)
+    return services
+
+
 def _find(sighting_id: str) -> tuple[CowService, Sighting]:
     if not _SIGHTING_ID.match(sighting_id):
         raise ApiError(HTTPStatus.NOT_FOUND, "Deze sprong bestaat niet.")
-    for service in _services():
+    for service in _mount_services():
         with service.lock:
             sighting = service.sightings.get(sighting_id)
         if sighting is not None:
@@ -140,7 +152,7 @@ def list_sightings(query: dict[str, str]) -> dict[str, Any]:
     found: list[tuple[CowService, Sighting]] = []
     cameras: set[str] = set()
     open_count = 0
-    for service in _services():
+    for service in _mount_services():
         with service.lock:
             sightings = list(service.sightings.values())
         for sighting in sightings:
@@ -266,6 +278,7 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
     registry = service.registry
     action = body.get("action")
     name = (str(body.get("name") or "").strip()) or None
+    work_number = (str(body.get("work_number") or "").strip()) or None
     try:
         if action == "weg":
             life_number = _life_number(str(body.get("life_number") or ""))
@@ -278,7 +291,7 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
         life_number = _life_number(str(body.get("life_number") or ""))
         if action == "toevoegen":
             try:
-                registry.add(number, life_number, name)
+                registry.add(number, life_number, name, work_number=work_number)
             except NumberTaken as error:
                 raise ApiError(
                     HTTPStatus.CONFLICT,
@@ -290,7 +303,7 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
             before = registry.cow_with_number(number)
             old_label = registry.label(before) if before else None
             old_left = bool(body.get("old_left"))
-            old = registry.switch(number, life_number, old_left, name)
+            old = registry.switch(number, life_number, old_left, name, work_number=work_number)
             message = f"Nummer {number} is nu {registry.label(life_number)} · {life_number}."
             if old and old_left:
                 message += f" {old_label} is gearchiveerd."
@@ -309,10 +322,10 @@ def overview(query: dict[str, str]) -> dict[str, Any]:
     mounts = 0
     unknown = 0
     per_cow: dict[str, dict[str, Any]] = {}
-    services = _services()
+    services = _mount_services()
     registry = services[0].registry
     for service in services:
-        count, counts, labels, missing = service.overview_counts(start, end)
+        count, counts, labels, missing = service.overview_counts(start, end, every_chat=True)
         mounts += count
         unknown += missing
         for cow, (mounted, mounting) in counts.items():

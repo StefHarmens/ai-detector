@@ -29,6 +29,7 @@
 
 	let number = $state('');
 	let lifeNumber = $state('');
+	let workNumber = $state('');
 	let name = $state('');
 	// Set when the number belongs to another cow: then the farmer chooses.
 	let conflict = $state<string | null>(null);
@@ -107,11 +108,12 @@
 				action,
 				number,
 				life_number: lifeNumber,
+				work_number: workNumber,
 				name,
 				old_left: oldLeft
 			});
 			toast.success(result.message);
-			number = lifeNumber = name = '';
+			number = lifeNumber = workNumber = name = '';
 			conflict = null;
 			onreload();
 		} catch (err) {
@@ -234,6 +236,15 @@
 				<div class="grid gap-1.5">
 					<Label for="koe-levensnummer">Levensnummer</Label>
 					<Input id="koe-levensnummer" bind:value={lifeNumber} required placeholder="NL123456789" />
+				</div>
+				<div class="grid gap-1.5">
+					<Label for="koe-werknummer">Werknummer (mag leeg)</Label>
+					<Input
+						id="koe-werknummer"
+						bind:value={workNumber}
+						inputmode="numeric"
+						placeholder="5101"
+					/>
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="koe-naam">Naam (mag leeg)</Label>

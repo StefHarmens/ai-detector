@@ -146,7 +146,7 @@ folders and `hires.jpg` on disk keep the full 4K detail.
 | :--------------- | :----------- | :---------- |
 | `source`         |              | One stream per `detection.source`, in the same order; `null` for a camera without one. Leave out to keep the frames of `detection.source` itself. |
 | `fps`            | `4`          | Frames per second to keep. The event videos (disk, Telegram, web page) are made from these 4K frames; each is about 1 MB of memory. Recognition uses one per second. |
-| `seconds`        | `20`         | How long frames are kept outside a mount; must cover `before_seconds`. From the start of a mount its frames are held until it is handled, however long it lasts (at most 3 minutes). |
+| `seconds`        | `12`         | How long frames are kept outside a mount; must cover `before_seconds`. From the start of a mount its frames are held until it is handled, however long it lasts (at most 3 minutes). |
 | `before_seconds` | `10`         | How far before the event the frames start. |
 | `quality`        | `85`         | JPEG quality of the kept frames. |
 | `hwaccel`        | `"auto"`     | FFmpeg hardware decoding; `null` to decode on the CPU. A stream that gives no frame at all is read without it next time, and then with keyframes only again; the log says so. |
@@ -415,8 +415,12 @@ for a heifer without a collar her Diernr (ear tag) or work number; answers may a
 name (`Anna 12`). When a heifer gets a collar, `/koe 31 <life number>` gives her the new
 number and she keeps her history. The CSV import takes, per row, the collar number, else the
 Diernr, else the work number. Detectors whose `telegram.cows` use the same folder (e.g. a heifer
-camera in its own chat) share one register; each chat counts its own mounts. `koeien.json` stores which number each cow had when, so history
-stays with the right cow.
+camera in its own chat) share one register and one list of mounts; each chat counts the
+mounts it got. A mount sent to two chats is split and recognised once: both chats get the
+photo, an answer in one shows in the other, and Fout in either takes it off the web page.
+The per-chat files of earlier versions (`sprongen-<chat>.jsonl`) are merged into
+`sprongen.jsonl` on start and kept as `.oud`. `koeien.json` stores which number each cow had
+when, so history stays with the right cow.
 
 ```text
 <feedback_directory>/koeien/

@@ -20,6 +20,7 @@ from aidetector.cows.answers import Answer, parse_answers
 from aidetector.cows.importer import EXCEL_SUFFIXES, SyncResult, import_cows, sync_herd
 from aidetector.cows.photos import control_image, side_by_side
 from aidetector.cows.registry import (
+    CowRegistry,
     NumberTaken,
     get_registry,
     normalize_life_number,
@@ -37,8 +38,11 @@ from aidetector.media.video import get_image, telegram_photo
 from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import CowsConfig, Detection
 
-# One file of mounts per chat: each chat's overview counts its own camera(s).
-SIGHTINGS_FILE = "sprongen-{chat}.jsonl"
+# One file of mounts per folder of cows: chats that share the folder share
+# the mounts, so a mount sent to two chats is split and filled in once.
+SIGHTINGS_FILE = "sprongen.jsonl"
+# Before: one file per chat. Read once, merged, and kept as .oud.
+OLD_SIGHTINGS_FILES = "sprongen-*.jsonl"
 CROPS_FOLDER = ".meldingen"
 FRAMES_FOLDER = "beelden"
 VIDEO_FILE = "video.mp4"
@@ -87,15 +91,28 @@ COMMANDS = [
 
 
 @dataclass
+class ChatLink:
+    """What one chat has of a mount: its alert, the cow photo and the open
+    question for typed numbers."""
+
+    alert: int | None = None
+    event: str | None = None
+    feedback: str | None = None
+    message: int | None = None
+    # The open question for typed numbers, so answers work after a restart.
+    prompt: int | None = None
+
+
+_LINK_FIELDS = tuple(item.name for item in fields(ChatLink))
+
+
+@dataclass
 class Sighting:
     """The two cows of one mount, as recognised or as the farmer told."""
 
     id: str
     date: str
     camera: str
-    event: str | None = None
-    feedback: str | None = None
-    alert: int | None = None
     # False when the two cows could not be told apart: the photos then show
     # the jump and never go into a cow folder, and slot 0 is the mounter.
     split: bool = True
@@ -107,27 +124,139 @@ class Sighting:
     candidates: list[list[tuple[str, float]]] = field(default_factory=lambda: [[], []])
     # The farmer said the photo does not show one cow of the mount.
     bad_photo: list[bool] = field(default_factory=lambda: [False, False])
-    message: int | None = None
-    # The open question for typed numbers, so answers work after a restart.
-    prompt: int | None = None
     false: bool = False
     # The farmer said the two photos are not the two cows of the mount: they
     # never go into a cow folder, but the cows can still be filled in.
     split_wrong: bool = False
+    # Per chat that got the mount.
+    chats: dict[str, ChatLink] = field(default_factory=dict)
 
     @property
     def when(self) -> datetime:
         return datetime.fromisoformat(self.date)
 
+    @property
+    def key(self) -> tuple[str, str]:
+        """The same mount sent to two chats has the same camera and start."""
+        return (self.camera, self.date)
+
+    def feedbacks(self) -> list[str]:
+        return [link.feedback for link in self.chats.values() if link.feedback]
+
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Sighting":
+    def from_dict(cls, data: dict[str, Any], chat: str | None = None) -> "Sighting":
+        """Reads a stored mount; one from the old file of a chat has that
+        chat's alert and photo on the mount itself."""
         known = {item.name for item in fields(cls)}
+        if "chats" in data:
+            chats = {
+                str(name): ChatLink(**{key: value for key, value in link.items() if key in _LINK_FIELDS})
+                for name, link in data["chats"].items()
+            }
+        else:
+            chats = {} if chat is None else {chat: ChatLink(**{key: data.get(key) for key in _LINK_FIELDS})}
         data = {key: value for key, value in data.items() if key in known}
+        data["chats"] = chats
         data["candidates"] = [
             [(str(cow), float(score)) for cow, score in slot]
             for slot in data.get("candidates", [[], []])
         ]
         return cls(**data)
+
+
+def _filled(sighting: Sighting) -> int:
+    return sum(how == "boer" for how in sighting.how) + sighting.false
+
+
+class Mounts:
+    """The mounts of one folder of cows, shared by the chats that use it."""
+
+    logger = logging.getLogger("CowService")
+
+    def __init__(self, directory: Path):
+        self.directory = directory
+        self.path = directory / SIGHTINGS_FILE
+        self.lock = RLock()
+        # One mount at a time: the second chat waits and finds it split.
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cows")
+        self.services: dict[str, "CowService"] = {}
+        # Goed/Fout tapped before the cows of the mount were recognised.
+        self.early_feedback: dict[str, str] = {}
+        self.sightings = self._load()
+        # (chat, message ID of a cow photo or a number question) → its mount.
+        self.replies: dict[tuple[str, int], str] = {
+            (chat, message): sighting.id
+            for sighting in self.sightings.values()
+            for chat, link in sighting.chats.items()
+            for message in (link.message, link.prompt)
+            if message is not None
+        }
+
+    def unlinked(self, key: tuple[str, str], chat: str) -> Sighting | None:
+        """The mount another chat already got, which this chat gets now."""
+        for sighting in reversed(list(self.sightings.values())):
+            if sighting.key == key and chat not in sighting.chats:
+                return sighting
+        return None
+
+    def store(self, sighting: Sighting) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a") as file:
+            file.write(json.dumps(asdict(sighting)) + "\n")
+
+    def _read(self, path: Path, chat: str | None) -> list[Sighting]:
+        sightings = []
+        for line in path.read_text().splitlines():
+            try:
+                sightings.append(Sighting.from_dict(json.loads(line), chat))
+            except (ValueError, KeyError, TypeError):
+                self.logger.warning("Skipping invalid cow sighting: %s", line)
+        return sightings
+
+    def _load(self) -> dict[str, Sighting]:
+        sightings: dict[str, Sighting] = {}
+        if self.path.is_file():
+            for sighting in self._read(self.path, None):
+                sightings[sighting.id] = sighting
+        old_files = sorted(self.directory.glob(OLD_SIGHTINGS_FILES)) if self.directory.is_dir() else []
+        for path in old_files:
+            chat = path.stem.removeprefix("sprongen-")
+            latest: dict[str, Sighting] = {}
+            for sighting in self._read(path, chat):
+                latest[sighting.id] = sighting
+            for sighting in latest.values():
+                self._merge(sightings, sighting)
+        if not sightings and not old_files:
+            return sightings
+        # Keep one line per sighting, the last state.
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            "".join(json.dumps(asdict(sighting)) + "\n" for sighting in sightings.values())
+        )
+        for path in old_files:
+            path.rename(path.with_name(path.name + ".oud"))
+        return dict(sorted(sightings.items(), key=lambda item: item[1].date))
+
+    @staticmethod
+    def _merge(sightings: dict[str, Sighting], new: Sighting) -> None:
+        """Before, each chat kept its own copy of a mount: one is kept, the
+        one most filled in, with the alerts of both chats."""
+        same = next(
+            (
+                sighting
+                for sighting in sightings.values()
+                if sighting.key == new.key and not set(sighting.chats) & set(new.chats)
+            ),
+            None,
+        )
+        if same is None:
+            sightings[new.id] = new
+            return
+        kept, other = (new, same) if _filled(new) > _filled(same) else (same, new)
+        kept.chats = {**other.chats, **kept.chats}
+        kept.false = kept.false or other.false
+        sightings.pop(other.id, None)
+        sightings[kept.id] = kept
 
 
 def _call(api_url: str, method: str, data: dict[str, Any], files=None) -> Any:
@@ -168,12 +297,18 @@ def _one_per_second(items: list[_Item]) -> list[_Item]:
     return kept
 
 
+def event_window(best_detection: Detection, detections: list[Detection]) -> tuple[datetime, datetime]:
+    """From the first to the last confident frame of the jump."""
+    confident = [detection.date for detection in detections if detection.confidence]
+    if not confident:
+        return best_detection.date, best_detection.date
+    return confident[0], confident[-1]
+
+
 def event_frames(best_detection: Detection, detections: list[Detection]) -> EventFrames:
     """Returns the frames from just before and just after the jump, from the
     4K stream when there is one. Only the frames used are decoded."""
-    confident = [detection.date for detection in detections if detection.confidence]
-    start = confident[0] if confident else best_detection.date
-    end = confident[-1] if confident else best_detection.date
+    start, end = event_window(best_detection, detections)
     items: list[_Item]
     if best_detection.hires:
         items = [
@@ -221,31 +356,32 @@ class CowService:
         self.directory = directory
         # Shared with the other chats that use this folder.
         self.registry = get_registry(directory)
-        safe_chat = re.sub(r"[^A-Za-z0-9_-]", "_", str(chat))
-        self.sightings_path = directory / SIGHTINGS_FILE.format(chat=safe_chat)
-        self.lock = RLock()
+        # Shared too: a mount that goes to both chats is one mount.
+        self.mounts = get_mounts(directory)
+        self.lock = self.mounts.lock
         self.model_lock = Lock()
         self.splitter = splitter
         self.gallery = gallery
-        self.sightings = self._load()
-        # Message ID of a cow photo or a number question → its sighting.
-        self.replies: dict[int, str] = {
-            message: sighting.id
-            for sighting in self.sightings.values()
-            for message in (sighting.message, sighting.prompt)
-            if message is not None
-        }
+        with self.lock:
+            self.mounts.services[self.chat] = self
         # Pending /wissel questions.
         self.switches: dict[str, tuple[str, str, str | None]] = {}
         # Files a mount as good or bad like the Telegram buttons below the
         # alert; set by the Telegram exporter.
         self.classify: Callable[[str, str], None] | None = None
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cows")
+        self.executor = self.mounts.executor
         self.cleaned = 0.0
         self.stop_event = Event()
         self.herd_missing = False
         if config.herd_file is not None:
             Thread(target=self._watch_herd, name="koeienlijst", daemon=True).start()
+
+    @property
+    def sightings(self) -> dict[str, Sighting]:
+        return self.mounts.sightings
+
+    def _link(self, sighting: Sighting) -> ChatLink:
+        return sighting.chats.setdefault(self.chat, ChatLink())
 
     # Herd list
 
@@ -342,6 +478,23 @@ class CowService:
         box = mount_box(best_detection)
         if box is None:
             return None
+        link = ChatLink(alert=alert, event=event, feedback=feedback)
+        camera = best_detection.camera or best_detection.source or ""
+        start, _ = event_window(best_detection, detections)
+        with self.lock:
+            known = self.mounts.unlinked((camera, start.isoformat()), self.chat)
+            if known is not None:
+                # Another chat got this mount first: it is split and
+                # recognised already, so this chat only gets the photo.
+                self._add_link(known, link)
+        if known is not None:
+            folder = self.directory / CROPS_FOLDER / known.id
+            if video and not (folder / VIDEO_FILE).is_file():
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / VIDEO_FILE).write_bytes(video)
+            if self.config.telegram:
+                self._send(known)
+            return known
         splitter, gallery = self._models()
         frames = event_frames(best_detection, detections)
         pair = (
@@ -352,10 +505,7 @@ class CowService:
         sighting = Sighting(
             id=secrets.token_hex(4),
             date=frames.start.isoformat(),
-            camera=best_detection.camera or best_detection.source or "",
-            event=event,
-            feedback=feedback,
-            alert=alert,
+            camera=camera,
         )
         folder = self.directory / CROPS_FOLDER / sighting.id
         folder.mkdir(parents=True, exist_ok=True)
@@ -375,23 +525,28 @@ class CowService:
         self._keep_frames(folder, frames, jump, box)
         with self.lock:
             self.sightings[sighting.id] = sighting
-            self._store(sighting)
+            self._add_link(sighting, link)
         if self.config.telegram:
             self._send(sighting)
         return sighting
 
+    def _add_link(self, sighting: Sighting, link: ChatLink) -> None:
+        """Gives this chat its part of the mount, with a Goed/Fout that was
+        tapped before the cows were recognised."""
+        sighting.chats[self.chat] = link
+        if link.feedback in self.mounts.early_feedback:
+            sighting.false = self.mounts.early_feedback.pop(link.feedback) == "bad"
+        self._store(sighting)
+
     def _models(self) -> tuple[CowSplitter, Gallery]:
         with self.model_lock:
             if self.splitter is None:
-                self.splitter = CowSplitter(
-                    yolo_cow_detector(
-                        self.config.segment_model, self.config.segment_confidence
-                    )
+                self.splitter = _shared_splitter(
+                    self.config.segment_model, self.config.segment_confidence
                 )
             if self.gallery is None:
-                self.gallery = Gallery(
-                    self.registry,
-                    dinov2_embedder(model_file(self.config.reid_model, self.directory)),
+                self.gallery = _shared_gallery(
+                    self.registry, self.directory, self.config.reid_model
                 )
             return self.splitter, self.gallery
 
@@ -508,8 +663,9 @@ class CowService:
             "reply_markup": self.keyboard(sighting),
             "disable_notification": "true",
         }
-        if sighting.alert is not None:
-            data["reply_to_message_id"] = str(sighting.alert)
+        link = self._link(sighting)
+        if link.alert is not None:
+            data["reply_to_message_id"] = str(link.alert)
             data["allow_sending_without_reply"] = "true"
         result = _call(
             self.api_url,
@@ -518,8 +674,8 @@ class CowService:
             files={"photo": (f"{sighting.id}.jpg", telegram_photo(photo), "image/jpeg")},
         )
         with self.lock:
-            sighting.message = int(result["message_id"])
-            self.replies[sighting.message] = sighting.id
+            link.message = int(result["message_id"])
+            self.mounts.replies[(self.chat, link.message)] = sighting.id
             self._store(sighting)
 
     def _title(self, sighting: Sighting, slot: int) -> str:
@@ -592,13 +748,26 @@ class CowService:
         return json.dumps({"inline_keyboard": rows})
 
     def _refresh(self, sighting: Sighting, quiet: bool = False) -> None:
-        """Shows the new state on the Telegram photo. From the web page (quiet)
-        a failing Telegram only logs: the choice is saved either way."""
-        if sighting.message is None:
+        """Shows the new state on the Telegram photo, in every chat that has
+        it. From the web page (quiet) a failing Telegram only logs: the choice
+        is saved either way; so does another chat than the one answering."""
+        with self.lock:
+            others = [
+                service
+                for chat, service in self.mounts.services.items()
+                if chat != self.chat and chat in sighting.chats
+            ]
+        for service in others:
+            service._edit(sighting, quiet=True)
+        self._edit(sighting, quiet)
+
+    def _edit(self, sighting: Sighting, quiet: bool = False) -> None:
+        link = sighting.chats.get(self.chat)
+        if link is None or link.message is None or not self.config.telegram:
             return
         if quiet:
             try:
-                self._refresh(sighting)
+                self._edit(sighting)
             except Exception:
                 self.logger.warning("Could not update the cow photo in Telegram", exc_info=True)
             return
@@ -608,7 +777,7 @@ class CowService:
                 "editMessageCaption",
                 {
                     "chat_id": self.chat,
-                    "message_id": str(sighting.message),
+                    "message_id": str(link.message),
                     "caption": self.caption(sighting),
                     "reply_markup": self.keyboard(sighting),
                 },
@@ -696,7 +865,7 @@ class CowService:
                 "chat_id": self.chat,
                 "text": f"Typ de nummers of namen, eerst {first} dan {second}: 30 12\n"
                 "Onbekend: ?   Nieuwe koe: 44 NL123456789",
-                "reply_to_message_id": str(sighting.message or ""),
+                "reply_to_message_id": str(self._link(sighting).message or ""),
                 "allow_sending_without_reply": "true",
                 "reply_markup": json.dumps(
                     {"force_reply": True, "input_field_placeholder": "30 12"}
@@ -704,8 +873,9 @@ class CowService:
             },
         )
         with self.lock:
-            sighting.prompt = int(result["message_id"])
-            self.replies[sighting.prompt] = sighting.id
+            link = self._link(sighting)
+            link.prompt = int(result["message_id"])
+            self.mounts.replies[(self.chat, link.prompt)] = sighting.id
             self._store(sighting)
 
     def _set(
@@ -797,18 +967,24 @@ class CowService:
         if sighting is None:
             raise KeyError(sighting_id)
         label = "good" if is_mount else "bad"
-        if sighting.feedback is not None:
-            if self.classify is not None:
+        with self.lock:
+            links = [
+                (self.mounts.services.get(chat), link.feedback)
+                for chat, link in sighting.chats.items()
+                if link.feedback
+            ]
+        # One training example, also when the mount went to two chats.
+        for service, feedback in links:
+            if service is not None and service.classify is not None:
                 try:
-                    self.classify(sighting.feedback, label)
+                    service.classify(feedback, label)
+                    break
                 except Exception:
                     # The count matters more than the training example.
                     self.logger.warning("Could not file mount %s as %s", sighting.id, label, exc_info=True)
-            self.feedback(sighting.feedback, label)
-        else:
-            with self.lock:
-                sighting.false = not is_mount
-                self._store(sighting)
+        with self.lock:
+            sighting.false = not is_mount
+            self._store(sighting)
         return "Opgeslagen als sprong" if is_mount else "Opgeslagen als geen sprong"
 
     def handle_message(self, message: dict[str, Any]) -> str | None:
@@ -822,7 +998,9 @@ class CowService:
         text = str(message.get("text") or "").strip()
         reply_to = (message.get("reply_to_message") or {}).get("message_id")
         with self.lock:
-            sighting_id = self.replies.get(int(reply_to)) if reply_to is not None else None
+            sighting_id = (
+                self.mounts.replies.get((self.chat, int(reply_to))) if reply_to is not None else None
+            )
             sighting = self.sightings.get(sighting_id) if sighting_id else None
         if sighting is not None and not text.startswith("/"):
             return self._answer(sighting, text)
@@ -886,7 +1064,7 @@ class CowService:
             self._set(sighting, slot, cow)
         if chosen:
             with self.lock:
-                sighting.prompt = None
+                self._link(sighting).prompt = None
                 self._store(sighting)
             self._refresh(sighting)
         saved = ", ".join(
@@ -959,7 +1137,8 @@ class CowService:
             raise ValueError("Twee keer dezelfde koe: een koe springt niet op zichzelf.")
         self._set(sighting, slot, cow)
         with self.lock:
-            sighting.prompt = None
+            for link in sighting.chats.values():
+                link.prompt = None
             self._store(sighting)
         self._refresh(sighting, quiet=True)
         return f"{self._names(sighting)[slot]} = {self.registry.label(cow, sighting.when)}"
@@ -1118,26 +1297,32 @@ class CowService:
         _call(self.api_url, "sendMessage", {"chat_id": self.chat, "text": text})
 
     def feedback(self, feedback_id: str, label: str) -> None:
-        """A mount marked as wrong no longer counts; the cow photos stay, since
-        who the cows are is still right."""
+        """A mount marked as wrong no longer counts, in every chat and on the
+        web page; the cow photos stay, since who the cows are is still right.
+        Tapped before the cows were recognised, it is kept for when they are."""
         with self.lock:
             for sighting in self.sightings.values():
-                if sighting.feedback == feedback_id:
+                if feedback_id in sighting.feedbacks():
                     sighting.false = label == "bad"
                     self._store(sighting)
+                    return
+            self.mounts.early_feedback[feedback_id] = label
 
     # Overview
 
     def overview_counts(
-        self, start: datetime, end: datetime
+        self, start: datetime, end: datetime, every_chat: bool = False
     ) -> tuple[int, dict[str, list[int]], dict[str, str], int]:
         """The mounts in the period, and per cow [mounted, mounting] with her
-        label, and how many cows were not filled in."""
+        label, and how many cows were not filled in. A chat counts the mounts
+        it got, its own camera(s); the web page those of every chat."""
         with self.lock:
             sightings = [
                 sighting
                 for sighting in self.sightings.values()
-                if not sighting.false and start <= sighting.when < end
+                if not sighting.false
+                and start <= sighting.when < end
+                and (every_chat or self.chat in sighting.chats)
             ]
         counts: dict[str, list[int]] = {}
         labels: dict[str, str] = {}
@@ -1184,26 +1369,7 @@ class CowService:
     # Storage
 
     def _store(self, sighting: Sighting) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
-        with self.sightings_path.open("a") as file:
-            file.write(json.dumps(asdict(sighting)) + "\n")
-
-    def _load(self) -> dict[str, Sighting]:
-        if not self.sightings_path.is_file():
-            return {}
-        sightings: dict[str, Sighting] = {}
-        for line in self.sightings_path.read_text().splitlines():
-            try:
-                sighting = Sighting.from_dict(json.loads(line))
-            except (ValueError, KeyError, TypeError):
-                self.logger.warning("Skipping invalid cow sighting: %s", line)
-                continue
-            sightings[sighting.id] = sighting
-        # Keep one line per sighting, the last state.
-        self.sightings_path.write_text(
-            "".join(json.dumps(asdict(sighting)) + "\n" for sighting in sightings.values())
-        )
-        return sightings
+        self.mounts.store(sighting)
 
 
 def split_message(text: str, limit: int = _MESSAGE_LIMIT) -> list[str]:
@@ -1225,6 +1391,40 @@ def split_message(text: str, limit: int = _MESSAGE_LIMIT) -> list[str]:
     if current:
         parts.append(current)
     return parts
+
+
+# The models are loaded once for all chats: each copy costs memory.
+_splitters: dict[tuple[str, float], CowSplitter] = {}
+_galleries: dict[tuple[Path, str], Gallery] = {}
+_models_lock = Lock()
+
+
+def _shared_splitter(model: str, confidence: float) -> CowSplitter:
+    with _models_lock:
+        key = (model, confidence)
+        if key not in _splitters:
+            _splitters[key] = CowSplitter(yolo_cow_detector(model, confidence))
+        return _splitters[key]
+
+
+def _shared_gallery(registry: CowRegistry, directory: Path, model: str) -> Gallery:
+    """One gallery per folder of cows, which the chats on it share."""
+    with _models_lock:
+        key = (directory, model)
+        if key not in _galleries:
+            _galleries[key] = Gallery(registry, dinov2_embedder(model_file(model, directory)))
+        return _galleries[key]
+
+
+_mounts: dict[Path, Mounts] = {}
+
+
+def get_mounts(directory: Path) -> Mounts:
+    key = directory.expanduser().resolve()
+    with _models_lock:
+        if key not in _mounts:
+            _mounts[key] = Mounts(key)
+        return _mounts[key]
 
 
 _cow_services: dict[tuple[str, str], CowService] = {}

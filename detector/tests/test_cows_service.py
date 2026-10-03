@@ -145,8 +145,12 @@ def buttons(markup: str) -> list[list[str]]:
 
 def reply(service: CowService, text: str) -> str | None:
     """The farmer answers on the photo of the last mount."""
-    sighting = max(service.sightings.values(), key=lambda sighting: sighting.message or 0)
-    return service.handle_message({"text": text, "reply_to_message": {"message_id": sighting.message}})
+    def message(sighting) -> int:
+        link = sighting.chats.get(service.chat)
+        return (link.message if link else None) or 0
+
+    sighting = max(service.sightings.values(), key=message)
+    return service.handle_message({"text": text, "reply_to_message": {"message_id": message(sighting)}})
 
 
 def test_one_photo_with_both_cows_and_their_candidates(tmp_path, telegram):
@@ -639,3 +643,94 @@ def test_old_videos_are_cleaned_but_the_photos_stay(tmp_path, telegram):
 
     assert not (folder / "video.mp4").exists()
     assert (folder / "A.jpg").is_file()
+
+
+def second_chat(tmp_path, chat: str = "partner") -> CowService:
+    """Another chat on the same folder, whose models must not be needed."""
+    return CowService(
+        "token", chat, tmp_path, CowsConfig(telegram=True),
+        splitter=FakeSplitter(None), gallery=FakeGallery([]),
+    )
+
+
+def test_two_chats_on_one_folder_share_the_mount(tmp_path, telegram):
+    farmer = make_service(tmp_path, pair(), [[(BERTHA, 0.7)], [(PINK, 0.8)]])
+    partner = second_chat(tmp_path)
+    best, detections = mount()
+
+    first = farmer.identify(best, detections, alert=1, event="e1", feedback="f1", video=b"mp4")
+    second = partner.identify(best, detections, alert=2, event="e2", feedback="f2", video=b"mp4")
+
+    # Split and recognised once; both chats get the photo, below their alert.
+    assert second is first
+    assert len(farmer.splitter.calls) == 1 and partner.splitter.calls == []
+    assert [photo["reply_to_message_id"] for photo in telegram.sent("sendPhoto")] == ["1", "2"]
+    assert set(first.chats) == {"chat", "partner"}
+    assert len(farmer.sightings) == 1
+
+    # Filled in from one chat, the photo in the other chat shows it too.
+    partner.handle_callback(f"cow:{first.id}:0:c0")
+    edited = {edit["chat_id"] for edit in telegram.sent("editMessageCaption")}
+    assert edited == {"chat", "partner"}
+    assert first.cows[0] == BERTHA
+
+    window = (START - timedelta(hours=1), START + timedelta(hours=1))
+    assert farmer.overview_counts(*window, every_chat=True)[0] == 1
+
+
+def test_no_mount_in_one_chat_takes_it_off_the_list_everywhere(tmp_path, telegram):
+    from aidetector.cows.api import is_open
+
+    farmer = make_service(tmp_path, pair(), [[], []])
+    partner = second_chat(tmp_path)
+    best, detections = mount()
+    sighting = farmer.identify(best, detections, alert=1, event="e1", feedback="f1")
+    partner.identify(best, detections, alert=2, event="e2", feedback="f2")
+    assert is_open(sighting)
+
+    partner.feedback("f2", "bad")
+
+    assert sighting.false and not is_open(sighting)
+
+
+def test_no_mount_tapped_before_the_cows_are_recognised_still_counts(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+
+    # The farmer taps Fout while the cows of the mount are still being split.
+    service.feedback("f1", "bad")
+    sighting = service.identify(*mount(), alert=1, event="e1", feedback="f1")
+
+    assert sighting.false
+    # Read again from disk, as after a restart.
+    assert service_module.Mounts(tmp_path.resolve()).sightings[sighting.id].false
+
+
+def test_the_old_files_per_chat_are_merged_into_one(tmp_path):
+    def line(id: str, how: list, false: bool, message: int) -> str:
+        return json.dumps(
+            {
+                "id": id, "date": START.isoformat(), "camera": "Stal Links",
+                "feedback": f"f-{id}", "alert": message - 1, "message": message,
+                "cows": [BERTHA if how[0] else None, None], "how": how, "false": false,
+            }
+        ) + "\n"
+
+    (tmp_path / "sprongen-farmer.jsonl").write_text(line("aaaa0001", ["boer", None], False, 11))
+    (tmp_path / "sprongen-partner.jsonl").write_text(
+        line("bbbb0002", [None, None], True, 21)
+        + json.dumps({"id": "cccc0003", "date": (START + timedelta(hours=1)).isoformat(), "camera": "Stal Links"})
+        + "\n"
+    )
+
+    service = CowService("token", "farmer", tmp_path, CowsConfig(telegram=True))
+
+    # The copy that was filled in stays, with both alerts; Fout in either counts.
+    assert sorted(service.sightings) == ["aaaa0001", "cccc0003"]
+    merged = service.sightings["aaaa0001"]
+    assert merged.false and merged.cows[0] == BERTHA
+    assert {chat: link.message for chat, link in merged.chats.items()} == {"farmer": 11, "partner": 21}
+    assert sorted(path.name for path in tmp_path.glob("sprongen*")) == [
+        "sprongen-farmer.jsonl.oud", "sprongen-partner.jsonl.oud", "sprongen.jsonl",
+    ]
+    # Answering the old photo in the partner chat still works.
+    assert service.mounts.replies[("partner", 21)] == "aaaa0001"

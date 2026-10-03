@@ -171,15 +171,26 @@ def test_add_switch_and_archive_cows(tmp_path, api, telegram):
 
     status, body = api(
         "POST", "koeien",
-        {"action": "wissel", "number": "30", "life_number": "NL555666777", "name": "Nel", "old_left": True},
+        {
+            "action": "wissel", "number": "30", "life_number": "NL555666777", "name": "Nel",
+            "work_number": "5101", "old_left": True,
+        },
     )
     assert status == 200
     assert body["message"] == "Nummer 30 is nu 30 (Nel) · NL555666777. 30 (Bertha) is gearchiveerd."
+    assert service.registry.cow("NL555666777").work_number == "5101"
     assert service.registry.cow(BERTHA).archived is not None
 
     assert api("POST", "koeien", {"action": "weg", "life_number": PINK})[0] == 200
     assert [item["life_number"] for item in api("GET", "koeien")[1]["items"]] == ["NL555666777"]
     assert len(api("GET", "koeien?archief=1")[1]["items"]) == 3
+
+    status, body = api(
+        "POST", "koeien",
+        {"action": "toevoegen", "number": "41", "life_number": "NL888999000", "work_number": " 7 "},
+    )
+    assert status == 200
+    assert service.registry.cow("NL888999000").work_number == "7"
 
 
 def test_overview_counts_both_cows(tmp_path, api, telegram):

@@ -175,6 +175,7 @@ class CowRegistry:
         old_cow_left: bool,
         name: str | None = None,
         at: Moment = None,
+        work_number: str | None = None,
     ) -> str | None:
         """Gives the collar number to another cow and returns the cow that wore
         it. When she left the farm she is archived; otherwise (collars swapped)
@@ -185,14 +186,18 @@ class CowRegistry:
         with self.lock:
             old = self.cow_with_number(number, at)
             if old == life_number:
-                self._ensure_cow(life_number, name)
+                cow = self._ensure_cow(life_number, name)
+                if work_number is not None:
+                    cow.work_number = work_number
                 self._save()
                 return None
             if old is not None:
                 self._end_number(number, at)
                 if old_cow_left:
                     self.archive(old, at)
-            self._ensure_cow(life_number, name)
+            cow = self._ensure_cow(life_number, name)
+            if work_number is not None:
+                cow.work_number = work_number
             self._end_numbers(life_number, at)
             self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))
             self._save()
