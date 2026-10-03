@@ -115,6 +115,9 @@ class Detection:
     # Frames of the high-resolution stream from just before the event until its
     # end; only set on the best detection of an exported event.
     hires: list[HiresFrame] | None = None
+    # Videos already made of this event, so chats with the same settings
+    # share one; see event_mp4().
+    videos: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
 @dataclass(kw_only=True)
@@ -145,8 +148,9 @@ class HiresConfig:
     # it fluent enough to follow; each 4K frame is about 1 MB of memory.
     fps: float = 4
     # How long frames are kept outside a mount; must cover before_seconds.
-    # During a mount its frames are kept until it is handled.
-    seconds: int = 20
+    # During a mount its frames are kept until it is handled. Each second is
+    # fps 4K frames per camera in memory.
+    seconds: int = 12
     before_seconds: int = 10
     quality: int = 85
     hwaccel: str | None = "auto"

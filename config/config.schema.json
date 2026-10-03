@@ -573,7 +573,7 @@
           "type": "number"
         },
         "seconds": {
-          "default": 20,
+          "default": 12,
           "title": "Seconds",
           "type": "integer"
         },

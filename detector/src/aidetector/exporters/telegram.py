@@ -13,7 +13,7 @@ from aidetector.cows.service import CowService, get_cow_service, split_message
 from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
-    generate_mp4,
+    event_mp4,
     get_crop,
     get_image,
     get_plot,
@@ -449,13 +449,13 @@ class TelegramExporter(WebhookExporter):
                 )
 
         if self.telegram.include_video:
-            video = generate_mp4(
+            video = event_mp4(
+                best_detection,
                 detections,
                 width=self.telegram.video_width,
                 crf=self.telegram.video_crf,
                 data_max=self.config.data_max,
                 padding=self.telegram.crop_padding,
-                hires=best_detection.hires,
             )
             if video:
                 files["video"] = (

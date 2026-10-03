@@ -37,11 +37,11 @@ def _hires_frames(
     region: Crop,
     plot: bool,
     padding: float,
-) -> tuple[list[np.ndarray], float]:
+) -> tuple[list[bytes], float]:
     """The event's crop from the 4K frames, with the boxes of the nearest
     detection frame scaled onto them. The detection stream is too small to
     read the numbers on the cows. Each frame is decoded and cropped in turn,
-    so only the crops are held."""
+    and the crops are held as JPEG: as pixels a 4K event took a gigabyte."""
     start = detections[0].date - _HIRES_MARGIN
     end = detections[-1].date + _HIRES_MARGIN
     chosen = sorted(
@@ -51,7 +51,7 @@ def _hires_frames(
     if len(chosen) < 2 or not boxed:
         return [], 0
     width, height = detections[0].images.width, detections[0].images.height
-    frames: list[np.ndarray] = []
+    frames: list[bytes] = []
     for frame in chosen:
         try:
             image = frame.jpg
@@ -73,12 +73,21 @@ def _hires_frames(
             plot_crops=boxes,
         )
         if cropped is not None:
-            frames.append(cropped)
+            frames.append(get_image(cropped, 95))
     if len(frames) < 2:
         return [], 0
     return frames, len(chosen) / max(
         (chosen[-1].date - chosen[0].date).total_seconds(), 1e-3
     )
+
+
+def _pixels(frame: np.ndarray | bytes) -> np.ndarray:
+    if isinstance(frame, np.ndarray):
+        return frame
+    image = cv2.imdecode(np.frombuffer(frame, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Failed to decode video frame")
+    return image
 
 
 def generate_mp4(
@@ -97,7 +106,8 @@ def generate_mp4(
         if not detections:
             return None
 
-        frames: list[np.ndarray] = []
+        # Pixels, or JPEG for the 4K crops; decoded one at a time for FFmpeg.
+        frames: list[np.ndarray | bytes] = []
         fps = 0.0
         if crop and hires:
             crops = [crop for d in detections for crop in d.images.crops]
@@ -108,7 +118,8 @@ def generate_mp4(
                     max(crop.x2 for crop in crops),
                     max(crop.y2 for crop in crops),
                 )
-                frames, fps = _hires_frames(hires, detections, region, plot, padding)
+                hires_frames, fps = _hires_frames(hires, detections, region, plot, padding)
+                frames = list(hires_frames)
         if not frames and crop:
             crops = [crop for d in detections for crop in d.images.crops]
             if crops:
@@ -148,7 +159,7 @@ def generate_mp4(
 
         # 2. Get dimensions from first frame
         # We need the source dimensions to tell FFmpeg what size the raw input stream is
-        h, w = frames[0].shape[:2]
+        h, w = _pixels(frames[0]).shape[:2]
 
         ffmpeg_exe = get_ffmpeg_exe()
 
@@ -206,7 +217,8 @@ def generate_mp4(
                     logger.error("Failed to open stdin pipe to FFmpeg")
                     return None
 
-                for frame in frames:
+                for item in frames:
+                    frame = _pixels(item)
                     # Sanity check: ensure frame size matches the stream setup
                     if frame.shape[0] != h or frame.shape[1] != w:
                         frame = cv2.resize(frame, (w, h))
@@ -279,6 +291,17 @@ def generate_mp4(
     except Exception:
         logger.exception("Failed to generate MP4")
         return None
+
+
+def event_mp4(best_detection: Detection, detections: list[Detection], **options) -> bytes | None:
+    """generate_mp4() for an event from its 4K frames, made once per settings:
+    each chat would otherwise decode and encode the same video again."""
+    key = repr(sorted(options.items()))
+    if key not in best_detection.videos:
+        best_detection.videos[key] = generate_mp4(
+            detections, hires=best_detection.hires, **options
+        )
+    return best_detection.videos[key]
 
 
 def get_image(image: np.ndarray, quality: int = 100) -> bytes:

@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 
 from aidetector.cows.service import event_frames
-from aidetector.media.video import generate_mp4
+from aidetector.media import video as video_module
+from aidetector.media.video import event_mp4, generate_mp4
 from aidetector.utils.config import Crop, Detection, HiresFrame, ImageSet
 
 START = datetime(2026, 10, 2, 8, 0, 0)
@@ -66,3 +67,24 @@ def test_recognition_keeps_about_one_4k_frame_per_second():
 
     dates = [date for date, _ in frames.jpegs]
     assert all((b - a).total_seconds() >= 0.95 for a, b in zip(dates, dates[1:]))
+
+
+def test_chats_with_the_same_settings_share_the_video(monkeypatch):
+    made = []
+    real = video_module.generate_mp4
+
+    def counting(*args, **kwargs):
+        made.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(video_module, "generate_mp4", counting)
+    events = detections()
+    best = events[1]
+    best.hires = hires(3, 4)
+
+    first = event_mp4(best, events, width=640, crf=22, padding=0)
+    second = event_mp4(best, events, width=640, crf=22, padding=0)
+    other = event_mp4(best, events, width=320, crf=22, padding=0)
+
+    assert first is second and other != first
+    assert len(made) == 2

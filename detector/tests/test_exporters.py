@@ -171,7 +171,7 @@ def test_webhook_explicit_body_overrides_generated_payload(monkeypatch):
 
 def test_telegram_exporter_respects_alert_every(monkeypatch):
     monkeypatch.setattr(
-        "aidetector.exporters.telegram.generate_mp4", lambda *_args, **_kwargs: None
+        "aidetector.exporters.telegram.event_mp4", lambda *_args, **_kwargs: None
     )
     detections = make_detections()
     exporter = TelegramExporter(
