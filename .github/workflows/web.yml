@@ -52,6 +52,8 @@ jobs:
         with:
           context: web
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            AI_DETECTOR_WEB_VERSION=${{ github.ref_name }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -127,6 +129,7 @@ jobs:
       - name: Build
         env:
           AI_DETECTOR_WEB_TARGET: windows-x64-baseline
+          AI_DETECTOR_WEB_VERSION: ${{ github.ref_name }}
         run: pnpm run build
 
       - name: Name Executable
@@ -213,6 +216,7 @@ jobs:
       - name: Build
         env:
           AI_DETECTOR_WEB_TARGET: darwin-arm64
+          AI_DETECTOR_WEB_VERSION: ${{ github.ref_name }}
         run: pnpm run build
 
       - name: Name Executable

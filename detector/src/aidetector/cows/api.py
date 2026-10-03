@@ -25,8 +25,15 @@ from aidetector.cows.service import (
 )
 from aidetector.review import MEDIA_TYPES, ReviewSession
 from aidetector.utils.config import ApiConfig, Config
+from aidetector.utils.version import REF_NAME
 
 logger = logging.getLogger(__name__)
+
+
+def version() -> str:
+    """The release the detector was built from: "v0.9.0" for the tag
+    "detector/v0.9.0", else the branch, e.g. "main" when run from source."""
+    return REF_NAME.removeprefix("detector/").replace("/", "-")
 
 _SIGHTING_ID = re.compile(r"^[0-9a-f]{1,32}$")
 _PHOTO_NAME = re.compile(r"^[A-Za-z0-9._-]+\.jpg$")
@@ -519,6 +526,7 @@ class Handler(BaseHTTPRequestHandler):
                 return {
                     "cows": bool(services),
                     "chats": [service.chat for service in services],
+                    "version": version(),
                 }
             case "GET", ["sprongen"]:
                 return list_sightings(query)
