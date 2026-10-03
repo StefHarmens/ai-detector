@@ -168,7 +168,7 @@ def test_export_gives_the_best_detection_the_4k_frames_from_before_the_event():
     detector = make_detector()
     detector.exporters = [exporter]
     start = datetime.now() - timedelta(seconds=5)
-    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10, seconds=600))
+    buffer = HiresBuffer(HiresConfig(before_seconds=10, seconds=600))
     for offset in (-30, -8, -2, 1, 3):
         buffer.add(HiresFrame(start + timedelta(seconds=offset), b"jpeg"))
     detector.hires = {source: buffer}
@@ -193,7 +193,7 @@ def test_a_mount_holds_its_4k_frames_until_it_is_exported():
     detector = make_detector()
     detector.yolo_config = YoloConfig(model="model.pt", confidence=0.8, time_max=60, timeout=5)
     detector.exporters = [RecordingExporter()]
-    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10))
+    buffer = HiresBuffer(HiresConfig(before_seconds=10))
     detector.hires = {source: buffer}
     start = datetime.now()
 

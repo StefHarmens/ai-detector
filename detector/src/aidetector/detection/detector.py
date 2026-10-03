@@ -11,7 +11,7 @@ from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.exporter import Exporter
 from aidetector.exporters.telegram import TelegramExporter
 from aidetector.exporters.webhook import WebhookExporter
-from aidetector.sources.hires import HiresBuffer, hires_buffers
+from aidetector.sources.hires import Clip, HiresBuffer, HiresRecorder, hires_buffers
 from aidetector.sources.source import SourceProvider
 from aidetector.utils.config import (
     ChatConfig,
@@ -47,7 +47,7 @@ class Detector:
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
     camera_names: dict[str, str]
-    hires: dict[str, HiresBuffer]
+    hires: dict[str, HiresBuffer | HiresRecorder]
 
     def __init__(
         self,
@@ -257,7 +257,7 @@ class Detector:
         detections = self._alert_detections(all_detections)
         if self._has_min_detections(detections):
             best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
-            self._attach_hires(source, best_detection, detections)
+            hires = self._hires_clip(source, detections)
 
             matching_confs = (
                 matching_confidences(
@@ -281,6 +281,8 @@ class Detector:
             )
 
             def export_task():
+                if hires is not None:
+                    self._attach_hires(source, best_detection, hires)
                 validated = self.validator.validate(best_detection, detections)
 
                 if validated is not False and self.yolo_config:
@@ -329,16 +331,22 @@ class Detector:
         if buffer is not None and buffer.from_detection:
             buffer.feed(frame)
 
-    def _attach_hires(
-        self, source: str, best_detection: Detection, detections: list[Detection]
-    ) -> None:
-        """Copies the high-resolution frames of the event now, before the buffer
+    def _hires_clip(self, source: str, detections: list[Detection]) -> Clip | None:
+        """Takes the high-resolution frames of the event now, before the buffer
         drops them while the exporters are still busy."""
         buffer = self.hires.get(source)
         if buffer is None:
-            return
+            return None
         start = detections[0].date - timedelta(seconds=buffer.config.before_seconds)
-        best_detection.hires = buffer.frames_between(start, datetime.now())
+        return buffer.clip(start, datetime.now())
+
+    def _attach_hires(self, source: str, best_detection: Detection, hires: Clip) -> None:
+        """Decodes the event's 4K frames, in the export and not while frames
+        are being detected: that takes some seconds for a recorded stream."""
+        try:
+            best_detection.hires = hires()
+        except Exception:
+            self.logger.exception("Could not decode the high-resolution frames on %s", source)
         if not best_detection.hires:
             self.logger.warning("No high-resolution frames for this event on %s", source)
 
