@@ -8,6 +8,7 @@ from imageio_ffmpeg import get_ffmpeg_exe
 from aidetector.media.video import get_image
 from aidetector.sources.hires import (
     HiresBuffer,
+    connection_failed,
     hires_buffers,
     hires_detection,
     split_jpegs,
@@ -352,3 +353,43 @@ def test_the_log_keeps_the_first_lines_of_an_error(tmp_path, caplog):
         buffer._read()
 
     assert "missing.mp4" in caplog.records[-1].getMessage()
+
+
+def test_the_farm_drop_is_a_connection_error():
+    # Logged on the farm when the camera closed all 4K streams at once.
+    message = [
+        "[hevc @ 0x133807200] Could not find ref with POC 29",
+        "[tls @ 0x600002b24000] IO Error: -9806",
+        "[in#0/rtsp @ 0x600002528000] Error during demuxing: Input/output error",
+    ]
+
+    assert connection_failed(message)
+    assert not connection_failed(["[mjpeg @ 0x1] Invalid argument"])
+
+
+def test_a_refused_connection_keeps_hardware_decoding():
+    # Nothing listens on port 9: FFmpeg says "Connection refused".
+    source = "rtsp://127.0.0.1:9/key"
+    buffer = HiresBuffer(source, HiresConfig(source=source, hwaccel="auto"), "Stal Links")
+
+    buffer._read()
+
+    assert buffer.hwaccel == "auto"
+    assert buffer.retry_seconds == 5
+
+
+def test_a_stream_that_gave_frames_is_read_again_after_a_second(tmp_path):
+    video = tmp_path / "barn.mp4"
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc=size=640x360:rate=10:duration=1", "-pix_fmt", "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+    buffer = HiresBuffer(str(video), HiresConfig(source=str(video), hwaccel=None))
+
+    buffer._read()
+
+    assert buffer.frames and buffer.retry_seconds == 1

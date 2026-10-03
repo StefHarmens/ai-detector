@@ -31,6 +31,9 @@ _MAX_HOLD = timedelta(minutes=3)
 # far from the detection frame and leave too few frames around a mount, so
 # such a stream is decoded in full after all.
 _MAX_KEYFRAME_INTERVAL = 2.0
+# Wait before reading a stream again; shorter when it was giving frames.
+_RETRY_SECONDS = 5.0
+_RETRY_AFTER_FRAMES_SECONDS = 1.0
 
 
 def split_jpegs(buffer: bytearray) -> list[bytes]:
@@ -78,6 +81,7 @@ class HiresBuffer:
         self.stop_event = Event()
         self.process: subprocess.Popen | None = None
         self.thread: Thread | None = None
+        self.retry_seconds = _RETRY_SECONDS
 
     @property
     def from_detection(self) -> bool:
@@ -229,6 +233,7 @@ class HiresBuffer:
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
+            self.retry_seconds = _RETRY_SECONDS
             try:
                 self._read()
             except Exception:
@@ -236,7 +241,7 @@ class HiresBuffer:
             if self.switch_to_all_frames:
                 self.switch_to_all_frames = False
                 continue
-            self.stop_event.wait(5)
+            self.stop_event.wait(self.retry_seconds)
 
     def _read(self) -> None:
         self.process = subprocess.Popen(
@@ -281,13 +286,21 @@ class HiresBuffer:
             code = self.process.wait()
             drain.join(timeout=2)
             if not self.stop_event.is_set() and not self.switch_to_all_frames:
+                message = [*first, *last]
+                # A stream that was running is back sooner: every second
+                # without it is a second without 4K frames for a mount.
+                self.retry_seconds = _RETRY_AFTER_FRAMES_SECONDS if frames else _RETRY_SECONDS
                 logger.warning(
-                    "High-resolution stream of %s stopped (exit %s), retrying in 5 s: %s",
+                    "High-resolution stream of %s stopped (exit %s), retrying in %g s: %s",
                     self.name,
                     code,
-                    hide_keys(" | ".join([*first, *last])) or "no message",
+                    self.retry_seconds,
+                    hide_keys(" | ".join(message)) or "no message",
                 )
-                if frames == 0:
+                # A connection that failed or broke off says nothing about the
+                # way of reading: without hardware decoding a 4K HEVC stream
+                # can fall behind, and the camera then drops the connection.
+                if frames == 0 and not connection_failed(message):
                     self._fall_back()
 
     def _fall_back(self) -> None:
@@ -304,6 +317,23 @@ class HiresBuffer:
 
 
 _STREAM_KEY = re.compile(r"(rtsps?://[^/\s]+/)\S*")
+
+# FFmpeg's words for a connection that could not be made or broke off, e.g.
+# "[tls] IO Error: -9806" when the camera closes the stream.
+_CONNECTION_ERRORS = (
+    "Input/output error",
+    "IO Error",
+    "Connection refused",
+    "Connection reset",
+    "timed out",
+    "Network is unreachable",
+    "No route to host",
+    "Server returned",
+)
+
+
+def connection_failed(lines: list[str]) -> bool:
+    return any(error in line for line in lines for error in _CONNECTION_ERRORS)
 
 
 def hide_keys(text: str) -> str:
