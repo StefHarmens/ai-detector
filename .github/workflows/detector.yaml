@@ -348,4 +348,6 @@ jobs:
           name: Detector ${{ steps.version.outputs.version }}
           make_latest: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: detector/dist/aidetector-osx-${{ steps.version.outputs.version }}.zip
+          files: |
+            detector/dist/aidetector-osx-${{ steps.version.outputs.version }}.zip
+            macos/cowcatcher.sh

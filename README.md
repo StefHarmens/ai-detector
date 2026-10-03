@@ -3,31 +3,85 @@
 Deze fork draait CowCatcher op een Mac mini, verstuurt detecties via Telegram en
 verzamelt gecontroleerde voorbeelden om het YOLO-model verder te trainen.
 
+## Installeren en automatisch bijwerken
+
+Op de Mac mini installeer je CowCatcher één keer. Daarna draaien de detector en de
+web-interface als achtergrondservice: ze starten vanzelf na een herstart van de Mac, starten
+opnieuw na een crash en werken zichzelf bij zodra er een nieuwe release is. Er hoeft geen
+Terminal-venster meer open te blijven.
+
+Open Terminal op de Mac mini en voer uit:
+
+```bash
+curl -fsSLo cowcatcher.sh https://raw.githubusercontent.com/StefHarmens/ai-detector/main/macos/cowcatcher.sh
+bash cowcatcher.sh install
+```
+
+De installatie:
+
+- stopt een CowCatcher die nog los in Terminal draait (na bevestiging);
+- verhuist `CowCatcher - Custom` van het Bureaublad naar `~/CowCatcher`, samen met wat
+  `config.json` op het Bureaublad gebruikt (`data`, `video`, `koeienlijst.xlsx`), en past de
+  paden in `config.json` aan. Het origineel blijft bewaard als `config.json.voor-installatie`.
+  macOS laat een achtergrondservice niet zomaar in het Bureaublad lezen, daarom de verhuizing.
+  Op het Bureaublad komt een snelkoppeling `CowCatcher`;
+- downloadt de nieuwste detector en web-interface en start ze.
+
+Staat de oude map ergens anders, geef hem dan op met `--from "<map>"`. Zet daarna in
+Systeeminstellingen > Gebruikers en groepen **automatisch inloggen** aan voor de gebruiker
+`cowcatcher`, anders start CowCatcher na een stroomstoring pas als iemand inlogt.
+
+### Hoe updates werken
+
+Elke 15 minuten kijkt de Mac mini op [GitHub](https://github.com/StefHarmens/ai-detector/releases)
+of er een nieuwere detector- of web-release is. Een nieuwe versie wordt gedownload,
+gecontroleerd (sha256), op zijn plek gezet en gestart. Een update versturen is dus niets anders
+dan een release taggen (`detector/v…` of `web/v…`); binnen een kwartier nadat de build klaar is,
+draait hij op de boerderij. Tijdens het wisselen is de detector ongeveer een minuut weg.
+
+Blijft een nieuwe versie niet 2 minuten draaien, crasht de detector, keurt hij `config.json`
+af of geeft de web-interface geen antwoord, dan wordt de vorige versie teruggezet en wordt de
+nieuwe overgeslagen. De volgende release wordt weer gewoon geprobeerd.
+
+Standaard volgt de Mac mini ook de bèta's (tags met een `-`, zoals `v0.8.0-beta.23`). Alleen
+echte releases: zet `CHANNEL=stable` in `~/CowCatcher/updater/settings`. Het updatescript zelf
+gaat mee met elke detector-release.
+
+```bash
+~/CowCatcher/updater/cowcatcher.sh status            # versies, draait het, laatste updates
+~/CowCatcher/updater/cowcatcher.sh update            # nu kijken of er een update is
+~/CowCatcher/updater/cowcatcher.sh logs detector     # meekijken (ook: web, updater)
+~/CowCatcher/updater/cowcatcher.sh rollback detector # terug naar de vorige versie
+~/CowCatcher/updater/cowcatcher.sh stop detector     # bijvoorbeeld om te trainen (ook: start)
+~/CowCatcher/updater/cowcatcher.sh uninstall         # services weg, bestanden blijven
+```
+
+De logs staan in `~/Library/Logs/CowCatcher/`. Opnieuw `install` draaien kan altijd, bijvoorbeeld
+om de poort te wijzigen (`--port 8080`) of van kanaal te wisselen (`--stable`).
+
 ## Mac mini-indeling
 
 ```text
-/Users/cowcatcher/Desktop/
-├── CowCatcher - Custom/
-│   ├── aidetector-osx-v0.7.5.command
-│   ├── config.json
-│   └── models/
-│       ├── cowcatcherV17.pt
-│       ├── cowcatcherV17.onnx
-│       └── cowcatcher-feedback.pt
+/Users/cowcatcher/CowCatcher/
+├── aidetector              (detector, wordt bijgewerkt)
+├── aidetector-web          (web-interface, wordt bijgewerkt)
+├── config.json
+├── koeienlijst.xlsx
+├── models/
+│   ├── cowcatcherV17.pt
+│   ├── cowcatcherV17.onnx
+│   └── cowcatcher-feedback.pt
 ├── data/
 │   ├── good/
 │   ├── bad/
 │   └── .telegram-feedback/
-└── video/
+├── video/
+└── updater/                (updatescript, versies en instellingen)
 ```
-
-Download de actuele macOS-build via de
-[releases](https://github.com/StefHarmens/ai-detector/releases). Gebruik het
-bestand `aidetector-osx-v0.7.5.zip`, niet het source-codearchief.
 
 ## Configuratie
 
-Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
+`config.json` staat in `~/CowCatcher`, naast de programma's. De relevante paden zijn:
 
 ```json
 {
@@ -52,7 +106,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 				"hires": {}
 			},
 			"yolo": {
-				"model": "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.onnx",
+				"model": "/Users/cowcatcher/CowCatcher/models/cowcatcherV17.onnx",
 				"confidence": 0.85,
 				"review_confidence": 0.7,
 				"include_trailing_time": 10,
@@ -63,7 +117,7 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 				"telegram": {
 					"token": "<bot-token>",
 					"chat": "<chat-id>",
-					"feedback_directory": "/Users/cowcatcher/Desktop/data",
+					"feedback_directory": "/Users/cowcatcher/CowCatcher/data",
 					"summary": {
 						"times": ["08:00", "16:00"],
 						"camera_groups": [
@@ -72,16 +126,16 @@ Zet `config.json` naast het `.command`-bestand. De relevante paden zijn:
 						]
 					},
 					"cows": {
-						"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+						"herd_file": "/Users/cowcatcher/CowCatcher/koeienlijst.xlsx",
 						"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
 					}
 				},
 				"disk": [
 					{
-						"directory": "/Users/cowcatcher/Desktop/video"
+						"directory": "/Users/cowcatcher/CowCatcher/video"
 					},
 					{
-						"directory": "/Users/cowcatcher/Desktop/data/twijfel",
+						"directory": "/Users/cowcatcher/CowCatcher/data/twijfel",
 						"review": true
 					}
 				]
@@ -163,7 +217,7 @@ Wil je in de chat alleen de meldingen, zonder de samenvatting van 08:00 en 16:00
 
 ```json
 "summary": { "times": [] },
-"cows": { "herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx" }
+"cows": { "herd_file": "/Users/cowcatcher/CowCatcher/koeienlijst.xlsx" }
 ```
 
 Met `"times": []` komt er nog steeds één melding per sprong (herhaalde detecties van
@@ -277,16 +331,16 @@ houdt zijn eigen bot en chat, zonder `cows`:
 	{
 		"token": "<bot-token-boer>",
 		"chat": "<chat-id-boer>",
-		"feedback_directory": "/Users/cowcatcher/Desktop/data",
+		"feedback_directory": "/Users/cowcatcher/CowCatcher/data",
 		"summary": { "times": ["08:00", "16:00"] }
 	},
 	{
 		"token": "<bot-token-test>",
 		"chat": "<jouw-chat-id>",
-		"feedback_directory": "/Users/cowcatcher/Desktop/data-test",
+		"feedback_directory": "/Users/cowcatcher/CowCatcher/data-test",
 		"summary": { "times": ["08:00", "12:00", "16:00", "20:00"] },
 		"cows": {
-			"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+			"herd_file": "/Users/cowcatcher/CowCatcher/koeienlijst.xlsx",
 			"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
 		}
 	}
@@ -346,7 +400,7 @@ Het makkelijkst: zet het pad naar de export uit het managementprogramma (Excel o
 
 ```json
 "cows": {
-	"herd_file": "/Users/cowcatcher/Desktop/koeienlijst.xlsx",
+	"herd_file": "/Users/cowcatcher/CowCatcher/koeienlijst.xlsx",
 	"herd_categories": ["Koeien", "Vrouwelijk jongvee"]
 }
 ```
@@ -387,7 +441,7 @@ Zonder `herd_file` kan het ook eenmalig: stuur de export (Excel of CSV) als best
 bot. Op de Mac mini kan het ook met:
 
 ```bash
-./aidetector-osx-v0.8.0.command import-koeien ~/Desktop/koeienlijst.xlsx
+cd ~/CowCatcher && ./aidetector import-koeien ~/CowCatcher/koeienlijst.xlsx
 ```
 
 Het levensnummer wordt op vorm gecontroleerd (landcode en 9 tot 12 cijfers), niet op het
@@ -443,16 +497,8 @@ alle opties.
 
 ## Detector starten
 
-Het programma leest `config.json` uit de map waar het zelf staat. Zet een nieuwe versie
-dus eerst in dezelfde map als `config.json` (niet starten vanuit Downloads): anders maakt
-hij daar een lege `config.json` en blijft hij melden `detectors: Field required`.
-
-```bash
-cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
-chmod +x aidetector-osx-v0.7.5.command
-xattr -dr com.apple.quarantine aidetector-osx-v0.7.5.command
-./aidetector-osx-v0.7.5.command
-```
+Na de [installatie](#installeren-en-automatisch-bijwerken) draait de detector vanzelf. Het
+programma leest `config.json` uit de map waar het zelf staat, `~/CowCatcher`.
 
 ### Automatisch herstarten
 
@@ -466,8 +512,8 @@ De detector start zichzelf opnieuw:
   opslaat. Camerasleutels en tokens staan daarbij onleesbaar in het log.
 
 Bij een herstart worden meldingen die op dat moment worden verstuurd eerst afgemaakt.
-Een sprong die op dat moment nog bezig is, telt niet mee. Stoppen doe je nog steeds
-met `Ctrl+C`.
+Een sprong die op dat moment nog bezig is, telt niet mee. Stoppen doe je met
+`~/CowCatcher/updater/cowcatcher.sh stop detector`.
 
 ## Web-interface
 
@@ -493,7 +539,7 @@ of telefoon op het wifi van de boerderij. De pagina **Koeien** heeft drie tabbla
   archiveer je een koe die weg is. Met `herd_file` blijft de koeienlijst leidend.
 - **Overzicht**: per koe hoe vaak ze besprongen werd en zelf sprong, over 1 tot 30 dagen.
   (De pagina **Twijfel** staat in [Twijfelgevallen controleren](#twijfelgevallen-controleren);
-  **Detections** toont alle meldingen uit de schijf-export, zoals `Desktop/video`.)
+  **Detections** toont alle meldingen uit de schijf-export, zoals `CowCatcher/video`.)
   Klik op een koe voor haar sprongen: wanneer, welke camera, door of op welke koe, met de
   foto's, **Video** (de video van de melding) en **Hele beeld**. Bij een koe onder
   **Koeien** staan haar sprongen ook.
@@ -502,21 +548,12 @@ De video van elke melding wordt 90 dagen bewaard (`video_days`) in
 `data/koeien/.meldingen/<id>/video.mp4`; sprongen van vóór detector v0.8.0-beta.17 hebben
 geen video op de website.
 
-De web-interface is een apart programma. Download `aidetector-web-osx-<versie>.zip` via de
-[releases](https://github.com/StefHarmens/ai-detector/releases) (de release **Web …**), pak
-het uit in dezelfde map als `config.json` en start het naast de detector:
-
-```bash
-cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
-chmod +x aidetector-web-osx-v0.8.0.command
-xattr -dr com.apple.quarantine aidetector-web-osx-v0.8.0.command
-./aidetector-web-osx-v0.8.0.command
-```
-
-Hij opent de pagina zelf in de browser en toont in het venster de adressen voor andere
-apparaten, bijvoorbeeld `http://mac-mini.local` en `http://192.168.1.23`. Vraagt macOS of
-het programma inkomende verbindingen mag accepteren, kies dan **Sta toe**. Laat het venster
-open, net als dat van de detector.
+De web-interface is een apart programma dat met de
+[installatie](#installeren-en-automatisch-bijwerken) meekomt en net als de detector vanzelf
+draait en bijgewerkt wordt. Open op een ander apparaat `http://<naam-van-de-mac>.local`
+(bijvoorbeeld `http://mac-mini.local`) of het IP-adres van de Mac mini, bijvoorbeeld
+`http://192.168.1.23`; de adressen staan ook bovenaan `cowcatcher.sh logs web`. Vraagt macOS
+of het programma inkomende verbindingen mag accepteren, kies dan **Sta toe**.
 
 - De pagina is alleen op het eigen netwerk te bereiken en heeft geen wachtwoord. Zet hem niet
   open naar internet (geen port forwarding in de router).
@@ -554,8 +591,8 @@ Zet daarvoor in `config.json` een schijf-export met `review` en `review_confiden
 "yolo": { "confidence": 0.8, "review_confidence": 0.7, "...": "..." },
 "exporters": {
 	"disk": [
-		{ "directory": "/Users/cowcatcher/Desktop/video" },
-		{ "directory": "/Users/cowcatcher/Desktop/data/twijfel", "review": true }
+		{ "directory": "/Users/cowcatcher/CowCatcher/video" },
+		{ "directory": "/Users/cowcatcher/CowCatcher/data/twijfel", "review": true }
 	]
 }
 ```
@@ -564,11 +601,11 @@ Of bekijk ze met het reviewprogramma (vanaf v0.8.0). De detector mag daarbij gew
 draaien:
 
 ```bash
-cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
+cd "/Users/cowcatcher/CowCatcher"
 
-./aidetector-osx-v0.8.0.command review-feedback \
-	--source "/Users/cowcatcher/Desktop/data/twijfel" \
-	--data-root "/Users/cowcatcher/Desktop/data"
+./aidetector review-feedback \
+	--source "/Users/cowcatcher/CowCatcher/data/twijfel" \
+	--data-root "/Users/cowcatcher/CowCatcher/data"
 ```
 
 In de browser zie je per gebeurtenis de video en het beeld. Kies **Good** (`G`) als het
@@ -584,17 +621,18 @@ map.
 
 ## Model trainen
 
-Stop eerst de actieve detector. Train daarna op Apple Silicon met de
-gecontroleerde afbeeldingen uit `data/good` en `data/bad`:
+Stop eerst de actieve detector (`~/CowCatcher/updater/cowcatcher.sh stop detector`, daarna
+weer `start`). Train daarna op Apple Silicon met de gecontroleerde afbeeldingen uit
+`data/good` en `data/bad`:
 
 ```bash
-cd "/Users/cowcatcher/Desktop/CowCatcher - Custom"
+cd "/Users/cowcatcher/CowCatcher"
 
-./aidetector-osx-v0.7.5.command train-feedback \
+./aidetector train-feedback \
 	--config config.json \
-	--data-root "/Users/cowcatcher/Desktop/data" \
-	--model "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcherV17.pt" \
-	--output "/Users/cowcatcher/Desktop/CowCatcher - Custom/models/cowcatcher-feedback.pt" \
+	--data-root "/Users/cowcatcher/CowCatcher/data" \
+	--model "/Users/cowcatcher/CowCatcher/models/cowcatcherV17.pt" \
+	--output "/Users/cowcatcher/CowCatcher/models/cowcatcher-feedback.pt" \
 	--epochs 25 \
 	--batch 4 \
 	--device mps \

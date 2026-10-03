@@ -155,6 +155,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Web ${{ steps.version.outputs.version }}
           make_latest: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: web/dist/aidetector-web-windows-${{ steps.version.outputs.version }}.zip
 
   macos-exe:
@@ -237,4 +238,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Web ${{ steps.version.outputs.version }}
           make_latest: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: web/dist/aidetector-web-osx-${{ steps.version.outputs.version }}.zip
