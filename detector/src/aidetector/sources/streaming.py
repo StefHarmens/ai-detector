@@ -8,6 +8,7 @@ from numpy import ndarray
 from ultralytics.data.loaders import LoadStreams
 
 from .collector import FrameCollector
+from .hires import hide_keys
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ class StreamBatcher:
         self.condition = Condition()
 
         def run_loader(index: int, source: str):
-            logger.info("Stream loader started for %s", source)
+            # Stream links hold a secret key; logs get pasted into chats.
+            label = hide_keys(source)
+            logger.info("Stream loader started for %s", label)
             while self.running:
                 loader: LoadStreams | None = None
                 try:
@@ -62,9 +65,15 @@ class StreamBatcher:
                                 source,
                             )
                             self.condition.notify()
+                except ConnectionError as error:
+                    # A camera that drops out now and then; the next attempt reconnects.
+                    if self.running:
+                        logger.warning(
+                            "Could not open stream %s: %s", label, hide_keys(str(error))
+                        )
                 except Exception:
                     if self.running:
-                        logger.exception("Stream loader crashed for %s", source)
+                        logger.exception("Stream loader crashed for %s", label)
                 finally:
                     if loader is not None:
                         try:
@@ -72,7 +81,7 @@ class StreamBatcher:
                         except Exception:
                             logger.info("Failed to close stream loader", exc_info=True)
                 sleep(1)
-            logger.info("Stream loader finished for %s", source)
+            logger.info("Stream loader finished for %s", label)
 
         for index, source in enumerate(self.sources):
             thread = Thread(target=run_loader, args=(index, source), daemon=True)
@@ -105,7 +114,10 @@ class StreamBatcher:
         new_missing = set(self.sources) - present_sources
         intersect = new_missing & self.missing_sources
         if intersect:
-            logger.warning("Missing frames from sources: %s", sorted(intersect))
+            logger.warning(
+                "Missing frames from sources: %s",
+                ", ".join(hide_keys(source) for source in sorted(intersect)),
+            )
         self.missing_sources = new_missing
 
     def __iter__(self):

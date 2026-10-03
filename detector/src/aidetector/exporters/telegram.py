@@ -178,6 +178,10 @@ class TelegramFeedbackListener:
                     message = update.get("message")
                     if message:
                         self.process_message(message)
+            except (requests.Timeout, requests.ConnectionError) as error:
+                # Long polls stall now and then; the next poll resumes from the same offset.
+                self.logger.warning("Telegram feedback poll interrupted: %s", error)
+                self.stop_event.wait(5)
             except Exception:
                 self.logger.exception("Failed to poll Telegram feedback")
                 self.stop_event.wait(5)
