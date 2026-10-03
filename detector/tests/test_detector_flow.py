@@ -1,5 +1,9 @@
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta
+from threading import Lock
+from time import sleep
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -8,9 +12,11 @@ from aidetector.detection.yolo import TrackedSourceResult
 from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.telegram import TelegramExporter
 from aidetector.exporters.webhook import WebhookExporter
+from aidetector.review import ReviewSession
 from aidetector.utils.config import (
     ChatConfig,
     Config,
+    Crop,
     Detection,
     DetectionConfig,
     DetectorConfig,
@@ -32,6 +38,9 @@ class ImmediateExecutor:
     def submit(self, fn):
         fn()
 
+    def shutdown(self, wait=True):
+        pass
+
 
 class FakeValidator:
     def __init__(self, value):
@@ -47,6 +56,34 @@ class RecordingExporter:
 
     def export(self, best_detection, detections, validated):
         self.calls.append((best_detection, detections, validated))
+
+
+class ReviewExporter(RecordingExporter):
+    config = SimpleNamespace(review=True)
+
+
+def make_review_detection(date: datetime, *confidences: float) -> Detection:
+    image = np.zeros((80, 120, 3), dtype=np.uint8)
+    crops = [
+        Crop(10 * i, 10, 10 * i + 20, 40, label="cow", confidence=confidence)
+        for i, confidence in enumerate(confidences)
+    ]
+    return Detection(date, ImageSet(image, crops), {"cow": max(confidences)})
+
+
+def make_review_detector(
+    frames_min: int = 2,
+) -> tuple[Detector, RecordingExporter, RecordingExporter]:
+    alert, review = RecordingExporter(), ReviewExporter()
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(
+        model="model.onnx",
+        confidence=0.85,
+        review_confidence=0.7,
+        frames_min=frames_min,
+    )
+    detector.exporters = [alert, review]
+    return detector, alert, review
 
 
 class RecordingYoloRunner:
@@ -74,6 +111,10 @@ def make_detector() -> Detector:
     detector.export_executor = ImmediateExecutor()
     detector.last_detection_time = {}
     detector.last_frame_time = datetime.min
+    detector.camera_names = {}
+    detector.hires = {}
+    detector.lock = Lock()
+    detector.running = True
     return detector
 
 
@@ -116,6 +157,53 @@ def test_export_validates_exports_and_clears_detections():
     assert best_detection.confidence == {"cow": 0.9}
     assert len(detections) == 2
     assert validated is True
+
+
+def test_export_gives_the_best_detection_the_4k_frames_from_before_the_event():
+    from aidetector.sources.hires import HiresBuffer
+    from aidetector.utils.config import HiresConfig, HiresFrame
+
+    source = "camera"
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    start = datetime.now() - timedelta(seconds=5)
+    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10, seconds=600))
+    for offset in (-30, -8, -2, 1, 3):
+        buffer.add(HiresFrame(start + timedelta(seconds=offset), b"jpeg"))
+    detector.hires = {source: buffer}
+    detector.detections[source] = [
+        make_detection(start, {"cow": 0.7}),
+        make_detection(start + timedelta(seconds=2), {"cow": 0.9}),
+    ]
+
+    detector._export(source)
+
+    best_detection = exporter.calls[0][0]
+    assert [frame.date - start for frame in best_detection.hires] == [
+        timedelta(seconds=offset) for offset in (-8, -2, 1, 3)
+    ]
+
+
+def test_a_mount_holds_its_4k_frames_until_it_is_exported():
+    from aidetector.sources.hires import HiresBuffer
+    from aidetector.utils.config import HiresConfig
+
+    source = "camera"
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(model="model.pt", confidence=0.8, time_max=60, timeout=5)
+    detector.exporters = [RecordingExporter()]
+    buffer = HiresBuffer("rtsp://4k", HiresConfig(source="rtsp://4k", before_seconds=10))
+    detector.hires = {source: buffer}
+    start = datetime.now()
+
+    detector._process(source, [make_detection(start, {"cow": 0.9})])
+    assert buffer.held == start - timedelta(seconds=10)
+    detector._process(source, [make_detection(start + timedelta(seconds=1), {"cow": 0.9})])
+    assert buffer.held == start - timedelta(seconds=10)
+
+    detector._export(source)
+    assert buffer.held is None
 
 
 def test_validator_without_vlms_defaults_to_validated_true():
@@ -207,3 +295,124 @@ def test_detector_tracks_sources_as_stream_batch_when_tracking_is_enabled():
         ("camera-1", "camera-1-tracked", 2),
         ("camera-2", "camera-2-tracked", 1),
     ]
+
+
+def test_event_below_the_alert_confidence_goes_to_review():
+    detector, alert, review = make_review_detector()
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.75),
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.8),
+    ]
+
+    detector._export("camera")
+
+    assert alert.calls == []
+    [(best, detections, validated)] = review.calls
+    assert best.confidence == {"cow": 0.8}
+    assert len(detections) == 2
+    assert validated is None
+
+
+def test_event_with_too_few_frames_goes_to_review():
+    detector, alert, review = make_review_detector(frames_min=3)
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.9),
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.95),
+    ]
+
+    detector._export("camera")
+
+    assert alert.calls == []
+    assert len(review.calls) == 1
+
+
+def test_alert_only_counts_and_shows_boxes_above_the_alert_confidence():
+    detector, alert, review = make_review_detector(frames_min=2)
+    detector.detections["camera"] = [
+        make_review_detection(START_REVIEW, 0.9, 0.72),
+        # A doubtful frame does not count towards frames_min.
+        make_review_detection(START_REVIEW + timedelta(seconds=1), 0.75),
+        make_review_detection(START_REVIEW + timedelta(seconds=2), 0.88),
+    ]
+
+    detector._export("camera")
+
+    assert review.calls == []
+    [(best, detections, _)] = alert.calls
+    assert best.confidence == {"cow": 0.9}
+    assert [crop.confidence for crop in best.images.crops] == [0.9]
+    assert [detection.confidence for detection in detections] == [
+        {"cow": 0.9},
+        {},
+        {"cow": 0.88},
+    ]
+
+
+def test_review_folder_can_be_sorted_with_review_feedback(tmp_path):
+    exporter = DiskExporter(DiskConfig(directory=tmp_path / "twijfel", review=True))
+    detection = make_review_detection(START_REVIEW, 0.75)
+    detection.camera = "Stal Rechts"
+
+    exporter.export(detection, [detection], None)
+
+    [folder] = (tmp_path / "twijfel").iterdir()
+    assert folder.name == "2026-01-01T12-00-00 Stal Rechts"
+    metadata = json.loads((folder / "metadata.json").read_text())
+    assert metadata["camera"] == "Stal Rechts"
+    assert metadata["boxes"] == [
+        {"x1": 0, "y1": 10, "x2": 20, "y2": 40, "label": "cow"}
+    ]
+
+    session = ReviewSession(tmp_path / "twijfel", tmp_path)
+    session.decide(folder.name, "good")
+
+    assert (tmp_path / "good" / f"{folder.name}.jpg").is_file()
+
+
+START_REVIEW = datetime(2026, 1, 1, 12, 0, 0)
+
+
+def test_timeout_monitor_and_frames_do_not_export_an_event_twice():
+    from concurrent.futures import ThreadPoolExecutor as Pool
+
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.yolo_config = YoloConfig(model="model.onnx", frames_min=1, timeout=1)
+    detector.exporters = [exporter]
+    detector.detections["camera"] = [
+        make_detection(datetime.now() - timedelta(seconds=5), {"cow": 0.9})
+    ]
+    # Widen the window between checking the timeout and clearing the event.
+    detector._cooldown_exceeded = lambda source, confidences: sleep(0.05) or True
+
+    with Pool(8) as pool:
+        list(pool.map(lambda _: detector._process("camera"), range(8)))
+
+    assert len(exporter.calls) == 1
+
+
+def test_stop_exports_the_event_that_is_still_being_collected():
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    detector.source_provider = SimpleNamespace(close=lambda: None)
+    detector.running = True
+    detector.detections["camera"] = [make_detection(datetime.now(), {"cow": 0.9})]
+
+    detector.stop()
+
+    assert len(exporter.calls) == 1
+    assert detector.detections["camera"] == []
+
+
+def test_frames_after_stop_are_dropped():
+    exporter = RecordingExporter()
+    detector = make_detector()
+    detector.exporters = [exporter]
+    detector.source_provider = SimpleNamespace(close=lambda: None)
+    detector.stop()
+
+    detector._process("camera", [make_detection(datetime.now(), {"cow": 0.9})])
+    detector.stop()
+
+    assert exporter.calls == []

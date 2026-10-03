@@ -16,6 +16,27 @@ const NO_FRAME_TIMEOUT_MS = 8_000;
 const FORCE_KILL_DELAY_MS = 2_000;
 const MAX_STDERR_TAIL_LENGTH = 4_000;
 
+// The grid shows small previews; ?kwaliteit=4k shows one camera at full size,
+// so the numbers on the cows can be read.
+const PREVIEW_ARGS = ['-vf', 'fps=12,scale=960:-1:flags=lanczos', '-q:v', '7'];
+const FULL_ARGS = [
+	'-vf',
+	// One fixed format in the full colour range JPEG uses: the UniFi High
+	// stream otherwise made the encoder fail with "Invalid argument".
+	'fps=10,scale=iw:-2:out_range=full,format=yuv420p',
+	'-color_range',
+	'pc',
+	'-strict',
+	'unofficial',
+	'-q:v',
+	'3'
+];
+
+// Decoding on the Mac's media engine instead of the CPU; FFmpeg decodes in
+// software by itself when that fails. A 4K view went from half a CPU core to
+// a fifth with it.
+const DECODER_ARGS = process.platform === 'darwin' ? ['-hwaccel', 'videotoolbox'] : [];
+
 type Timeout = ReturnType<typeof setTimeout>;
 
 const clearTimer = (timer: Timeout | null) => {
@@ -30,7 +51,7 @@ function appendStderrTail(stderr: string, chunk: Buffer<ArrayBufferLike>) {
 	return next.length > MAX_STDERR_TAIL_LENGTH ? next.slice(-MAX_STDERR_TAIL_LENGTH) : next;
 }
 
-function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
+function createStream(source: string, ffmpegPath: string, signal: AbortSignal, full: boolean) {
 	let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
 	let ffmpeg: ReturnType<typeof spawn> | null = null;
 	let firstFrameTimer: Timeout | null = null;
@@ -59,7 +80,12 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 		try {
 			reason ? controller.error(reason) : controller.close();
 		} catch (error) {
-			if (!(error instanceof TypeError && (error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE')) {
+			if (
+				!(
+					error instanceof TypeError &&
+					(error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE'
+				)
+			) {
 				throw error;
 			}
 		}
@@ -107,6 +133,7 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 					'-loglevel',
 					'error',
 					'-nostdin',
+					...DECODER_ARGS,
 					...getRtspInputArgs(source),
 					'-map',
 					'0:v:0',
@@ -115,10 +142,11 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 					'-dn',
 					'-c:v',
 					'mjpeg',
-					'-vf',
-					'fps=8,scale=960:-1:flags=lanczos',
-					'-q:v',
-					'7',
+					// The encoder starts a thread per CPU core that each hold a
+					// frame: 1.6 GB for one 4K view, against 0.35 GB with one.
+					'-threads',
+					'1',
+					...(full ? FULL_ARGS : PREVIEW_ARGS),
 					'-f',
 					'mpjpeg',
 					'-boundary_tag',
@@ -181,14 +209,17 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 					return;
 				}
 
-				console.warn(hadFrame ? 'FFmpeg preview ended' : 'FFmpeg preview exited before first frame', {
-					source: sanitizeSourceForLogs(source),
-					exitCode: exitCode ?? 'unknown',
-					signal: signal ?? undefined,
-					hadFrame,
-					reason: stopReason ?? undefined,
-					stderr: stderr.trim() ? sanitizeTextForLogs(stderr.trim()) : undefined
-				});
+				console.warn(
+					hadFrame ? 'FFmpeg preview ended' : 'FFmpeg preview exited before first frame',
+					{
+						source: sanitizeSourceForLogs(source),
+						exitCode: exitCode ?? 'unknown',
+						signal: signal ?? undefined,
+						hadFrame,
+						reason: stopReason ?? undefined,
+						stderr: stderr.trim() ? sanitizeTextForLogs(stderr.trim()) : undefined
+					}
+				);
 				finish(new Error(hadFrame ? 'Live stream ended.' : 'Live stream unavailable.'));
 			});
 		},
@@ -199,7 +230,7 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal) {
 	});
 }
 
-export const GET: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = async ({ params, request, url }) => {
 	const source = params.source?.trim();
 	if (!source || !isRtspSource(source)) {
 		throw error(400, 'Only RTSP and RTSPS sources are supported for live preview.');
@@ -213,7 +244,8 @@ export const GET: RequestHandler = async ({ params, request }) => {
 		);
 	}
 
-	return new Response(createStream(source, ffmpegPath, request.signal), {
+	const full = url.searchParams.get('kwaliteit') === '4k';
+	return new Response(createStream(source, ffmpegPath, request.signal, full), {
 		headers: {
 			'Content-Type': `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`,
 			'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',

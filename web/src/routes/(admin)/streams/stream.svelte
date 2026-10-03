@@ -9,6 +9,8 @@
 	type Props = {
 		label: string;
 		source: string;
+		// The camera's 4K stream, opened at full size in a new tab.
+		hires?: string;
 		showLoading?: boolean;
 		hideOverlay?: boolean;
 		disableLink?: boolean;
@@ -17,6 +19,7 @@
 	let {
 		label,
 		source,
+		hires,
 		showLoading = false,
 		hideOverlay = false,
 		disableLink = false
@@ -27,6 +30,9 @@
 	let image: HTMLImageElement | null = null;
 
 	const streamUrl = $derived(resolve(`/streams/${encodeURIComponent(source)}`));
+	const hiresUrl = $derived(
+		hires ? `${resolve(`/streams/${encodeURIComponent(hires)}`)}?kwaliteit=4k` : null
+	);
 	const loading = $derived(!imageReady && !unavailable);
 
 	function handleLoad() {
@@ -97,6 +103,17 @@
 			</div>
 		{/if}
 	</button>
+	{#if hiresUrl}
+		<a
+			href={hiresUrl}
+			target="_blank"
+			rel="noreferrer"
+			class="absolute end-2 bottom-2 z-20 rounded-md bg-black/60 px-2 py-1 text-xs font-semibold text-white hover:bg-black/80"
+			title="Deze camera in 4K openen, om nummers te lezen"
+		>
+			4K
+		</a>
+	{/if}
 </CardOverlay>
 
 {#snippet overlay()}

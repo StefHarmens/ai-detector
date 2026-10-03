@@ -1,7 +1,8 @@
 <script lang="ts">
 	import NavUser from './nav-user.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-	import CCTV from '@lucide/svelte/icons/cctv';
+	import { resolve } from '$app/paths';
+	import logo from '$lib/assets/logo.svg';
 	import type { ComponentProps } from 'svelte';
 	import NavMain from './nav-main.svelte';
 	import type { NavMenu, NavItem } from './types';
@@ -9,6 +10,7 @@
 	let {
 		title,
 		subtitle,
+		version,
 		user,
 		menu,
 		secondaryMenu,
@@ -17,6 +19,7 @@
 	}: {
 		title: string;
 		subtitle: string;
+		version?: string;
 		menu: NavMenu[];
 		secondaryMenu?: NavMenu[];
 		user?: {
@@ -33,17 +36,21 @@
 	<Sidebar.Header>
 		<Sidebar.Menu>
 			<Sidebar.MenuItem>
-				<Sidebar.MenuButton size="lg">
+				<Sidebar.MenuButton size="lg" class="h-auto py-2">
 					{#snippet child({ props })}
-						<a href="##" {...props}>
+						<a href={resolve('/')} {...props}>
+							<!-- The logo is green on white, so it stays readable in dark mode. -->
 							<div
-								class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"
+								class="flex size-14 shrink-0 items-center justify-center rounded-lg bg-white p-1"
 							>
-								<CCTV class="size-4" />
+								<img src={logo} alt="" class="size-full object-contain" />
 							</div>
-							<div class="grid flex-1 text-start text-sm leading-tight">
-								<span class="truncate font-medium">{title}</span>
-								<span class="truncate text-xs">{subtitle}</span>
+							<div class="grid flex-1 gap-0.5 text-start text-sm leading-tight">
+								<span class="truncate text-base font-semibold">{title}</span>
+								<span class="text-xs leading-snug">{subtitle}</span>
+								{#if version}
+									<span class="truncate text-xs text-sidebar-foreground/60">{version}</span>
+								{/if}
 							</div>
 						</a>
 					{/snippet}

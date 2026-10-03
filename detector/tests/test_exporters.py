@@ -14,6 +14,7 @@ from aidetector.utils.config import (
     Detection,
     DiskConfig,
     ExporterConfig,
+    HiresFrame,
     ImageSet,
     WebhookConfig,
 )
@@ -84,6 +85,32 @@ def test_disk_exporter_writes_detection_files(tmp_path, monkeypatch):
     assert metadata["confidence"] == 0.9
     assert metadata["detections"] == 2
     assert metadata["crop"] == {"x1": 12, "y1": 12, "x2": 42, "y2": 52}
+    assert metadata["hires"] is False
+    assert not (event_dir / "hires-best.jpg").exists()
+
+
+def test_disk_exporter_keeps_the_whole_4k_frame(tmp_path, monkeypatch):
+    import cv2
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "aidetector.exporters.disk.generate_mp4", lambda *_args, **_kwargs: b"mp4"
+    )
+    detections = make_detections()
+    frame = np.zeros((800, 1200, 3), dtype=np.uint8)
+    detections[-1].hires = [
+        HiresFrame(detections[-1].date, cv2.imencode(".jpg", frame)[1].tobytes())
+    ]
+
+    DiskExporter(DiskConfig(directory=Path("events"))).export(detections[-1], detections, True)
+
+    event_dir = next((tmp_path / "detections" / "events" / "approved").iterdir())
+    best = cv2.imread(str(event_dir / "hires-best.jpg"))
+    assert best.shape == (800, 1200, 3)
+    # The box of the detection, scaled to the 4K frame, is drawn in blue.
+    assert best[300, 120, 0] > 200 and best[300, 60, 0] < 50
+    assert (event_dir / "hires.jpg").exists()
+    assert json.loads((event_dir / "metadata.json").read_text())["hires"] is True
 
 
 def test_webhook_exporter_sends_no_body_for_none_data_type(monkeypatch):
@@ -144,7 +171,7 @@ def test_webhook_explicit_body_overrides_generated_payload(monkeypatch):
 
 def test_telegram_exporter_respects_alert_every(monkeypatch):
     monkeypatch.setattr(
-        "aidetector.exporters.telegram.generate_mp4", lambda *_args, **_kwargs: None
+        "aidetector.exporters.telegram.event_mp4", lambda *_args, **_kwargs: None
     )
     detections = make_detections()
     exporter = TelegramExporter(
@@ -202,6 +229,11 @@ def test_telegram_exporter_adds_feedback_buttons(monkeypatch):
     callback_data = [button["callback_data"] for button in markup["inline_keyboard"][0]]
     assert callback_data[0].endswith(":good")
     assert callback_data[1].endswith(":bad")
+    assert calls[1][1]["data"]["text"] == "Klopt deze melding?"
+    assert [button["text"] for button in markup["inline_keyboard"][0]] == [
+        "👍 Goed",
+        "👎 Fout",
+    ]
     assert list(Path(".telegram-feedback").glob("*.jpg"))
 
 
@@ -259,3 +291,67 @@ def test_telegram_feedback_uses_configured_directory(tmp_path, monkeypatch):
     assert list((feedback_directory / "good").glob("*.jpg"))
     assert not (working_directory / ".telegram-feedback").exists()
     assert not (working_directory / "good").exists()
+
+
+class _SentResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self, message_id: int = 77):
+        self.message_id = message_id
+
+    def json(self):
+        return {"ok": True, "result": {"message_id": self.message_id}}
+
+
+def test_a_choice_on_the_web_page_ticks_the_telegram_button(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append((url.rsplit("/", 1)[-1], data)) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+    listener.add_buttons("123", 42, feedback_id)
+
+    listener.classify(feedback_id, "bad")
+
+    method, data = posts[-1]
+    assert method == "editMessageReplyMarkup"
+    assert (data["chat_id"], data["message_id"]) == ("123", 77)
+    texts = [button["text"] for button in json.loads(data["reply_markup"])["inline_keyboard"][0]]
+    assert texts == ["👍 Goed", "✅ Fout"]
+    assert list((tmp_path / "bad").glob("*.jpg"))
+
+
+def test_the_telegram_button_is_ticked_even_when_the_image_is_gone(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append(url.rsplit("/", 1)[-1]) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+    listener.add_buttons("123", 42, feedback_id)
+    (tmp_path / ".telegram-feedback" / f"{feedback_id}.jpg").unlink()
+
+    try:
+        listener.classify(feedback_id, "good")
+    except FileNotFoundError:
+        pass
+
+    assert posts[-1] == "editMessageReplyMarkup"
+
+
+def test_older_alerts_without_stored_buttons_are_left_alone(tmp_path, monkeypatch):
+    posts = []
+    monkeypatch.setattr(
+        "aidetector.exporters.telegram.requests.post",
+        lambda url, data=None, timeout=None: posts.append(url) or _SentResponse(),
+    )
+    listener = TelegramFeedbackListener("token", tmp_path)
+    feedback_id = listener.save_detection(make_detections()[-1])
+
+    listener.classify(feedback_id, "bad")
+
+    assert posts == []

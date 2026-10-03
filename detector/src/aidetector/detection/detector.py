@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from threading import Thread
+from threading import Lock, Thread
 from time import sleep
 
 from aidetector.detection.validator import Validator
@@ -11,6 +11,7 @@ from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.exporter import Exporter
 from aidetector.exporters.telegram import TelegramExporter
 from aidetector.exporters.webhook import WebhookExporter
+from aidetector.sources.hires import HiresBuffer, hires_buffers
 from aidetector.sources.source import SourceProvider
 from aidetector.utils.config import (
     ChatConfig,
@@ -24,6 +25,7 @@ from aidetector.utils.config import (
     VLMConfig,
     WebhookConfig,
     YoloConfig,
+    confidence_matches,
     matching_confidences,
     max_confidence,
 )
@@ -44,6 +46,8 @@ class Detector:
     export_executor: ThreadPoolExecutor
     last_frame_time: datetime
     last_detection_time: dict[str, dict[str, datetime]]
+    camera_names: dict[str, str]
+    hires: dict[str, HiresBuffer]
 
     def __init__(
         self,
@@ -56,7 +60,8 @@ class Detector:
         self.detections = defaultdict(list)
         self.detection = detection
         self.yolo_config = yolo_config
-        self.source_provider = SourceProvider(detection)
+        self.hires = hires_buffers(detection, camera_names(detection))
+        self.source_provider = SourceProvider(detection, self._feed_hires)
         self.yolo_runner = (
             YoloRunner(yolo_config, onnx_config, self.source_provider.sources)
             if yolo_config is not None
@@ -68,6 +73,9 @@ class Detector:
         self.export_executor = ThreadPoolExecutor()
         self.last_frame_time = datetime.min
         self.last_detection_time = {}
+        self.camera_names = camera_names(detection)
+        # The frame thread and the timeout monitor both finish events.
+        self.lock = Lock()
 
     @classmethod
     def from_config(cls, config: Config, detector: DetectorConfig) -> list[Self]:
@@ -186,30 +194,70 @@ class Detector:
             try:
                 self._generate_frames()
             finally:
-                self.running = False
-                self.source_provider.close()
-                self.export_executor.shutdown(wait=True)
+                self.stop()
 
+        for buffer in self.hires.values():
+            buffer.start()
         Thread(target=monitor_timeouts, daemon=True).start()
         thread = Thread(target=frame_producer)
         thread.start()
         return thread
 
+    def stop(self) -> None:
+        """Stops reading frames, finishes the events that are still being
+        collected and waits until all exports are sent."""
+        self.running = False
+        self.source_provider.close()
+        for buffer in self.hires.values():
+            buffer.stop()
+        with self.lock:
+            for source in list(self.detections):
+                if self.detections[source]:
+                    self._export(source)
+        self.export_executor.shutdown(wait=True)
+
+    def _submit(self, task) -> None:
+        try:
+            self.export_executor.submit(task)
+        except RuntimeError:
+            # A batch that was already being processed when the detector stopped.
+            self.logger.warning("Detector is stopping, event is not exported")
+
     def _process(self, source: str, detections: list[Detection] | None = None):
-        if self._timeout_exceeded(source):
-            self._export(source)
+        with self.lock:
+            if not self.running:
+                # stop() already finished the events; drop late frames.
+                return
+            if self._timeout_exceeded(source):
+                self._export(source)
 
-        if detections:
-            for detection in detections:
-                self.detections[source].append(detection)
+            if detections:
+                if not self.detections[source]:
+                    self._hold_hires(source, detections[0].date)
+                for detection in detections:
+                    self.detections[source].append(detection)
 
-        if self._time_exceeded(source):
-            self._export(source)
+            if self._time_exceeded(source):
+                self._export(source)
 
     def _export(self, source: str):
-        detections = self.detections[source]
-        if self._has_min_detections(source):
+        try:
+            self._export_event(source)
+        finally:
+            # The frames of this mount are copied or not needed any more.
+            buffer = self.hires.get(source)
+            if buffer is not None:
+                buffer.release()
+
+    def _export_event(self, source: str):
+        all_detections = self.detections[source]
+        for detection in all_detections:
+            detection.source = source
+            detection.camera = self.camera_names.get(source, source)
+        detections = self._alert_detections(all_detections)
+        if self._has_min_detections(detections):
             best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
+            self._attach_hires(source, best_detection, detections)
 
             matching_confs = (
                 matching_confidences(
@@ -242,6 +290,8 @@ class Detector:
                     self.last_detection_time[source] = last_detection_time
 
                 for exporter in self.exporters:
+                    if _is_review(exporter):
+                        continue
                     try:
                         exporter.export(best_detection, detections, validated)
                     except Exception:
@@ -249,7 +299,7 @@ class Detector:
                             f"Exporter {exporter.__class__.__name__} failed"
                         )
 
-            self.export_executor.submit(export_task)
+            self._submit(export_task)
         elif detections:
             confidences = [
                 max_confidence(detection.confidence)
@@ -263,11 +313,96 @@ class Detector:
                 self.yolo_config.frames_min if self.yolo_config else 0,
                 confidences,
             )
+            if any(detection.confidence for detection in all_detections):
+                self._export_review(all_detections)
         self.detections[source] = []
 
-    def _has_min_detections(self, source: str) -> bool:
+    def _hold_hires(self, source: str, start: datetime) -> None:
+        """A mount starts: its 4K frames, from before_seconds before it, stay
+        until it is handled, however long it lasts."""
+        buffer = self.hires.get(source)
+        if buffer is not None:
+            buffer.hold(start - timedelta(seconds=buffer.config.before_seconds))
+
+    def _feed_hires(self, source: str, frame: ndarray) -> None:
+        buffer = self.hires.get(source)
+        if buffer is not None and buffer.from_detection:
+            buffer.feed(frame)
+
+    def _attach_hires(
+        self, source: str, best_detection: Detection, detections: list[Detection]
+    ) -> None:
+        """Copies the high-resolution frames of the event now, before the buffer
+        drops them while the exporters are still busy."""
+        buffer = self.hires.get(source)
+        if buffer is None:
+            return
+        start = detections[0].date - timedelta(seconds=buffer.config.before_seconds)
+        best_detection.hires = buffer.frames_between(start, datetime.now())
+        if not best_detection.hires:
+            self.logger.warning("No high-resolution frames for this event on %s", source)
+
+    def _alert_detections(self, detections: list[Detection]) -> list[Detection]:
+        """Drops the boxes below yolo.confidence, which only count for review."""
+        if self.yolo_config is None or self.yolo_config.review_confidence is None:
+            return detections
+        threshold = self.yolo_config.confidence
+
+        def matches(label: str | None, confidence: float | None) -> bool:
+            return (
+                label is not None
+                and confidence is not None
+                and confidence_matches({label: confidence}, threshold)
+            )
+
+        return [
+            Detection(
+                detection.date,
+                detection.images.with_crops(
+                    [
+                        crop
+                        for crop in detection.images.crops
+                        if matches(crop.label, crop.confidence)
+                    ]
+                ),
+                {
+                    label: confidence
+                    for label, confidence in detection.confidence.items()
+                    if matches(label, confidence)
+                },
+                source=detection.source,
+                camera=detection.camera,
+            )
+            for detection in detections
+        ]
+
+    def _export_review(self, detections: list[Detection]) -> None:
+        """Sends an event that did not become an alert to the review exporters,
+        so it can be sorted into good or bad by hand."""
+        exporters = [exporter for exporter in self.exporters if _is_review(exporter)]
+        if not exporters:
+            return
+        best_detection = max(detections, key=lambda x: max_confidence(x.confidence))
+        self.logger.info(
+            "Exporting for review: %s detections with max confidence %s",
+            len(detections),
+            max_confidence(best_detection.confidence),
+        )
+
+        def export_task():
+            for exporter in exporters:
+                try:
+                    exporter.export(best_detection, detections, None)
+                except Exception:
+                    self.logger.exception(
+                        f"Exporter {exporter.__class__.__name__} failed"
+                    )
+
+        self._submit(export_task)
+
+    def _has_min_detections(self, detections: list[Detection]) -> bool:
         detections_with_confidence = [
-            detection for detection in self.detections[source] if detection.confidence
+            detection for detection in detections if detection.confidence
         ]
         return len(detections_with_confidence) >= (
             self.yolo_config.frames_min if self.yolo_config else 0
@@ -323,3 +458,23 @@ class Detector:
             if self.yolo_config and self.yolo_config.timeout
             else False
         )
+
+
+def _is_review(exporter: Exporter) -> bool:
+    return getattr(getattr(exporter, "config", None), "review", False)
+
+
+def camera_names(detection: DetectionConfig) -> dict[str, str]:
+    sources = (
+        [detection.source] if isinstance(detection.source, str) else detection.source
+    )
+    names = [detection.name] if isinstance(detection.name, str) else detection.name or []
+    # Stream URLs often embed credentials, so they never double as a display name.
+    return {
+        source: names[index]
+        if index < len(names)
+        else source
+        if "://" not in source
+        else f"Camera {index + 1}"
+        for index, source in enumerate(sources)
+    }

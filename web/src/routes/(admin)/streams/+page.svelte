@@ -114,7 +114,7 @@
 				animate:flip={{ duration: FLIP_DURATION_MS }}
 			>
 				{#if activeSources.includes(stream.source)}
-					<Stream label={stream.label} source={stream.source} />
+					<Stream label={stream.label} source={stream.source} hires={stream.hires} />
 				{:else}
 					<div class="relative aspect-video w-full bg-black">
 						<div

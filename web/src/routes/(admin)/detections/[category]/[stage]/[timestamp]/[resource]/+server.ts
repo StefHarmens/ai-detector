@@ -1,4 +1,6 @@
-import { DETECTIONS_DIR } from '$lib/server/shared-paths';
+import { detectionFolders } from '$lib/server/detection-folders';
+import { resolveWithinDirectory } from '$lib/server/shared-paths';
+import { error } from '@sveltejs/kit';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -17,15 +19,15 @@ const contentTypes: Record<string, string> = {
 };
 
 export async function GET({ params }) {
-	const resolvedPath = path.join(
-		DETECTIONS_DIR,
-		params.category,
-		params.stage,
-		params.timestamp,
-		params.resource
-	);
+	const folder = (await detectionFolders()).get(params.category);
+	const resolvedPath = folder
+		? resolveWithinDirectory(folder, [params.stage, params.timestamp, params.resource].join('/'))
+		: null;
+	if (!resolvedPath) {
+		error(404, 'Niet gevonden');
+	}
 
-	const file = await fs.readFile(resolvedPath);
+	const file = await fs.readFile(resolvedPath).catch(() => error(404, 'Niet gevonden'));
 	const extension = path.extname(resolvedPath).toLowerCase();
 
 	return new Response(file, {

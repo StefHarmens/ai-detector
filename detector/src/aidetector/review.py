@@ -87,6 +87,15 @@ class ReviewSession:
         self._save()
         return self.status()
 
+    def clear(self, event_name: str) -> None:
+        """Takes back the choice for one event, e.g. from the web page."""
+        if event_name not in self.events:
+            raise ValueError("Unknown event")
+        self.decisions.pop(event_name, None)
+        self.history = [name for name in self.history if name != event_name]
+        self._remove_outputs(event_name)
+        self._save()
+
     def undo(self) -> dict[str, Any]:
         if not self.history:
             return self.status()
@@ -220,7 +229,8 @@ def main() -> None:
     parser.add_argument("--source", type=Path, default=Path("import"))
     parser.add_argument("--data-root", type=Path, default=Path("."))
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    # 8765 is the detector's own API for the web interface.
+    parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 

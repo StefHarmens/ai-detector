@@ -50,3 +50,22 @@ export interface StreamMeta {
     label?: string;
     source: string;
 }
+
+// metadata.json of a detection saved by the disk exporter.
+export interface Metadata {
+    type: string;
+    timestamp: string;
+    validated: boolean | null;
+    confidence: number;
+    confidences: Record<string, number>;
+    detections: number;
+    start: string;
+    end: string;
+    duration: number;
+    crop?: { x1: number; y1: number; x2: number; y2: number } | null;
+    camera?: string | null;
+    // Whether hires-best.jpg (whole 4K frame) and hires.jpg (4K crop) exist.
+    hires?: boolean;
+    width?: number | null;
+    height?: number | null;
+}

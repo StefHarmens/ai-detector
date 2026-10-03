@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import secrets
 import shutil
 from pathlib import Path
@@ -8,14 +9,17 @@ from typing import Any
 
 import requests
 
+from aidetector.cows.service import CowService, get_cow_service, split_message
+from aidetector.exporters.summary import SummaryService, get_summary_service
 from aidetector.exporters.webhook import WebhookExporter
 from aidetector.media.video import (
-    compress_jpg,
-    generate_mp4,
+    event_mp4,
     get_crop,
     get_image,
     get_plot,
+    telegram_photo,
 )
+from aidetector.sources.hires import hires_detection
 from aidetector.utils.config import (
     ChatConfig,
     Detection,
@@ -25,12 +29,18 @@ from aidetector.utils.config import (
 )
 
 
+# Button texts shown to the farmer; the callback data and folders stay good/bad.
+FEEDBACK_LABELS = {"good": "Goed", "bad": "Fout"}
+
+
 class TelegramFeedbackListener:
     logger = logging.getLogger("TelegramFeedbackListener")
 
     def __init__(self, token: str, feedback_directory: Path = Path(".")):
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.allowed_chats: set[str] = set()
+        self.summaries: dict[str, SummaryService] = {}
+        self.cows: dict[str, CowService] = {}
         self.data_root = feedback_directory.expanduser().resolve()
         self.feedback_directory = self.data_root / ".telegram-feedback"
         self.offset = 0
@@ -41,9 +51,17 @@ class TelegramFeedbackListener:
     def register_chat(self, chat: str) -> None:
         self.allowed_chats.add(str(chat))
 
+    def register_summary(self, chat: str, summary: SummaryService) -> None:
+        self.summaries[str(chat)] = summary
+
+    def register_cows(self, chat: str, cows: CowService) -> None:
+        self.cows[str(chat)] = cows
+        # "Geen sprong" on the web page files the mount like the Fout button.
+        cows.classify = self.classify
+
     def save_detection(self, detection: Detection) -> str:
         feedback_id = secrets.token_urlsafe(12)
-        image_height, image_width = detection.images.jpg.shape[:2]
+        image_height, image_width = detection.images.height, detection.images.width
         self.feedback_directory.mkdir(parents=True, exist_ok=True)
         (self.feedback_directory / f"{feedback_id}.jpg").write_bytes(
             get_image(detection.images.jpg)
@@ -80,13 +98,57 @@ class TelegramFeedbackListener:
                 "chat_id": chat,
                 "reply_to_message_id": message_id,
                 "allow_sending_without_reply": True,
-                "text": "Was this detection correct?",
+                "text": "Klopt deze melding?",
                 "reply_markup": self._reply_markup(feedback_id),
             },
             timeout=10,
         )
         if response.status_code >= 400:
             raise RuntimeError(response.text)
+        # So a choice on the web page can tick the button here too.
+        try:
+            result = response.json().get("result")
+            if isinstance(result, dict) and "message_id" in result:
+                self._buttons_path(feedback_id).write_text(
+                    json.dumps({"chat": str(chat), "message_id": int(result["message_id"])})
+                )
+        except (ValueError, OSError):
+            self.logger.warning("Could not remember the feedback buttons", exc_info=True)
+
+    def classify(self, feedback_id: str, label: str) -> None:
+        """Files a mount as good or bad from the web page, and ticks the
+        button below the alert in Telegram, as if the farmer tapped it."""
+        try:
+            self._classify(feedback_id, label)
+        finally:
+            self._show_label(feedback_id, label)
+
+    def _buttons_path(self, feedback_id: str) -> Path:
+        return self.feedback_directory / f"{feedback_id}.buttons.json"
+
+    def _show_label(self, feedback_id: str, label: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", feedback_id):
+            return
+        try:
+            buttons = json.loads(self._buttons_path(feedback_id).read_text())
+        except (FileNotFoundError, ValueError):
+            # Alerts from before this version do not know their buttons.
+            return
+        try:
+            response = requests.post(
+                f"{self.api_url}/editMessageReplyMarkup",
+                data={
+                    "chat_id": buttons["chat"],
+                    "message_id": buttons["message_id"],
+                    "reply_markup": self._reply_markup(feedback_id, label),
+                },
+                timeout=10,
+            )
+            # Telegram refuses an edit that changes nothing.
+            if response.status_code >= 400 and "not modified" not in response.text:
+                self.logger.warning("Could not tick the feedback button: %s", response.text)
+        except requests.RequestException:
+            self.logger.warning("Could not tick the feedback button", exc_info=True)
 
     def start(self) -> None:
         with self.start_lock:
@@ -103,7 +165,7 @@ class TelegramFeedbackListener:
                     params={
                         "offset": self.offset,
                         "timeout": 25,
-                        "allowed_updates": json.dumps(["callback_query"]),
+                        "allowed_updates": json.dumps(["callback_query", "message"]),
                     },
                     timeout=30,
                 )
@@ -113,6 +175,9 @@ class TelegramFeedbackListener:
                     callback = update.get("callback_query")
                     if callback:
                         self.process_callback(callback)
+                    message = update.get("message")
+                    if message:
+                        self.process_message(message)
             except Exception:
                 self.logger.exception("Failed to poll Telegram feedback")
                 self.stop_event.wait(5)
@@ -125,11 +190,32 @@ class TelegramFeedbackListener:
             if chat not in self.allowed_chats:
                 raise ValueError("Feedback came from an unconfigured chat")
 
-            prefix, feedback_id, label = str(callback.get("data", "")).split(":")
+            data = str(callback.get("data", ""))
+            if data.startswith(("cow:", "cowswitch:")):
+                cows = self.cows.get(chat)
+                if cows is None:
+                    raise ValueError("Cow button came from a chat without cows")
+                self._answer_callback(callback_id, cows.handle_callback(data))
+                return
+            if data.startswith("summary:"):
+                summary = self.summaries.get(chat)
+                if summary is None:
+                    raise ValueError("Summary button came from a chat without summary")
+                if summary.show_event(data.removeprefix("summary:")):
+                    self._answer_callback(callback_id)
+                else:
+                    self._answer_callback(
+                        callback_id, "Deze melding is niet meer te vinden."
+                    )
+                return
+
+            prefix, feedback_id, label = data.split(":")
             if prefix != "feedback" or label not in ("good", "bad"):
                 raise ValueError("Invalid feedback data")
 
             self._classify(feedback_id, label)
+            if chat in self.cows:
+                self.cows[chat].feedback(feedback_id, label)
             requests.post(
                 f"{self.api_url}/editMessageReplyMarkup",
                 data={
@@ -139,12 +225,44 @@ class TelegramFeedbackListener:
                 },
                 timeout=10,
             )
-            self._answer_callback(callback_id, f"Saved to {label}")
-        except Exception as error:
+            self._answer_callback(
+                callback_id, f"Opgeslagen als {FEEDBACK_LABELS[label].lower()}"
+            )
+        except Exception:
             self.logger.exception("Failed to process Telegram feedback")
             self._answer_callback(
-                callback_id, f"Could not save feedback: {error}", alert=True
+                callback_id,
+                "Opslaan mislukt, kijk in het log van de detector.",
+                alert=True,
             )
+
+    def process_message(self, message: dict[str, Any]) -> None:
+        """Passes typed commands and answers to the cow service of the chat."""
+        chat = str((message.get("chat") or {}).get("id", ""))
+        cows = self.cows.get(chat)
+        if chat not in self.allowed_chats or cows is None:
+            return
+        try:
+            reply = cows.handle_message(message)
+        except Exception:
+            self.logger.exception("Failed to handle Telegram message")
+            reply = "Dat ging mis, kijk in het log van de detector."
+        if not reply:
+            return
+        try:
+            for part in split_message(reply):
+                requests.post(
+                    f"{self.api_url}/sendMessage",
+                    data={
+                        "chat_id": chat,
+                        "text": part,
+                        "reply_to_message_id": message.get("message_id"),
+                        "allow_sending_without_reply": True,
+                    },
+                    timeout=10,
+                )
+        except Exception:
+            self.logger.exception("Failed to reply to Telegram message")
 
     def _classify(self, feedback_id: str, label: str) -> None:
         if not feedback_id or any(
@@ -174,27 +292,24 @@ class TelegramFeedbackListener:
         (other / Path(filename).with_suffix(".json")).unlink(missing_ok=True)
 
     def _answer_callback(
-        self, callback_id: Any, text: str, alert: bool = False
+        self, callback_id: Any, text: str = "", alert: bool = False
     ) -> None:
         if not callback_id:
             return
+        data = {"callback_query_id": callback_id, "show_alert": json.dumps(alert)}
+        if text:
+            data["text"] = text
         try:
             requests.post(
-                f"{self.api_url}/answerCallbackQuery",
-                data={
-                    "callback_query_id": callback_id,
-                    "text": text,
-                    "show_alert": json.dumps(alert),
-                },
-                timeout=10,
+                f"{self.api_url}/answerCallbackQuery", data=data, timeout=10
             )
         except Exception:
             self.logger.exception("Failed to answer Telegram callback")
 
     @staticmethod
     def _reply_markup(feedback_id: str, selected: str | None = None) -> str:
-        good = "✅ Good" if selected == "good" else "👍 Good"
-        bad = "✅ Bad" if selected == "bad" else "👎 Bad"
+        good = f"{'✅' if selected == 'good' else '👍'} {FEEDBACK_LABELS['good']}"
+        bad = f"{'✅' if selected == 'bad' else '👎'} {FEEDBACK_LABELS['bad']}"
         return json.dumps(
             {
                 "inline_keyboard": [
@@ -227,6 +342,8 @@ class TelegramExporter(WebhookExporter):
     telegram: ChatConfig
     alert_count: int
     feedback_listener: TelegramFeedbackListener
+    summary: SummaryService | None
+    cows: CowService | None
 
     def __init__(self, config: ChatConfig):
         self.telegram = config
@@ -252,6 +369,32 @@ class TelegramExporter(WebhookExporter):
         self.feedback_listener = get_feedback_listener(
             config.token, config.chat, config.feedback_directory
         )
+        self.summary = (
+            get_summary_service(
+                config.token, config.chat, config.feedback_directory, config.summary
+            )
+            if config.summary
+            else None
+        )
+        self.cows = (
+            get_cow_service(
+                config.token, config.chat, config.feedback_directory, config.cows
+            )
+            if config.cows
+            else None
+        )
+        if self.cows:
+            # Commands such as /koe work before the first alert.
+            self.feedback_listener.register_cows(config.chat, self.cows)
+            self.feedback_listener.start()
+            Thread(target=self.cows.set_commands, name="telegram-commands", daemon=True).start()
+        if self.summary:
+            if self.cows:
+                self.summary.overview = self.cows.overview_text
+            self.summary.start()
+            # The summary buttons need the listener even before the first alert.
+            self.feedback_listener.register_summary(config.chat, self.summary)
+            self.feedback_listener.start()
 
     def get_media_and_files(
         self,
@@ -262,15 +405,11 @@ class TelegramExporter(WebhookExporter):
         files = {}
         media = []
 
+        # data_max is for the video; photos have Telegram's own, lower limit.
         if self.telegram.include_image:
-            image = get_image(best_detection.images.jpg)
-            if self.config.data_max is not None:
-                compressed = compress_jpg(best_detection.images.jpg, self.config.data_max)
-                if compressed is not None:
-                    image = compressed
             files["image"] = (
                 get_timestamped_filename(best_detection),
-                image,
+                telegram_photo(best_detection.images.jpg),
                 "image/jpeg",
             )
             media.append(
@@ -281,15 +420,9 @@ class TelegramExporter(WebhookExporter):
             )
 
         if self.telegram.include_plot:
-            image = get_plot(best_detection)
-            photo = get_image(image)
-            if self.config.data_max is not None:
-                compressed = compress_jpg(image, self.config.data_max)
-                if compressed is not None:
-                    photo = compressed
             files["photo"] = (
                 get_timestamped_filename(best_detection),
-                photo,
+                telegram_photo(get_plot(best_detection)),
                 "image/jpeg",
             )
             media.append(
@@ -300,16 +433,12 @@ class TelegramExporter(WebhookExporter):
             )
 
         if self.telegram.include_crop and best_detection.images.crop_region:
-            c = get_crop(best_detection)
+            # The 4K frame shows the coat pattern much sharper than the detection frame.
+            c = get_crop(hires_detection(best_detection) or best_detection)
             if c is not None:
-                crop = get_image(c)
-                if self.config.data_max is not None:
-                    compressed = compress_jpg(c, self.config.data_max)
-                    if compressed is not None:
-                        crop = compressed
                 files["crop"] = (
                     f"{get_timestamped_filename(best_detection).replace('.jpg', '_crop.jpg')}",
-                    crop,
+                    telegram_photo(c),
                     "image/jpeg",
                 )
                 media.append(
@@ -320,7 +449,8 @@ class TelegramExporter(WebhookExporter):
                 )
 
         if self.telegram.include_video:
-            video = generate_mp4(
+            video = event_mp4(
+                best_detection,
                 detections,
                 width=self.telegram.video_width,
                 crf=self.telegram.video_crf,
@@ -344,7 +474,7 @@ class TelegramExporter(WebhookExporter):
             fallback = get_plot(best_detection) if self.telegram.include_plot else best_detection.images.jpg
             files["image"] = (
                 get_timestamped_filename(best_detection),
-                get_image(fallback),
+                telegram_photo(fallback),
                 "image/jpeg",
             )
             media.append(
@@ -355,8 +485,9 @@ class TelegramExporter(WebhookExporter):
             )
 
         self.alert_count += 1
+        seconds = round((detections[-1].date - detections[0].date).total_seconds())
         media[0]["caption"] = (
-            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{round((detections[-1].date - detections[0].date).total_seconds())} second(s)"
+            f"{int(max_confidence(best_detection.confidence) * 100)}%{' ✅' if validated else ' ❌' if validated is False else ''}\n{seconds} {'seconde' if seconds == 1 else 'seconden'}"
         )
 
         payload = {
@@ -385,6 +516,23 @@ class TelegramExporter(WebhookExporter):
         detections: list[Detection],
         validated: bool | None,
     ):
+        event = None
+        if self.summary and validated is not False:
+            try:
+                event = self.summary.register(best_detection, detections)
+                is_new_event = event is not None
+            except Exception:
+                # An alert must never be lost because the summary log is unavailable.
+                self.logger.exception("Failed to register detection for the summary")
+                is_new_event = True
+            if not is_new_event or not self.summary.config.send_events:
+                self.logger.info(
+                    "Not sending Telegram notification, %s",
+                    "counted for the summary only"
+                    if is_new_event
+                    else "detection belongs to an earlier mounting event",
+                )
+                return
         try:
             payload, files = self.get_media_and_files(
                 best_detection, detections, validated
@@ -392,6 +540,7 @@ class TelegramExporter(WebhookExporter):
             if not files or not payload:
                 self.logger.error("Telegram notification has no media to send")
                 return
+            video = files["video"][1] if "video" in files else None
 
             response = requests.post(
                 self.config.url,
@@ -416,10 +565,24 @@ class TelegramExporter(WebhookExporter):
                     self.telegram.chat,
                     messages[0].get("message_id"),
                 )
+                if event:
+                    try:
+                        self.summary.set_message(event, messages[0]["message_id"])
+                    except Exception:
+                        self.logger.exception("Failed to store the alert for the summary")
                 feedback_id = self.feedback_listener.save_detection(best_detection)
                 self.feedback_listener.add_buttons(
                     self.telegram.chat, messages[0]["message_id"], feedback_id
                 )
                 self.feedback_listener.start()
+                if self.cows and validated is not False:
+                    self.cows.submit(
+                        best_detection,
+                        detections,
+                        messages[0]["message_id"],
+                        event,
+                        feedback_id,
+                        video,
+                    )
         except Exception:
             self.logger.exception("Failed to send Telegram notification")

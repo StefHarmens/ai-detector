@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "ApiConfig": {
+      "description": "The cow page of the web interface talks to the detector here. Keep the\nhost on 127.0.0.1: the web interface runs on the same computer and shows\nthe page on the network itself.",
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "default": 8765,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "title": "ApiConfig",
+      "type": "object"
+    },
     "ChatConfig": {
       "properties": {
         "confidence": {
@@ -28,6 +45,11 @@
         "export_rejected": {
           "default": false,
           "title": "Export Rejected",
+          "type": "boolean"
+        },
+        "review": {
+          "default": false,
+          "title": "Review",
           "type": "boolean"
         },
         "token": {
@@ -85,6 +107,28 @@
           "default": 28,
           "title": "Video Crf",
           "type": "integer"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SummaryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CowsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -92,6 +136,105 @@
         "chat"
       ],
       "title": "ChatConfig",
+      "type": "object"
+    },
+    "CowsConfig": {
+      "properties": {
+        "directory": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Directory"
+        },
+        "herd_file": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Herd File"
+        },
+        "herd_categories": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Herd Categories"
+        },
+        "segment_model": {
+          "default": "yolo11s-seg.pt",
+          "title": "Segment Model",
+          "type": "string"
+        },
+        "segment_confidence": {
+          "default": 0.25,
+          "title": "Segment Confidence",
+          "type": "number"
+        },
+        "reid_model": {
+          "default": "https://huggingface.co/onnx-community/dinov2-small/resolve/main/onnx/model.onnx",
+          "title": "Reid Model",
+          "type": "string"
+        },
+        "accept_score": {
+          "default": 0.9,
+          "title": "Accept Score",
+          "type": "number"
+        },
+        "accept_margin": {
+          "default": 0.08,
+          "title": "Accept Margin",
+          "type": "number"
+        },
+        "min_photos": {
+          "default": 5,
+          "title": "Min Photos",
+          "type": "integer"
+        },
+        "candidates": {
+          "default": 3,
+          "title": "Candidates",
+          "type": "integer"
+        },
+        "telegram": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "nummers",
+              "type": "string"
+            }
+          ],
+          "default": false,
+          "title": "Telegram"
+        },
+        "video_days": {
+          "default": 90,
+          "title": "Video Days",
+          "type": "integer"
+        }
+      },
+      "title": "CowsConfig",
       "type": "object"
     },
     "DetectionConfig": {
@@ -110,6 +253,24 @@
           ],
           "title": "Source"
         },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
         "interval": {
           "default": 0,
           "title": "Interval",
@@ -124,6 +285,17 @@
           "default": 1280,
           "title": "Frames Width",
           "type": "integer"
+        },
+        "hires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HiresConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -212,6 +384,11 @@
         "export_rejected": {
           "default": true,
           "title": "Export Rejected",
+          "type": "boolean"
+        },
+        "review": {
+          "default": false,
+          "title": "Review",
           "type": "boolean"
         },
         "directory": {
@@ -363,6 +540,86 @@
       "title": "HealthcheckConfig",
       "type": "object"
     },
+    "HiresConfig": {
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "fps": {
+          "default": 10,
+          "title": "Fps",
+          "type": "number"
+        },
+        "seconds": {
+          "default": 12,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "before_seconds": {
+          "default": 10,
+          "title": "Before Seconds",
+          "type": "integer"
+        },
+        "quality": {
+          "default": 85,
+          "title": "Quality",
+          "type": "integer"
+        },
+        "hwaccel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "auto",
+          "title": "Hwaccel"
+        },
+        "keyframes_only": {
+          "default": true,
+          "title": "Keyframes Only",
+          "type": "boolean"
+        },
+        "max_width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 3840,
+          "title": "Max Width"
+        }
+      },
+      "title": "HiresConfig",
+      "type": "object"
+    },
     "OnnxConfig": {
       "properties": {
         "provider": {
@@ -389,6 +646,57 @@
         }
       },
       "title": "OnnxConfig",
+      "type": "object"
+    },
+    "SummaryConfig": {
+      "properties": {
+        "times": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "merge_seconds": {
+          "default": 120,
+          "title": "Merge Seconds",
+          "type": "integer"
+        },
+        "merge_distance": {
+          "default": 0.25,
+          "title": "Merge Distance",
+          "type": "number"
+        },
+        "camera_merge_seconds": {
+          "default": 10,
+          "title": "Camera Merge Seconds",
+          "type": "integer"
+        },
+        "camera_groups": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Camera Groups"
+        },
+        "send_events": {
+          "default": true,
+          "title": "Send Events",
+          "type": "boolean"
+        }
+      },
+      "title": "SummaryConfig",
       "type": "object"
     },
     "VLMConfig": {
@@ -543,6 +851,11 @@
           "title": "Export Rejected",
           "type": "boolean"
         },
+        "review": {
+          "default": false,
+          "title": "Review",
+          "type": "boolean"
+        },
         "token": {
           "anyOf": [
             {
@@ -651,6 +964,18 @@
           "default": 0,
           "title": "Confidence"
         },
+        "review_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Confidence"
+        },
         "tracking": {
           "default": false,
           "title": "Tracking",
@@ -724,6 +1049,16 @@
         }
       ],
       "default": null
+    },
+    "api": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ApiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

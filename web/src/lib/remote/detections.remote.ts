@@ -3,7 +3,7 @@ import path from 'node:path';
 import { query } from '$app/server';
 import * as v from 'valibot';
 import { STAGES, type Metadata, type Stage } from '$lib/schema';
-import { DETECTIONS_DIR } from '$lib/server/shared-paths';
+import { detectionFolders } from '$lib/server/detection-folders';
 
 interface DetectionPage {
 	items: Metadata[];
@@ -30,8 +30,13 @@ async function listFolders(directoryPath: string): Promise<string[]> {
 	}
 }
 
-async function readDetection(type: string, stage: Stage, timestamp: string): Promise<Metadata> {
-	const metadataPath = path.join(DETECTIONS_DIR, type, stage, timestamp, 'metadata.json');
+async function readDetection(
+	folder: string,
+	type: string,
+	stage: Stage,
+	timestamp: string
+): Promise<Metadata> {
+	const metadataPath = path.join(folder, stage, timestamp, 'metadata.json');
 	const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8')) as Metadata;
 	metadata.type = type;
 	return metadata;
@@ -53,15 +58,21 @@ function toEpoch(value: unknown): number {
 }
 
 export const getTypes = query(async () => {
-	return listFolders(DETECTIONS_DIR);
+	return [...(await detectionFolders()).keys()].sort((a, b) => a.localeCompare(b));
 });
 
-async function listDetectionLocators(types: string[], stages: readonly Stage[]): Promise<DetectionLocator[]> {
+async function listDetectionLocators(
+	folders: Map<string, string>,
+	types: string[],
+	stages: readonly Stage[]
+): Promise<DetectionLocator[]> {
 	const locators: DetectionLocator[] = [];
 
 	for (const type of types) {
+		const folder = folders.get(type);
+		if (!folder) continue;
 		for (const stage of stages) {
-			const stagePath = path.join(DETECTIONS_DIR, type, stage);
+			const stagePath = path.join(folder, stage);
 			const timestamps = await listFolders(stagePath);
 			for (const timestamp of timestamps) {
 				locators.push({
@@ -91,12 +102,15 @@ export const getDetectionPage = query(
 		limit: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))
 	}),
 	async ({ type, stage, offset, limit }): Promise<DetectionPage> => {
-		const types = type ? [type] : await listFolders(DETECTIONS_DIR);
+		const folders = await detectionFolders();
+		const types = type ? [type] : [...folders.keys()];
 		const stages = stage ? [stage] : STAGES;
-		const locators = await listDetectionLocators(types, stages);
+		const locators = await listDetectionLocators(folders, types, stages);
 		const page = locators.slice(offset, offset + limit);
 		const items = await Promise.all(
-			page.map(({ type, stage, timestamp }) => readDetection(type, stage, timestamp))
+			page.map(({ type, stage, timestamp }) =>
+				readDetection(folders.get(type)!, type, stage, timestamp)
+			)
 		);
 
 		return {

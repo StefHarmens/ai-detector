@@ -228,6 +228,7 @@ def train_feedback_model(
     device: str | None,
     update_config: bool,
     model_path: Path | None = None,
+    workers: int = 2,
 ) -> Path:
     from ultralytics import YOLO
 
@@ -256,6 +257,9 @@ def train_feedback_model(
         "project": str(data_root / ".training-runs"),
         "name": "feedback",
         "exist_ok": True,
+        # Each dataloader worker loads its own copy of PyTorch; Ultralytics starts
+        # 8 by default, which fills the memory of a 16 GB Mac mini.
+        "workers": workers,
     }
     if device:
         train_options["device"] = device
@@ -295,6 +299,12 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="Dataloader processes; fewer use less memory but can train slower.",
+    )
     parser.add_argument("--update-config", action="store_true")
     args = parser.parse_args()
 
@@ -308,6 +318,7 @@ def main() -> None:
         device=args.device,
         update_config=args.update_config,
         model_path=args.model,
+        workers=args.workers,
     )
     print(f"Saved trained model to {output}")
 
