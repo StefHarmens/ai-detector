@@ -22,6 +22,9 @@
 	let added = $state<number[]>([]);
 	// The cow under the mouse, marked in the photo and in the row below it.
 	let hovered = $state<number | null>(null);
+	// The cow clicked, added only once the farmer confirms: a wrong one in
+	// her folder teaches the recognition the wrong cow.
+	let picked = $state<number | null>(null);
 	let busy = $state<string | null>(null);
 	let input = $state<HTMLInputElement | null>(null);
 
@@ -35,6 +38,7 @@
 		busy = message;
 		found = null;
 		added = [];
+		picked = null;
 		try {
 			found = await api<FoundCows>(path, 'POST', body);
 		} catch (error) {
@@ -55,8 +59,14 @@
 		void search(`koeien/zoek?camera=${camera}`, undefined, 'Foto maken en koeien zoeken…');
 	}
 
-	async function add(index: number) {
-		if (!found || busy || added.includes(index)) return;
+	function pick(index: number) {
+		if (busy || added.includes(index)) return;
+		picked = picked === index ? null : index;
+	}
+
+	async function add() {
+		const index = picked;
+		if (!found || busy || index === null || added.includes(index)) return;
 		busy = 'Toevoegen…';
 		try {
 			const result = await api<{ message: string; photo: string; photos: number }>(
@@ -65,6 +75,7 @@
 				{ token: found.token, index }
 			);
 			added = [...added, index];
+			picked = null;
 			toast.success(result.message);
 			onadded(result.photo, result.photos);
 		} catch (error) {
@@ -110,8 +121,9 @@
 			</p>
 		{:else}
 			<p class="text-sm">
-				Klik op <b>{label}</b>, in de foto of in de rij eronder. Staan er meer koeien van haar op
-				andere foto's, voeg die dan ook toe: hoe meer, hoe beter.
+				Klik op <b>{label}</b>, in de foto of in de rij eronder, en bevestig met
+				<b>Toevoegen</b>. Staan er meer koeien van haar op andere foto's, voeg die dan ook toe: hoe
+				meer, hoe beter.
 			</p>
 			<div class="relative overflow-hidden rounded-md bg-black">
 				<img
@@ -126,23 +138,28 @@
 					<button
 						type="button"
 						disabled={busy !== null || done}
-						title={done ? 'Toegevoegd' : `Dit is ${label}`}
-						class="absolute rounded-sm border-2 transition-colors {done
-							? 'border-emerald-500 bg-emerald-500/20'
-							: hovered === item.index
-								? 'border-sky-400 bg-sky-400/20'
-								: 'border-amber-400'}"
+						title={done ? 'Toegevoegd' : `Koe ${item.index + 1} kiezen`}
+						aria-pressed={picked === item.index}
+						class="absolute rounded-sm transition-colors {done
+							? 'border-2 border-emerald-500 bg-emerald-500/20'
+							: picked === item.index
+								? 'z-10 border-4 border-sky-500 bg-sky-500/30'
+								: hovered === item.index
+									? 'border-2 border-sky-300 bg-sky-300/20'
+									: 'border-2 border-amber-400'}"
 						onmouseenter={() => (hovered = item.index)}
 						onmouseleave={() => (hovered = null)}
 						style="left: {x1 * 100}%; top: {y1 * 100}%; width: {(x2 - x1) * 100}%; height: {(y2 -
 							y1) *
 							100}%"
-						onclick={() => add(item.index)}
+						onclick={() => pick(item.index)}
 					>
 						<span
 							class="absolute start-0 top-0 flex items-center gap-1 rounded-br px-1.5 text-xs font-semibold {done
 								? 'bg-emerald-500 text-white'
-								: 'bg-amber-400 text-black'}"
+								: picked === item.index
+									? 'bg-sky-500 text-white'
+									: 'bg-amber-400 text-black'}"
 						>
 							{#if done}<CheckIcon class="size-3" /> Toegevoegd{:else}{item.index + 1}{/if}
 						</span>
@@ -155,16 +172,19 @@
 					<button
 						type="button"
 						aria-label="Koe {item.index + 1}"
-						title={done ? 'Toegevoegd' : `Dit is ${label}`}
+						title={done ? 'Toegevoegd' : `Koe ${item.index + 1} kiezen`}
 						disabled={busy !== null || done}
-						class="relative overflow-hidden rounded-md border-2 bg-black {done
-							? 'border-emerald-500'
-							: hovered === item.index
-								? 'border-sky-400'
-								: 'border-transparent'}"
+						aria-pressed={picked === item.index}
+						class="relative overflow-hidden rounded-md bg-black {done
+							? 'border-2 border-emerald-500'
+							: picked === item.index
+								? 'border-4 border-sky-500'
+								: hovered === item.index
+									? 'border-2 border-sky-300'
+									: 'border-2 border-transparent'}"
 						onmouseenter={() => (hovered = item.index)}
 						onmouseleave={() => (hovered = null)}
-						onclick={() => add(item.index)}
+						onclick={() => pick(item.index)}
 					>
 						<img
 							src={foundCowPhoto(found.token, item.index)}
@@ -175,13 +195,36 @@
 						<span
 							class="absolute start-0 top-0 flex items-center gap-1 rounded-br px-1.5 text-xs font-semibold {done
 								? 'bg-emerald-500 text-white'
-								: 'bg-amber-400 text-black'}"
+								: picked === item.index
+									? 'bg-sky-500 text-white'
+									: 'bg-amber-400 text-black'}"
 						>
 							{#if done}<CheckIcon class="size-3" /> Toegevoegd{:else}{item.index + 1}{/if}
 						</span>
 					</button>
 				{/each}
 			</div>
+			{#if picked !== null}
+				<!-- Stays in view while scrolling through the photo and the row. -->
+				<div
+					class="sticky bottom-0 flex flex-wrap items-center gap-3 rounded-md border bg-background p-2 shadow-md"
+				>
+					<img
+						src={foundCowPhoto(found.token, picked)}
+						alt="Gekozen koe"
+						class="size-14 rounded bg-black object-contain"
+					/>
+					<p class="text-sm">Is koe {picked + 1} echt <b>{label}</b>?</p>
+					<div class="ms-auto flex flex-wrap gap-2">
+						<Button type="button" variant="outline" onclick={() => (picked = null)}>
+							Andere koe
+						</Button>
+						<Button type="button" disabled={busy !== null} onclick={add}>
+							<CheckIcon /> Toevoegen aan {label}
+						</Button>
+					</div>
+				</div>
+			{/if}
 		{/if}
 	{/if}
 </div>
