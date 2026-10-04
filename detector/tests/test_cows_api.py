@@ -543,3 +543,41 @@ def test_a_cow_found_twice_is_shown_once_and_only_with_her_own_pixels(tmp_path):
     assert [found.box for found in kept] == [cow.box, other.box]
     assert kept[0].mask is not None
     assert not kept[0].mask[5:10, 5:10].any() and kept[0].mask[40:90, 40:90].all()
+
+
+def test_a_camera_photo_is_a_whole_frame_when_joining_a_stream_halfway(tmp_path):
+    import subprocess
+
+    import cv2
+    import numpy as np
+    from imageio_ffmpeg import get_ffmpeg_exe
+
+    from aidetector.cows.upload import snapshot
+
+    # An HEVC stream, as the UniFi 4K streams are, with a keyframe every 2 s.
+    stream = tmp_path / "stream.hevc"
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc2=size=640x360:rate=25:duration=4", "-c:v", "libx265",
+            "-x265-params", "keyint=50:min-keyint=50:bframes=0:log-level=none",
+            "-pix_fmt", "yuv420p", str(stream),
+        ],
+        check=True,
+    )
+    data = stream.read_bytes()
+    # Over RTSP the decoder has the parameter sets from the start (before the
+    # first keyframe here) and joins at whatever frame comes: the frames
+    # before the next keyframe have nothing to build on and decoded grey.
+    keyframe = next(
+        index for index in range(len(data) - 4)
+        if data[index : index + 3] == b"\x00\x00\x01" and 16 <= (data[index + 3] >> 1) & 0x3F <= 21
+    )
+    halfway = data.index(b"\x00\x00\x01", len(data) // 4)
+    joined = tmp_path / "joined.hevc"
+    joined.write_bytes(data[:keyframe] + data[halfway:])
+
+    image = cv2.imdecode(np.frombuffer(snapshot(str(joined)), dtype=np.uint8), cv2.IMREAD_COLOR)
+
+    # testsrc2 is colourful all over; a grey frame is nearly flat.
+    assert image.std() > 40

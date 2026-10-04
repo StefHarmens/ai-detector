@@ -93,7 +93,12 @@ def snapshot(source: str) -> bytes:
     command = [get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
     if source.lower().startswith("rtsp"):
         command += ["-rtsp_transport", "tcp"]
-    command += ["-i", source, "-an", "-frames:v", "1", "-q:v", "2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]
+    command += ["-i", source, "-an"]
+    # The first keyframe: joining a stream halfway, the frames before it
+    # decode grey, and the farm got "no cow" on every camera. Skipping the
+    # other frames in the decoder instead doubled the wait.
+    command += ["-vf", "select='eq(pict_type,PICT_TYPE_I)'", "-fps_mode", "vfr"]
+    command += ["-frames:v", "1", "-q:v", "2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]
     try:
         result = subprocess.run(command, capture_output=True, timeout=_SNAPSHOT_TIMEOUT)
     except subprocess.TimeoutExpired as error:

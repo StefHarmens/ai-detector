@@ -119,6 +119,13 @@
 			<p class="text-sm text-muted-foreground">
 				Geen koe gevonden op deze foto. Kies een foto waarop ze helemaal te zien is.
 			</p>
+			<!-- What the detector got: a grey or dark photo is the camera, not the cow. -->
+			<img
+				src={foundPhoto(found.token)}
+				alt="Foto zonder gevonden koe"
+				class="block h-auto w-full rounded-md bg-black"
+				style="aspect-ratio: {found.width} / {found.height}"
+			/>
 		{:else}
 			<p class="text-sm">
 				Klik op <b>{label}</b>, in de foto of in de rij eronder, en bevestig met
