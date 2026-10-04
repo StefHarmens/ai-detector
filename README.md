@@ -599,7 +599,9 @@ de tijd plus de camera, bijvoorbeeld `2026-09-27T03-12-00 Stal Rechts Voorin`.
 Het makkelijkst beoordeel je ze op de [web-interface](#web-interface), op de pagina
 **Twijfel**: per geval de video, hoe zeker YOLO was en hoe lang het duurde, met **Goed**,
 **Fout** en **Weet niet**. Goed en Fout komen direct in `data/good` en `data/bad` (naast de
-twijfel-map), klaar voor de volgende training; **Keuze wissen** maakt een keuze ongedaan. Het
+twijfel-map), klaar voor de volgende training, en het geval verdwijnt uit de twijfel-map (naar
+`twijfel/.beoordeeld`, na een maand opgeruimd; de foto in `good` of `bad` blijft). **Keuze
+wissen** maakt een keuze ongedaan en zet het geval terug. Het
 is hetzelfde als het reviewprogramma hieronder, en wat je op de een kiest, zie je op de ander.
 
 Zet daarvoor in `config.json` een schijf-export met `review` en `review_confidence` bij `yolo`:

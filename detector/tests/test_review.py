@@ -79,3 +79,61 @@ def test_review_session_rejects_unknown_events_and_media(tmp_path):
         session.decide("event-a", "maybe")
     with pytest.raises(FileNotFoundError):
         session.media_path("event-a", "metadata.json")
+
+
+def test_a_judged_event_leaves_the_doubt_folder_and_comes_back_when_taken_back(tmp_path):
+    source = tmp_path / "twijfel"
+    _write_event(source, "event-a")
+    _write_event(source, "event-b")
+    session = ReviewSession(source, tmp_path)
+
+    session.decide("event-a", "good")
+
+    assert not (source / "event-a").exists()
+    assert (source / ".beoordeeld" / "event-a" / "video.mp4").is_file()
+    assert (tmp_path / "good" / "event-a.jpg").read_bytes() == b"clean-event-a"
+    # Still known, with its choice and its video, also to a new session.
+    again = ReviewSession(source, tmp_path)
+    assert list(again.events) == ["event-a", "event-b"]
+    assert again.decisions == {"event-a": "good"}
+    assert again.media_path("event-a", "video.mp4").read_bytes() == b"video-event-a"
+    # Changing the choice works from the judged folder.
+    again.decide("event-a", "bad")
+    assert (tmp_path / "bad" / "event-a.jpg").read_bytes() == b"clean-event-a"
+
+    again.clear("event-a")
+
+    assert (source / "event-a" / "clean.jpg").is_file()
+    assert not (source / ".beoordeeld" / "event-a").exists()
+    assert not (tmp_path / "bad" / "event-a.jpg").exists()
+    again.decide("event-b", "skip")
+    again.undo()
+    assert (source / "event-b").is_dir()
+
+
+def test_events_judged_before_are_moved_out_and_cleared_after_a_month(tmp_path):
+    import os
+    import time
+
+    source = tmp_path / "twijfel"
+    _write_event(source, "event-a")
+    _write_event(source, "event-b")
+    # As an older version left it: judged, but still in the doubt folder.
+    (source / ".review-decisions.json").write_text(
+        json.dumps({"decisions": {"event-a": "bad"}, "history": ["event-a"]})
+    )
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "event-a.jpg").write_bytes(b"clean-event-a")
+
+    ReviewSession(source, tmp_path)
+
+    assert sorted(path.name for path in source.iterdir() if not path.name.startswith(".")) == ["event-b"]
+    month_ago = time.time() - 31 * 24 * 3600
+    os.utime(source / ".beoordeeld" / "event-a", (month_ago, month_ago))
+
+    session = ReviewSession(source, tmp_path)
+
+    assert not (source / ".beoordeeld" / "event-a").exists()
+    assert list(session.events) == ["event-b"]
+    # The example for training stays.
+    assert (tmp_path / "bad" / "event-a.jpg").is_file()
