@@ -480,16 +480,21 @@ gedecodeerd en wordt de detectie flink trager.
 }
 ```
 
-De detector bewaart van elke camera 10 beelden per seconde (`fps`) van de laatste 12
-seconden, in 4K; de video's van een sprong worden daarvan gemaakt. Begint er een sprong, dan
-houdt hij de beelden vast vanaf 10 seconden ervoor tot de sprong is afgehandeld, hoe lang die
-ook duurt. Bij een aparte 4K-stream (`hires.source`) decodeert hij eerst alleen de
-sleutelbeelden. Komen die minder vaak dan om de 2 seconden (UniFi stuurt er een om de 5
-seconden), dan zou het 4K-beeld te ver van de detectie liggen; hij decodeert die camera dan
-toch helemaal en zegt dat in het log. Dat doet de hardware van de Mac: per 4K-stream ongeveer
-0,3 GB geheugen en een kwart processorkern. Telegram weigert foto's boven 10 MB en toont
-ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
-onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
+Bij een aparte 4K-stream (`hires.source`) neemt de detector die stream op zoals hij
+binnenkomt, zonder hem te decoderen: dat kost per camera ongeveer 1% van een processorkern en
+1 à 2 MB geheugen per seconde die hij bewaart. Hij bewaart de laatste 12 seconden (`seconds`).
+Begint er een sprong, dan houdt hij de opname vast vanaf 10 seconden ervoor
+(`before_seconds`) tot de sprong is afgehandeld, hoe lang die ook duurt. Pas dan worden
+alleen die seconden gedecodeerd, met de hardware van de Mac, tot `fps` beelden per seconde
+in 4K; daar worden de video's en foto's van de sprong van gemaakt. Dat duurt een paar
+seconden per sprong. `fps` mag tot de framerate van de camera (bij UniFi 25 of 30): tussen
+de sprongen kost dat niets, en de video's worden er vloeiender van.
+
+Zonder aparte stream maakt de detector van de detectiestream zelf `fps` 4K-foto's per
+seconde, de hele tijd; hoger dan 10 kost daar dus wel merkbaar processortijd.
+
+Telegram weigert foto's boven 10 MB en toont ze hooguit 2560 pixels breed, dus foto's naar
+Telegram worden verkleind tot 2560 pixels en onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
 
 Per sprong bewaart de bot in `data/koeien/.meldingen/<id>/` de foto's, een `controle.jpg`
 (het 4K-beeld met het kader van de sprong: valt dat niet op de koeien, dan lopen de twee

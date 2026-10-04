@@ -79,6 +79,18 @@ binary_of() {
 	esac
 }
 
+# The signing identifier each version gets. macOS asks for local network
+# access per identifier: with a new one per release (PyInstaller takes it from
+# the versioned file name) every update waited, without any camera, until
+# someone clicked Allow on the Mac mini. The web's builds have always been
+# "a.out", which the Mac mini already allowed.
+identifier_of() {
+	case "$1" in
+	detector) echo "nl.cowcatcher.aidetector" ;;
+	web) echo "a.out" ;;
+	esac
+}
+
 log_of() {
 	echo "$LOG_DIR/$1.log"
 }
@@ -446,6 +458,10 @@ update_component() {
 	fi
 	chmod +x "$new"
 	xattr -c "$new" 2>/dev/null || true
+	# Builds from before the fixed identifier, or one that lost it.
+	if ! codesign --force --sign - --identifier "$(identifier_of "$component")" "$new" 2>/dev/null; then
+		log "$component: ondertekenen mislukt; macOS kan opnieuw om toegang tot het lokale netwerk vragen"
+	fi
 
 	install_binary "$component" "$version" "$new"
 	local result=$?

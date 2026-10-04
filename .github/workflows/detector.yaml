@@ -328,6 +328,15 @@ jobs:
           echo 'REF_NAME = "${{ github.ref_name }}"' >> ${{ env.VERSION_FILE }}
           uv run --extra default pyinstaller src/aidetector/__init__.py --name "${ARTIFACT_NAME}.command" ${{ env.PYINSTALLER_ARGS }}
 
+      # macOS asks for local network access per signing identifier, and
+      # PyInstaller takes it from the file name, which holds the version: every
+      # release asked again, and the detector saw no camera until someone
+      # clicked Allow on the Mac mini. One identifier for all versions keeps it.
+      - name: Fixed signing identifier
+        run: |
+          codesign --force --sign - --identifier nl.cowcatcher.aidetector "dist/${ARTIFACT_NAME}.command"
+          codesign --verify --strict "dist/${ARTIFACT_NAME}.command"
+
       - name: Zip Executable
         run: |
           cd dist

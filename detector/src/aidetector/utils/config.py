@@ -144,20 +144,23 @@ class HiresConfig:
     # already the 4K stream: then its own frames are kept, before they are
     # made smaller for detection, and nothing is decoded twice.
     source: str | list[str | None] | None = None
-    # Frames kept per second. The event's video is made from them, so 10 keeps
-    # it fluent; each 4K frame is about 0.6 MB of memory.
+    # Frames per second of an event, which its video is made from; each 4K
+    # frame is about 0.6 MB of memory while the event is exported. A separate
+    # stream is recorded as it comes in and only an event is decoded, so up
+    # to the camera's own frame rate (25) costs nothing between events.
+    # Without a separate stream, fps frames of the detection stream are made
+    # JPEG all the time.
     fps: float = 10
     # How long frames are kept outside a mount; must cover before_seconds.
     # During a mount its frames are kept until it is handled. Each second is
-    # fps 4K frames per camera in memory.
+    # 1 to 2 MB of a recorded stream per camera in memory, or fps 4K JPEGs
+    # without a separate stream.
     seconds: int = 12
     before_seconds: int = 10
     quality: int = 85
+    # How an event of a separate stream is decoded; "auto" is the Mac's
+    # hardware. Should that give no frames, the event is decoded without.
     hwaccel: str | None = "auto"
-    # Decode only the keyframes of a separate stream: far less memory and CPU,
-    # at most one frame per keyframe interval of the camera. A camera whose
-    # keyframes are more than 2 s apart (UniFi: 5 s) is decoded in full.
-    keyframes_only: bool = True
     # Kept frames are made this wide at most: 4K, so the numbers on the cows
     # can be read on the web page. Telegram photos are made 2560 px anyway;
     # 2560 here uses about half the memory.
