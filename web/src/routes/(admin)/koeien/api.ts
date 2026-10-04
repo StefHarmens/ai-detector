@@ -3,6 +3,8 @@ export interface Candidate {
 	label: string;
 	score: number;
 	photo: string | null;
+	// Photos in her folder; too few keep her from being recognised.
+	photos: number;
 }
 
 export interface Slot {
@@ -33,11 +35,19 @@ export interface Sighting {
 	slots: Slot[];
 }
 
+// When the detector fills in a cow without asking (cows.accept_score etc.).
+export interface RecognitionRules {
+	accept_score: number;
+	accept_margin: number;
+	min_photos: number;
+}
+
 export interface SightingPage {
 	items: Sighting[];
 	total: number;
 	open: number;
 	cameras: string[];
+	rules: RecognitionRules;
 }
 
 export interface Cow {

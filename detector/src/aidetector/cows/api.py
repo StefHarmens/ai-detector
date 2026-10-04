@@ -24,7 +24,7 @@ from aidetector.cows.service import (
     cow_services,
 )
 from aidetector.review import MEDIA_TYPES, ReviewSession
-from aidetector.utils.config import ApiConfig, Config
+from aidetector.utils.config import ApiConfig, Config, CowsConfig
 from aidetector.utils.version import REF_NAME
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,8 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
                         "label": registry.label(candidate, sighting.when),
                         "score": score,
                         "photo": _latest_photo(service, candidate),
+                        # Too few photos keep a cow from being recognised.
+                        "photos": len(registry.photos(candidate)),
                     }
                     for candidate, score in sighting.candidates[slot]
                     if registry.cow(candidate) is not None
@@ -141,6 +143,18 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
         "photos": [name for name in _SIGHTING_PHOTOS if (folder / f"{name}.jpg").is_file()],
         "video": (folder / VIDEO_FILE).is_file(),
         "slots": slots,
+    }
+
+
+def recognition_rules() -> dict[str, float]:
+    """When a cow is filled in without asking, so the page can explain why
+    one was not."""
+    services = _mount_services()
+    config = services[0].config if services else CowsConfig()
+    return {
+        "accept_score": config.accept_score,
+        "accept_margin": config.accept_margin,
+        "min_photos": config.min_photos,
     }
 
 
@@ -183,6 +197,7 @@ def list_sightings(query: dict[str, str]) -> dict[str, Any]:
         "total": len(found),
         "open": open_count,
         "cameras": sorted(cameras),
+        "rules": recognition_rules(),
     }
 
 

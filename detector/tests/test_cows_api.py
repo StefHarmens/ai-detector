@@ -76,8 +76,10 @@ def test_open_mounts_with_photos_and_candidates(tmp_path, api, telegram):
     assert item["photos"] == ["A", "B", "controle"]
     assert [slot["title"] for slot in item["slots"]] == ["A werd besprongen (gok)", "B sprong (gok)"]
     assert item["slots"][0]["candidates"] == [
-        {"cow": BERTHA, "label": "30 (Bertha)", "score": 0.7, "photo": "1.jpg"}
+        {"cow": BERTHA, "label": "30 (Bertha)", "score": 0.7, "photo": "1.jpg", "photos": 2}
     ]
+    # What the page needs to explain why a cow was not filled in itself.
+    assert body["rules"] == {"accept_score": 0.9, "accept_margin": 0.08, "min_photos": 5}
     status, photo = api("GET", f"sprongen/{sighting.id}/A.jpg")
     assert status == 200 and photo[:2] == b"\xff\xd8"
 
