@@ -261,6 +261,12 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
   (eerst wie sprong); deze foto's gaan niet in een koemap.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
+- **Niet wachten tot ze springt?** Op de [web-interface](#web-interface), tab *Koeien*, klik
+  je op een koe en kies je **Uit camera** (een verse 4K-foto van een stalcamera) of **Foto
+  kiezen** (een foto van je telefoon of computer). De detector zoekt alle koeien op de foto;
+  jij klikt de goede aan, en die gaat gemaskeerd in haar map, net als na een sprong. Een
+  camerafoto van bovenaf werkt het best: daarmee vergelijkt de herkenning. Met 5 van zulke
+  foto's kan ze vanaf de eerste sprong al herkend worden.
 - Liever op een scherm? Op de [web-interface](#web-interface) doe je hetzelfde, met alle
   open sprongen onder elkaar. Wat je daar invult, verschijnt ook in Telegram.
 - **Alleen nummers op de telefoon?** Zet `"cows": { "telegram": "nummers" }`. Dan komt de

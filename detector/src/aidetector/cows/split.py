@@ -46,6 +46,12 @@ _MOUNTED_INSIDE = 0.25
 _MOUNTED_GROW = 1.8
 # Grey used around a masked cow, the same as the padding of the embedder.
 MASK_FILL = 114
+# A whole photo the farmer adds: the model looks at it this big, so cows
+# further away in a camera view are found too (around a mount 640 does).
+_PHOTO_IMGSZ = 1280
+# A smaller share of the photo is a piece of a cow, or one too far away to
+# learn her coat from.
+_MIN_PHOTO_COW = 0.005
 
 
 @dataclass
@@ -210,8 +216,17 @@ class CowSplitter:
     spoils the recognition. Frames before the jump come first, those after it
     are the second chance."""
 
-    def __init__(self, detect: Callable[[ndarray], Sequence[Detected]]):
+    def __init__(self, detect: Callable[..., Sequence[Detected]]):
         self.detect = detect
+
+    def find_all(self, image: ndarray) -> list[Found]:
+        """All cows on a photo the farmer adds to a cow folder, biggest first."""
+        found = []
+        for item in self.detect(image, imgsz=_PHOTO_IMGSZ):
+            box, mask = item if len(item) == 2 else (item, None)
+            if area(box) >= _MIN_PHOTO_COW:
+                found.append(Found(box, mask))
+        return sorted(found, key=lambda cow: area(cow.box), reverse=True)
 
     def split(
         self,
@@ -331,7 +346,7 @@ class CowSplitter:
 
 def yolo_cow_detector(
     model_path: str, confidence: float
-) -> Callable[[ndarray], list[Detected]]:
+) -> Callable[..., list[Detected]]:
     """A COCO model with the class "cow". A segmentation model (such as
     yolo11s-seg.pt) also gives the pixels of each cow."""
     import torch
@@ -345,11 +360,12 @@ def yolo_cow_detector(
     if not cow_classes:
         raise ValueError(f"cows.segment_model {model_path} has no class 'cow'")
 
-    def detect(image: ndarray) -> list[Detected]:
+    def detect(image: ndarray, imgsz: int = 640) -> list[Detected]:
         height, width = image.shape[:2]
         with lock:
             result = model.predict(
                 image,
+                imgsz=imgsz,
                 classes=cow_classes,
                 conf=confidence,
                 verbose=False,

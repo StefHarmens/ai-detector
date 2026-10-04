@@ -9,6 +9,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { toast } from 'svelte-sonner';
 	import { api, ApiError, cowPhoto, type Cow, type CowList } from './api';
+	import FotoToevoegen from './foto-toevoegen.svelte';
 	import KoeSprongen from './koe-sprongen.svelte';
 
 	type Props = {
@@ -288,7 +289,8 @@
 				<p class="text-sm text-muted-foreground">Laden…</p>
 			{:else if photos.length === 0}
 				<p class="text-sm text-muted-foreground">
-					Nog geen foto's. Die komen erbij zodra je haar bij een sprong invult.
+					Nog geen foto's. Die komen erbij zodra je haar bij een sprong invult, of voeg er hieronder
+					zelf toe.
 				</p>
 			{:else}
 				<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -317,6 +319,17 @@
 					Staat er een andere koe op een foto? Haal hem weg, anders leert de herkenning het
 					verkeerde.
 				</p>
+			{/if}
+			{#if !selected.archived}
+				<FotoToevoegen
+					cow={selected.life_number}
+					label={selected.label}
+					onadded={(photo) => {
+						photos = [photo, ...photos];
+						// The photo count in the list.
+						onreload();
+					}}
+				/>
 			{/if}
 			<h3 class="mt-2 text-sm font-semibold">Sprongen</h3>
 			<KoeSprongen cow={selected.life_number} />
