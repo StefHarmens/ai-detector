@@ -8,15 +8,20 @@ const forward: RequestHandler = async ({ params, request, url }) => {
 	const target = `${detectorApiUrl()}/api/${params.path}${url.search}`;
 	let response: Response;
 	try {
-		const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+		// JSON, or a photo of a cow as it is.
+		const headers: Record<string, string> = {
+			'Content-Type': request.headers.get('Content-Type') ?? 'application/json'
+		};
 		// Browsers fetch a video in parts; Safari plays none without it.
 		const range = request.headers.get('Range');
 		if (range) headers.Range = range;
 		response = await fetch(target, {
 			method: request.method,
 			headers,
-			body: request.method === 'GET' ? undefined : await request.text(),
-			signal: AbortSignal.timeout(30_000)
+			body: request.method === 'GET' ? undefined : await request.arrayBuffer(),
+			// A photo from a camera waits for its keyframe (UniFi: every 5 s),
+			// and finding the cows on it loads the model the first time.
+			signal: AbortSignal.timeout(90_000)
 		});
 	} catch {
 		return Response.json({ error: UNREACHABLE }, { status: 502 });

@@ -45,6 +45,7 @@ def api(monkeypatch):
 
     call.services = services
     call.doubts = doubts
+    call.server = server
     yield call
     server.stop()
 
@@ -76,8 +77,10 @@ def test_open_mounts_with_photos_and_candidates(tmp_path, api, telegram):
     assert item["photos"] == ["A", "B", "controle"]
     assert [slot["title"] for slot in item["slots"]] == ["A werd besprongen (gok)", "B sprong (gok)"]
     assert item["slots"][0]["candidates"] == [
-        {"cow": BERTHA, "label": "30 (Bertha)", "score": 0.7, "photo": "1.jpg"}
+        {"cow": BERTHA, "label": "30 (Bertha)", "score": 0.7, "photo": "1.jpg", "photos": 2}
     ]
+    # What the page needs to explain why a cow was not filled in itself.
+    assert body["rules"] == {"accept_score": 0.9, "accept_margin": 0.08, "min_photos": 5}
     status, photo = api("GET", f"sprongen/{sighting.id}/A.jpg")
     assert status == 200 and photo[:2] == b"\xff\xd8"
 
@@ -384,3 +387,197 @@ def test_version_is_the_release_tag_without_prefix(monkeypatch, ref_name, expect
     monkeypatch.setattr(api_module, "REF_NAME", ref_name)
 
     assert api_module.version() == expected
+
+
+def upload(api, path: str, data: bytes):
+    """Sends a photo as it is, as the web page does."""
+    port = api.server.server.server_address[1]
+    request = Request(f"http://127.0.0.1:{port}/api/{path}", method="POST", data=data, headers={"Content-Type": "image/jpeg"})
+    try:
+        with urlopen(request) as response:
+            return response.status, json.loads(response.read())
+    except HTTPError as error:
+        return error.code, json.loads(error.read())
+
+
+def barn_photo() -> bytes:
+    """Two cows of different size on a dark barn floor."""
+    import numpy as np
+
+    from aidetector.media.video import get_image
+
+    image = np.full((400, 600, 3), 30, dtype=np.uint8)
+    image[100:200, 50:200] = 220  # the big cow
+    image[250:300, 400:460] = 160  # a small one further away
+    return get_image(image, 95)
+
+
+def two_cows(image, imgsz=640):
+    """A cow model that finds the two cows of barn_photo, with their pixels."""
+    import numpy as np
+
+    height, width = image.shape[:2]
+    found = []
+    for x1, y1, x2, y2 in ((400, 250, 460, 300), (50, 100, 200, 200)):
+        mask = np.zeros((height, width), dtype=bool)
+        mask[y1:y2, x1:x2] = True
+        found.append(((x1 / width, y1 / height, x2 / width, y2 / height), mask))
+    two_cows.sizes.append(imgsz)
+    return found
+
+
+two_cows.sizes = []
+
+
+def test_a_photo_the_farmer_adds_goes_masked_into_the_cow_folder(tmp_path, api, telegram):
+    from aidetector.cows.split import MASK_FILL, CowSplitter
+
+    service = register(api, make_service(tmp_path, pair(), []))
+    service.splitter = CowSplitter(two_cows)
+
+    status, found = upload(api, "koeien/zoek", barn_photo())
+
+    assert status == 200
+    # Biggest first, looked at large enough for cows far away in a barn view.
+    assert [cow["index"] for cow in found["cows"]] == [0, 1]
+    assert found["cows"][0]["box"] == pytest.approx([50 / 600, 100 / 400, 200 / 600, 200 / 400])
+    assert two_cows.sizes[-1] == 1280
+    status, photo = api("GET", f"koeien/zoek/{found['token']}.jpg")
+    assert status == 200 and photo[:2] == b"\xff\xd8"
+    # Each cow on her own as well, to pick her when the boxes overlap.
+    status, photo = api("GET", f"koeien/zoek/{found['token']}_1_foto.jpg")
+    assert status == 200 and photo[:2] == b"\xff\xd8"
+    assert api("GET", f"koeien/zoek/{found['token']}_1.jpg")[0] == 400
+
+    status, added = api("POST", f"koeien/{BERTHA}/fotos", {"token": found["token"], "index": 0})
+
+    assert status == 200
+    assert added["photos"] == 1 and added["message"] == "Foto toegevoegd aan 30 (Bertha)"
+    import cv2
+
+    saved = cv2.imread(str(tmp_path / BERTHA / added["photo"]))
+    # The cow herself, with the barn around her grey as in the mount photos.
+    assert saved[saved.shape[0] // 2, saved.shape[1] // 2].mean() > 200
+    assert abs(int(saved[1, 1].mean()) - MASK_FILL) < 10
+    status, body = api("GET", f"koeien/{BERTHA}/fotos")
+    assert body["photos"] == [added["photo"]]
+
+
+def test_a_photo_that_is_no_photo_or_has_expired_says_so(tmp_path, api, telegram):
+    from aidetector.cows.split import CowSplitter
+
+    service = register(api, make_service(tmp_path, pair(), []))
+    service.splitter = CowSplitter(two_cows)
+
+    assert upload(api, "koeien/zoek", b"no image")[0] == 400
+    status, body = api("POST", f"koeien/{BERTHA}/fotos", {"token": "0123456789ab", "index": 0})
+    assert status == 400 and "verlopen" in body["error"]
+    status, body = api("POST", f"koeien/{BERTHA}/fotos", {"token": "../../etc", "index": 0})
+    assert status == 400
+    status, found = upload(api, "koeien/zoek", barn_photo())
+    status, body = api("POST", "koeien/NL000000000/fotos", {"token": found["token"], "index": 0})
+    assert status == 404
+
+
+def test_a_photo_can_be_taken_from_a_camera(tmp_path, api, telegram):
+    import subprocess
+
+    from imageio_ffmpeg import get_ffmpeg_exe
+
+    from aidetector.cows.split import CowSplitter
+
+    service = register(api, make_service(tmp_path, pair(), []))
+    service.splitter = CowSplitter(two_cows)
+    video = tmp_path / "stal.mp4"
+    subprocess.run(
+        [get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=5:duration=1", str(video)],
+        check=True,
+    )
+    api.server.server.cameras = [("Stal Links", str(video))]
+
+    assert api("GET", "cameras") == (200, [{"index": 0, "name": "Stal Links"}])
+    status, found = api("POST", "koeien/zoek?camera=0")
+    assert status == 200 and (found["width"], found["height"]) == (640, 360)
+    assert len(found["cows"]) == 2
+    assert api("POST", "koeien/zoek?camera=3")[0] == 404
+
+
+def test_cameras_use_their_sharpest_stream():
+    from aidetector.cows.api import camera_sources
+    from aidetector.utils.config import Config
+
+    config = Config(
+        detectors=[
+            {
+                "detection": {
+                    "source": ["rtsps://nvr/a-medium", "rtsps://nvr/b-medium"],
+                    "name": ["Stal Links", "Stal Rechts"],
+                    "hires": {"source": ["rtsps://nvr/a-high", None]},
+                }
+            }
+        ]
+    )
+
+    assert camera_sources(config) == [
+        ("Stal Links", "rtsps://nvr/a-high"),
+        ("Stal Rechts", "rtsps://nvr/b-medium"),
+    ]
+
+
+def test_a_cow_found_twice_is_shown_once_and_only_with_her_own_pixels(tmp_path):
+    import numpy as np
+
+    from aidetector.cows.split import Found
+    from aidetector.cows.upload import _whole_cows
+
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[40:90, 40:90] = True
+    # A piece of the neighbour's coat, apart from her.
+    mask[5:10, 5:10] = True
+    cow = Found((0.4, 0.4, 0.9, 0.9), mask)
+    twice = Found((0.41, 0.41, 0.9, 0.9), mask)
+    other = Found((0.0, 0.0, 0.3, 0.3), None)
+
+    kept = _whole_cows([cow, twice, other])
+
+    assert [found.box for found in kept] == [cow.box, other.box]
+    assert kept[0].mask is not None
+    assert not kept[0].mask[5:10, 5:10].any() and kept[0].mask[40:90, 40:90].all()
+
+
+def test_a_camera_photo_is_a_whole_frame_when_joining_a_stream_halfway(tmp_path):
+    import subprocess
+
+    import cv2
+    import numpy as np
+    from imageio_ffmpeg import get_ffmpeg_exe
+
+    from aidetector.cows.upload import snapshot
+
+    # An HEVC stream, as the UniFi 4K streams are, with a keyframe every 2 s.
+    stream = tmp_path / "stream.hevc"
+    subprocess.run(
+        [
+            get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+            "-i", "testsrc2=size=640x360:rate=25:duration=4", "-c:v", "libx265",
+            "-x265-params", "keyint=50:min-keyint=50:bframes=0:log-level=none",
+            "-pix_fmt", "yuv420p", str(stream),
+        ],
+        check=True,
+    )
+    data = stream.read_bytes()
+    # Over RTSP the decoder has the parameter sets from the start (before the
+    # first keyframe here) and joins at whatever frame comes: the frames
+    # before the next keyframe have nothing to build on and decoded grey.
+    keyframe = next(
+        index for index in range(len(data) - 4)
+        if data[index : index + 3] == b"\x00\x00\x01" and 16 <= (data[index + 3] >> 1) & 0x3F <= 21
+    )
+    halfway = data.index(b"\x00\x00\x01", len(data) // 4)
+    joined = tmp_path / "joined.hevc"
+    joined.write_bytes(data[:keyframe] + data[halfway:])
+
+    image = cv2.imdecode(np.frombuffer(snapshot(str(joined)), dtype=np.uint8), cv2.IMREAD_COLOR)
+
+    # testsrc2 is colourful all over; a grey frame is nearly flat.
+    assert image.std() > 40

@@ -249,6 +249,9 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   typ je met haar levensnummer: `44 NL123456789 12`. Eén nummer vult de koe die nog open
   staat. Iets fout? Antwoord nog eens met de goede nummers.
 - **Tikken** kan ook: een nummer aan, **✏️ Nummers typen**, of **❔ onbekend** per koe.
+- **Onbekend** (of `?`) is voor een koe die je niet weet en ook niet gaat uitzoeken: de sprong
+  telt als afgehandeld en haar foto gaat in geen map. Weet je het later toch, vul haar dan in
+  bij die sprong (filter *Alles* op de web-interface); dan gaat de foto alsnog in haar map.
 - Elke keuze zet de foto van die koe in haar map, met de stal weggemaskeerd. Daarvan leert
   de herkenning, dus in het begin moet je vaak antwoorden. Zodra een koe 5 foto's heeft en
   duidelijk herkend wordt, vult de bot haar zelf in (`✅ 30 · herkend 93%`); antwoord dan
@@ -261,6 +264,12 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
   (eerst wie sprong); deze foto's gaan niet in een koemap.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
+- **Niet wachten tot ze springt?** Op de [web-interface](#web-interface), tab *Koeien*, klik
+  je op een koe en kies je **Uit camera** (een verse 4K-foto van een stalcamera) of **Foto
+  kiezen** (een foto van je telefoon of computer). De detector zoekt alle koeien op de foto;
+  jij klikt de goede aan, en die gaat gemaskeerd in haar map, net als na een sprong. Een
+  camerafoto van bovenaf werkt het best: daarmee vergelijkt de herkenning. Met 5 van zulke
+  foto's kan ze vanaf de eerste sprong al herkend worden.
 - Liever op een scherm? Op de [web-interface](#web-interface) doe je hetzelfde, met alle
   open sprongen onder elkaar. Wat je daar invult, verschijnt ook in Telegram.
 - **Alleen nummers op de telefoon?** Zet `"cows": { "telegram": "nummers" }`. Dan komt de
@@ -590,7 +599,9 @@ de tijd plus de camera, bijvoorbeeld `2026-09-27T03-12-00 Stal Rechts Voorin`.
 Het makkelijkst beoordeel je ze op de [web-interface](#web-interface), op de pagina
 **Twijfel**: per geval de video, hoe zeker YOLO was en hoe lang het duurde, met **Goed**,
 **Fout** en **Weet niet**. Goed en Fout komen direct in `data/good` en `data/bad` (naast de
-twijfel-map), klaar voor de volgende training; **Keuze wissen** maakt een keuze ongedaan. Het
+twijfel-map), klaar voor de volgende training, en het geval verdwijnt uit de twijfel-map (naar
+`twijfel/.beoordeeld`, na een maand opgeruimd; de foto in `good` of `bad` blijft). **Keuze
+wissen** maakt een keuze ongedaan en zet het geval terug. Het
 is hetzelfde als het reviewprogramma hieronder, en wat je op de een kiest, zie je op de ander.
 
 Zet daarvoor in `config.json` een schijf-export met `review` en `review_confidence` bij `yolo`:

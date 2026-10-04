@@ -118,7 +118,9 @@
 			Sprongen waar YOLO net niet zeker genoeg van was, of die te kort duurden. Ze gaven geen
 			melding. Kijk de video en kies <b>Goed</b> als het een sprong is of <b>Fout</b> als het er
 			geen is: ze gaan naar <span class="font-mono">data/good</span> of
-			<span class="font-mono">data/bad</span>, klaar voor de volgende training.
+			<span class="font-mono">data/bad</span>, klaar voor de volgende training, en verdwijnen uit de
+			twijfel-map. Met <b>Keuze wissen</b> komen ze terug; na een maand worden beoordeelde gevallen opgeruimd
+			(de foto voor het trainen blijft).
 		</p>
 	</header>
 

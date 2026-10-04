@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from aidetector.cows.registry import NumberTaken, normalize_life_number, normalize_number
 from aidetector.cows.reid import EMBEDDINGS_FOLDER
+from aidetector.cows.upload import MAX_UPLOAD, add_photo, find_cows, snapshot, upload_photo
 from aidetector.cows.service import (
     CROPS_FOLDER,
     VIDEO_FILE,
@@ -24,7 +25,7 @@ from aidetector.cows.service import (
     cow_services,
 )
 from aidetector.review import MEDIA_TYPES, ReviewSession
-from aidetector.utils.config import ApiConfig, Config
+from aidetector.utils.config import ApiConfig, Config, CowsConfig
 from aidetector.utils.version import REF_NAME
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,8 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
                         "label": registry.label(candidate, sighting.when),
                         "score": score,
                         "photo": _latest_photo(service, candidate),
+                        # Too few photos keep a cow from being recognised.
+                        "photos": len(registry.photos(candidate)),
                     }
                     for candidate, score in sighting.candidates[slot]
                     if registry.cow(candidate) is not None
@@ -141,6 +144,18 @@ def sighting_view(service: CowService, sighting: Sighting) -> dict[str, Any]:
         "photos": [name for name in _SIGHTING_PHOTOS if (folder / f"{name}.jpg").is_file()],
         "video": (folder / VIDEO_FILE).is_file(),
         "slots": slots,
+    }
+
+
+def recognition_rules() -> dict[str, float]:
+    """When a cow is filled in without asking, so the page can explain why
+    one was not."""
+    services = _mount_services()
+    config = services[0].config if services else CowsConfig()
+    return {
+        "accept_score": config.accept_score,
+        "accept_margin": config.accept_margin,
+        "min_photos": config.min_photos,
     }
 
 
@@ -183,6 +198,7 @@ def list_sightings(query: dict[str, str]) -> dict[str, Any]:
         "total": len(found),
         "open": open_count,
         "cameras": sorted(cameras),
+        "rules": recognition_rules(),
     }
 
 
@@ -268,6 +284,49 @@ def cow_photos(life_number: str) -> dict[str, Any]:
         "label": service.registry.label(life_number),
         "photos": [photo.name for photo in reversed(service.registry.photos(life_number))],
     }
+
+
+def find_cows_on_photo(data: bytes) -> dict[str, Any]:
+    """The cows on a photo the farmer sent or took from a camera, to pick the
+    one to add to a cow folder."""
+    service = _services()[0]
+    splitter, _ = service._models()
+    return find_cows(splitter, service.directory, data)
+
+
+def add_cow_photo(life_number: str, body: dict[str, Any]) -> dict[str, Any]:
+    service = _services()[0]
+    life_number = _life_number(life_number)
+    if service.registry.cow(life_number) is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Deze koe bestaat niet.")
+    photo = add_photo(
+        service.directory,
+        service.registry.folder(life_number),
+        str(body.get("token", "")),
+        int(body.get("index", -1)),
+    )
+    return {
+        "message": f"Foto toegevoegd aan {service.registry.label(life_number)}",
+        "photo": photo.name,
+        "photos": len(service.registry.photos(life_number)),
+    }
+
+
+def camera_sources(config: Config) -> list[tuple[str, str]]:
+    """Each camera by name with its sharpest stream, for a photo of a cow."""
+    from aidetector.detection.detector import camera_names
+
+    cameras: list[tuple[str, str]] = []
+    for detector in config.detectors:
+        detection = detector.detection
+        sources = [detection.source] if isinstance(detection.source, str) else detection.source
+        hires = detection.hires.source if detection.hires else None
+        hires_sources = [hires] if isinstance(hires, str) else hires or []
+        names = camera_names(detection)
+        for index, source in enumerate(sources):
+            sharp = hires_sources[index] if index < len(hires_sources) else None
+            cameras.append((names.get(source, f"Camera {index + 1}"), sharp or source))
+    return cameras
 
 
 def delete_cow_photo(life_number: str, name: str) -> dict[str, Any]:
@@ -543,6 +602,16 @@ class Handler(BaseHTTPRequestHandler):
                 return list_cows(query)
             case "POST", ["koeien"]:
                 return change_cows(self._body())
+            case "GET", ["cameras"]:
+                return [{"index": index, "name": name} for index, (name, _) in enumerate(self._cameras)]
+            case "POST", ["koeien", "zoek"]:
+                if "camera" in query:
+                    return find_cows_on_photo(snapshot(self._camera(query["camera"])))
+                return find_cows_on_photo(self._raw_body())
+            case "GET", ["koeien", "zoek", name] if name.endswith(".jpg"):
+                return upload_photo(_services()[0].directory, name.removesuffix(".jpg"))
+            case "POST", ["koeien", life_number, "fotos"]:
+                return add_cow_photo(life_number, self._body())
             case "GET", ["koeien", life_number, "fotos"]:
                 return cow_photos(life_number)
             case "GET", ["koeien", life_number, "fotos", name]:
@@ -562,6 +631,24 @@ class Handler(BaseHTTPRequestHandler):
     @property
     def _folders(self) -> list[Path]:
         return getattr(self.server, "review_folders", [])
+
+    @property
+    def _cameras(self) -> list[tuple[str, str]]:
+        return getattr(self.server, "cameras", [])
+
+    def _camera(self, index: str) -> str:
+        cameras = self._cameras
+        if not index.isdigit() or int(index) >= len(cameras):
+            raise ApiError(HTTPStatus.NOT_FOUND, "Deze camera bestaat niet.")
+        return cameras[int(index)][1]
+
+    def _raw_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_UPLOAD:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "De foto is te groot (meer dan 30 MB).")
+        if length == 0:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Er kwam geen foto mee.")
+        return self.rfile.read(length)
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
@@ -618,9 +705,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class CowApi:
-    def __init__(self, config: ApiConfig, review: list[Path] | None = None):
+    def __init__(
+        self,
+        config: ApiConfig,
+        review: list[Path] | None = None,
+        cameras: list[tuple[str, str]] | None = None,
+    ):
         self.config = config
         self.review = review if review is not None else []
+        self.cameras = cameras if cameras is not None else []
         self.server: ThreadingHTTPServer | None = None
 
     def start(self) -> None:
@@ -637,6 +730,7 @@ class CowApi:
             return
         self.server.daemon_threads = True
         self.server.review_folders = self.review  # type: ignore[attr-defined]
+        self.server.cameras = self.cameras  # type: ignore[attr-defined]
         Thread(target=self.server.serve_forever, name="cow-api", daemon=True).start()
         logger.info("Cow API for the web interface on http://%s:%s", self.config.host, self.config.port)
 

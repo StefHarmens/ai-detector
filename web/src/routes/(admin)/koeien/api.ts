@@ -3,6 +3,8 @@ export interface Candidate {
 	label: string;
 	score: number;
 	photo: string | null;
+	// Photos in her folder; too few keep her from being recognised.
+	photos: number;
 }
 
 export interface Slot {
@@ -33,11 +35,19 @@ export interface Sighting {
 	slots: Slot[];
 }
 
+// When the detector fills in a cow without asking (cows.accept_score etc.).
+export interface RecognitionRules {
+	accept_score: number;
+	accept_margin: number;
+	min_photos: number;
+}
+
 export interface SightingPage {
 	items: Sighting[];
 	total: number;
 	open: number;
 	cameras: string[];
+	rules: RecognitionRules;
 }
 
 export interface Cow {
@@ -83,10 +93,17 @@ const BASE = '/koeien/api';
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
 	let response: Response;
 	try {
+		// A photo goes as it is, everything else as JSON.
+		const photo = body instanceof Blob;
 		response = await fetch(`${BASE}/${path}`, {
 			method,
-			headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-			body: body === undefined ? undefined : JSON.stringify(body)
+			headers:
+				body === undefined
+					? undefined
+					: {
+							'Content-Type': photo ? body.type || 'application/octet-stream' : 'application/json'
+						},
+			body: body === undefined ? undefined : photo ? body : JSON.stringify(body)
 		});
 	} catch {
 		throw new ApiError('Geen verbinding met de website. Zit je op het wifi van de boerderij?', 0);
@@ -108,6 +125,28 @@ export function sightingVideo(id: string): string {
 
 export function cowPhoto(lifeNumber: string, name: string): string {
 	return `${BASE}/koeien/${encodeURIComponent(lifeNumber)}/fotos/${encodeURIComponent(name)}`;
+}
+
+// The cows the detector found on a photo, to pick the one to add.
+export interface FoundCows {
+	token: string;
+	width: number;
+	height: number;
+	// Box as fractions of the photo: x1, y1, x2, y2.
+	cows: { index: number; box: [number, number, number, number] }[];
+}
+
+export interface Camera {
+	index: number;
+	name: string;
+}
+
+export function foundPhoto(token: string): string {
+	return `${BASE}/koeien/zoek/${token}.jpg`;
+}
+
+export function foundCowPhoto(token: string, index: number): string {
+	return `${BASE}/koeien/zoek/${token}_${index}_foto.jpg`;
 }
 
 export function percent(score: number | null): string {
