@@ -36,3 +36,27 @@ def test_missing_frames_warning_hides_the_stream_key(monkeypatch, caplog):
 
     assert "Missing frames from sources: rtsps://192.168.1.77:7441/<key>" in caplog.text
     assert "SecretKey123" not in caplog.text
+
+
+def test_a_missing_source_is_logged_once_and_once_when_it_is_back(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(
+        "aidetector.sources.streaming.LoadStreams",
+        lambda _source: (_ for _ in ()).throw(ConnectionError("offline")),
+    )
+    batcher = StreamBatcher(["cam-a", "cam-b"])
+    batcher.stop()
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO, logger="aidetector.sources.streaming"):
+        # A night without cam-a: thousands of batches.
+        for _ in range(1000):
+            batcher.log_missing({"cam-b"})
+        batcher.log_missing({"cam-a", "cam-b"})
+        batcher.log_missing({"cam-a", "cam-b"})
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "Missing frames from sources: cam-a",
+        "Frames again from sources: cam-a",
+    ]

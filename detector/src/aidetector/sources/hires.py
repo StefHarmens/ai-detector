@@ -247,7 +247,10 @@ class HiresRecorder(_Kept):
                         self._trim(now)
                 for gop in done:
                     gops += 1
-                    self._log_interval(gop)
+                    # The first GOP of a connection can be cut short: on the
+                    # farm it gave "a keyframe every 0.0 s".
+                    if gops >= 2:
+                        self._log_interval(gop)
                 if not warned and splitter.current is None and splitter.skipped >= _FRAMES_WITHOUT_KEYFRAME:
                     warned = True
                     logger.warning(

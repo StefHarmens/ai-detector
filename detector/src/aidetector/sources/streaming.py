@@ -35,6 +35,7 @@ class StreamBatcher:
         self.collector = FrameCollector(width, retention)
         self.threads = []
         self.missing_sources = set()
+        self.reported_missing: set[str] = set()
         self.condition = Condition()
 
         def run_loader(index: int, source: str):
@@ -111,13 +112,24 @@ class StreamBatcher:
         )
 
     def log_missing(self, present_sources: set[str]):
+        """Logs a source once when it gives no frames two batches in a row,
+        and once when it is back: logged every batch, a camera that was gone
+        for a night pushed everything else out of the log."""
         new_missing = set(self.sources) - present_sources
-        intersect = new_missing & self.missing_sources
-        if intersect:
+        gone = (new_missing & self.missing_sources) - self.reported_missing
+        if gone:
             logger.warning(
                 "Missing frames from sources: %s",
-                ", ".join(hide_keys(source) for source in sorted(intersect)),
+                ", ".join(hide_keys(source) for source in sorted(gone)),
             )
+            self.reported_missing |= gone
+        back = self.reported_missing - new_missing
+        if back:
+            logger.info(
+                "Frames again from sources: %s",
+                ", ".join(hide_keys(source) for source in sorted(back)),
+            )
+            self.reported_missing -= back
         self.missing_sources = new_missing
 
     def __iter__(self):
