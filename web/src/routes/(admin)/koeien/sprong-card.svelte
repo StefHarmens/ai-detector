@@ -239,6 +239,7 @@
 						size="sm"
 						variant="outline"
 						disabled={busy}
+						title="Weet je niet welke koe dit is: de sprong telt als afgehandeld en de foto gaat in geen map"
 						onclick={() => send({ action: 'onbekend', slot: slot.slot }, 1 - slot.slot)}
 					>
 						Onbekend

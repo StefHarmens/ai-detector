@@ -233,12 +233,17 @@ def test_tapping_a_candidate_files_the_masked_photo(tmp_path, telegram):
     assert "A werd besprongen: ✅ 30 (Bertha)" in edit["caption"]
     assert buttons(edit["reply_markup"])[0] == ["✅ A: 30 (Bertha) · 70%"]
 
-    # Changing the answer moves the photo; a wrong photo goes nowhere.
+    # Changing the answer takes the photo out; an unknown cow has no folder
+    # to learn from, and a wrong photo goes nowhere.
     service.handle_callback(f"cow:{sighting.id}:0:u")
     assert list((tmp_path / BERTHA).glob("*.jpg")) == []
-    assert len(list((tmp_path / "onbekend").glob("*.jpg"))) == 1
+    assert not (tmp_path / "onbekend").exists()
+    assert sighting.how[0] == "boer" and sighting.cows[0] is None
+    # Known after all: then her photo is filed.
+    service.handle_callback(f"cow:{sighting.id}:0:c0")
+    assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
     service.handle_callback(f"cow:{sighting.id}:0:x")
-    assert list((tmp_path / "onbekend").glob("*.jpg")) == []
+    assert list((tmp_path / BERTHA).glob("*.jpg")) == []
     assert "A werd besprongen: 🚫 foto klopt niet" in telegram.sent("editMessageCaption")[-1]["caption"]
 
 

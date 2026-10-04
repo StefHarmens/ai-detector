@@ -249,6 +249,9 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   typ je met haar levensnummer: `44 NL123456789 12`. Eén nummer vult de koe die nog open
   staat. Iets fout? Antwoord nog eens met de goede nummers.
 - **Tikken** kan ook: een nummer aan, **✏️ Nummers typen**, of **❔ onbekend** per koe.
+- **Onbekend** (of `?`) is voor een koe die je niet weet en ook niet gaat uitzoeken: de sprong
+  telt als afgehandeld en haar foto gaat in geen map. Weet je het later toch, vul haar dan in
+  bij die sprong (filter *Alles* op de web-interface); dan gaat de foto alsnog in haar map.
 - Elke keuze zet de foto van die koe in haar map, met de stal weggemaskeerd. Daarvan leert
   de herkenning, dus in het begin moet je vaak antwoorden. Zodra een koe 5 foto's heeft en
   duidelijk herkend wordt, vult de bot haar zelf in (`✅ 30 · herkend 93%`); antwoord dan

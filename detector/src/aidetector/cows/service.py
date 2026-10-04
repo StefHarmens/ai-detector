@@ -883,7 +883,9 @@ class CowService:
     ) -> None:
         """Stores the farmer's choice and files the masked photo in the cow's
         folder, which is what the recognition learns from. A photo that does
-        not show one cow of the mount (file=False) is never filed."""
+        not show one cow of the mount (file=False) is never filed, and an
+        unknown cow (cow=None) has no folder to learn from: her photo is
+        filed only when she is filled in after all."""
         with self.lock:
             filed = sighting.how[slot] == "boer" and not sighting.bad_photo[slot]
             previous = sighting.cows[slot]
@@ -901,7 +903,7 @@ class CowService:
         source = folder / f"{SLOT_NAMES[slot]}_koe.jpg"
         if not source.is_file():
             source = folder / f"{SLOT_NAMES[slot]}.jpg"
-        if file and source.is_file():
+        if file and cow is not None and source.is_file():
             destination = self.registry.folder(cow)
             destination.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination / name)
