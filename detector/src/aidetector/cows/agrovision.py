@@ -435,15 +435,19 @@ class AgrovisionConnector:
         out = self.folder / "download.xlsx"
         out.unlink(missing_ok=True)
         self.screenshot.unlink(missing_ok=True)
-        self.fetch(state, out)
-        if not out.is_file():
-            raise ConnectorError("Er is geen bestand gedownload.")
-        result = self._check(out)
-        staged = self.herd_file.with_name(self.herd_file.name + ".new")
-        self.herd_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(out, staged)
-        os.replace(staged, self.herd_file)
-        out.unlink(missing_ok=True)
+        # The list always goes to the same file, replacing the last one; the
+        # download itself is removed whatever happens.
+        try:
+            self.fetch(state, out)
+            if not out.is_file():
+                raise ConnectorError("Er is geen bestand gedownload.")
+            result = self._check(out)
+            staged = self.herd_file.with_name(self.herd_file.name + ".new")
+            self.herd_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(out, staged)
+            os.replace(staged, self.herd_file)
+        finally:
+            out.unlink(missing_ok=True)
         return result
 
     def _check(self, path: Path) -> Result:

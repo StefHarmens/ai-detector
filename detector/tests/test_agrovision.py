@@ -114,3 +114,15 @@ def test_session_code_is_taken_out_of_the_address(connector):
         "https://cowvision.agrovision.nl/CowVision/Applications/Portal_v2026_03/"
         "#analysis/reports/5/293/1/stallijst%20hoentjen"
     )
+
+
+def test_one_list_file_is_kept_and_replaced(connector):
+    connector.save(LOGIN)
+    connector._run()
+    connector.fetch = lambda state, out: herd(out, 12)
+    connector._run()
+    connector.fetch = lambda state, out: out.write_text("<html>")
+    connector._run()
+    assert sorted(path.name for path in connector.directory.glob("*.xlsx*")) == ["koeienlijst.xlsx"]
+    assert not list(connector.folder.glob("*.xlsx*"))
+    assert connector.view()["animals"] == 12
