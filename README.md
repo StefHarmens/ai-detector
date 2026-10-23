@@ -249,6 +249,9 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   typ je met haar levensnummer: `44 NL123456789 12`. Eén nummer vult de koe die nog open
   staat. Iets fout? Antwoord nog eens met de goede nummers.
 - **Tikken** kan ook: een nummer aan, **✏️ Nummers typen**, of **❔ onbekend** per koe.
+- **Onbekend** (of `?`) is voor een koe die je niet weet en ook niet gaat uitzoeken: de sprong
+  telt als afgehandeld en haar foto gaat in geen map. Weet je het later toch, vul haar dan in
+  bij die sprong (filter *Alles* op de web-interface); dan gaat de foto alsnog in haar map.
 - Elke keuze zet de foto van die koe in haar map, met de stal weggemaskeerd. Daarvan leert
   de herkenning, dus in het begin moet je vaak antwoorden. Zodra een koe 5 foto's heeft en
   duidelijk herkend wordt, vult de bot haar zelf in (`✅ 30 · herkend 93%`); antwoord dan
@@ -261,6 +264,12 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
   (eerst wie sprong); deze foto's gaan niet in een koemap.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
+- **Niet wachten tot ze springt?** Op de [web-interface](#web-interface), tab *Koeien*, klik
+  je op een koe en kies je **Uit camera** (een verse 4K-foto van een stalcamera) of **Foto
+  kiezen** (een foto van je telefoon of computer). De detector zoekt alle koeien op de foto;
+  jij klikt de goede aan, en die gaat gemaskeerd in haar map, net als na een sprong. Een
+  camerafoto van bovenaf werkt het best: daarmee vergelijkt de herkenning. Met 5 van zulke
+  foto's kan ze vanaf de eerste sprong al herkend worden.
 - Liever op een scherm? Op de [web-interface](#web-interface) doe je hetzelfde, met alle
   open sprongen onder elkaar. Wat je daar invult, verschijnt ook in Telegram.
 - **Alleen nummers op de telefoon?** Zet `"cows": { "telegram": "nummers" }`. Dan komt de
@@ -480,16 +489,21 @@ gedecodeerd en wordt de detectie flink trager.
 }
 ```
 
-De detector bewaart van elke camera 10 beelden per seconde (`fps`) van de laatste 12
-seconden, in 4K; de video's van een sprong worden daarvan gemaakt. Begint er een sprong, dan
-houdt hij de beelden vast vanaf 10 seconden ervoor tot de sprong is afgehandeld, hoe lang die
-ook duurt. Bij een aparte 4K-stream (`hires.source`) decodeert hij eerst alleen de
-sleutelbeelden. Komen die minder vaak dan om de 2 seconden (UniFi stuurt er een om de 5
-seconden), dan zou het 4K-beeld te ver van de detectie liggen; hij decodeert die camera dan
-toch helemaal en zegt dat in het log. Dat doet de hardware van de Mac: per 4K-stream ongeveer
-0,3 GB geheugen en een kwart processorkern. Telegram weigert foto's boven 10 MB en toont
-ze hooguit 2560 pixels breed, dus foto's naar Telegram worden verkleind tot 2560 pixels en
-onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
+Bij een aparte 4K-stream (`hires.source`) neemt de detector die stream op zoals hij
+binnenkomt, zonder hem te decoderen: dat kost per camera ongeveer 1% van een processorkern en
+1 à 2 MB geheugen per seconde die hij bewaart. Hij bewaart de laatste 12 seconden (`seconds`).
+Begint er een sprong, dan houdt hij de opname vast vanaf 10 seconden ervoor
+(`before_seconds`) tot de sprong is afgehandeld, hoe lang die ook duurt. Pas dan worden
+alleen die seconden gedecodeerd, met de hardware van de Mac, tot `fps` beelden per seconde
+in 4K; daar worden de video's en foto's van de sprong van gemaakt. Dat duurt een paar
+seconden per sprong. `fps` mag tot de framerate van de camera (bij UniFi 25 of 30): tussen
+de sprongen kost dat niets, en de video's worden er vloeiender van.
+
+Zonder aparte stream maakt de detector van de detectiestream zelf `fps` 4K-foto's per
+seconde, de hele tijd; hoger dan 10 kost daar dus wel merkbaar processortijd.
+
+Telegram weigert foto's boven 10 MB en toont ze hooguit 2560 pixels breed, dus foto's naar
+Telegram worden verkleind tot 2560 pixels en onder 9,5 MB gehouden. De koemappen en `hires.jpg` houden de volle 4K-kwaliteit.
 
 Per sprong bewaart de bot in `data/koeien/.meldingen/<id>/` de foto's, een `controle.jpg`
 (het 4K-beeld met het kader van de sprong: valt dat niet op de koeien, dan lopen de twee
@@ -585,7 +599,9 @@ de tijd plus de camera, bijvoorbeeld `2026-09-27T03-12-00 Stal Rechts Voorin`.
 Het makkelijkst beoordeel je ze op de [web-interface](#web-interface), op de pagina
 **Twijfel**: per geval de video, hoe zeker YOLO was en hoe lang het duurde, met **Goed**,
 **Fout** en **Weet niet**. Goed en Fout komen direct in `data/good` en `data/bad` (naast de
-twijfel-map), klaar voor de volgende training; **Keuze wissen** maakt een keuze ongedaan. Het
+twijfel-map), klaar voor de volgende training, en het geval verdwijnt uit de twijfel-map (naar
+`twijfel/.beoordeeld`, na een maand opgeruimd; de foto in `good` of `bad` blijft). **Keuze
+wissen** maakt een keuze ongedaan en zet het geval terug. Het
 is hetzelfde als het reviewprogramma hieronder, en wat je op de een kiest, zie je op de ander.
 
 Zet daarvoor in `config.json` een schijf-export met `review` en `review_confidence` bij `yolo`:

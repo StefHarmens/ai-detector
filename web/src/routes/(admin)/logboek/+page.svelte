@@ -7,6 +7,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import PowerIcon from '@lucide/svelte/icons/power';
+	import EraserIcon from '@lucide/svelte/icons/eraser';
 	import type { LogEntry, LogPage } from '$lib/server/logs';
 
 	type Filter = 'problemen' | 'fouten' | 'updates' | 'alles';
@@ -24,6 +25,36 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let loadedAt = $state<Date | null>(null);
+
+	async function clear(wissen: boolean) {
+		if (
+			wissen &&
+			!confirm(
+				'Het logboek leegmaken? Je ziet dan alleen nog wat er vanaf nu gebeurt. De logbestanden zelf blijven bewaard.'
+			)
+		)
+			return;
+		loading = true;
+		try {
+			const response = await fetch('/logboek/api', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ wissen })
+			});
+			if (!response.ok) throw new Error(`Het logboek legen lukte niet (HTTP ${response.status})`);
+			page = await response.json();
+			loadedAt = new Date();
+			error = null;
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			loading = false;
+		}
+	}
+
+	function clearedLabel(time: string): string {
+		return `${dayLabel(time.slice(0, 10)).toLowerCase()} om ${time.slice(11, 16)}`;
+	}
 
 	async function load() {
 		loading = true;
@@ -121,12 +152,39 @@
 		<Button type="button" size="sm" variant="ghost" disabled={loading} onclick={load}>
 			Vernieuwen
 		</Button>
+		{#if page?.directory && entries.length > 0}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				disabled={loading}
+				title="Alles wat er nu staat verbergen; de tellers gaan weer naar 0"
+				onclick={() => clear(true)}
+			>
+				<EraserIcon /> Logboek legen
+			</Button>
+		{/if}
 		{#if loadedAt}
 			<span class="text-xs text-muted-foreground">
 				bijgewerkt {loadedAt.toLocaleTimeString('nl-NL')}
 			</span>
 		{/if}
 	</div>
+
+	{#if page?.cleared}
+		<p class="-mt-3 text-xs text-muted-foreground">
+			Geleegd {clearedLabel(page.cleared)}: alleen wat daarna kwam staat hier. De logbestanden
+			bewaren de rest.
+			<button
+				type="button"
+				class="underline underline-offset-2 hover:text-foreground"
+				disabled={loading}
+				onclick={() => clear(false)}
+			>
+				Oudere meldingen weer tonen
+			</button>
+		</p>
+	{/if}
 
 	{#if error}
 		<p class="text-sm font-semibold text-destructive">{error}</p>
@@ -146,6 +204,7 @@
 	{:else if page && visible.length === 0}
 		<p class="text-sm text-muted-foreground">
 			{filter === 'updates' ? 'Nog geen updates in het logboek.' : 'Geen waarschuwingen of fouten.'}
+			{#if page.cleared}Sinds het legen is er niets bijgekomen.{/if}
 		</p>
 	{/if}
 

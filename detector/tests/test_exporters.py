@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import requests
 
 from aidetector.exporters.disk import DiskExporter
 from aidetector.exporters.exporter import Exporter
@@ -355,3 +356,20 @@ def test_older_alerts_without_stored_buttons_are_left_alone(tmp_path, monkeypatc
     listener.classify(feedback_id, "bad")
 
     assert posts == []
+
+
+def test_a_stalled_telegram_poll_is_a_warning_not_a_traceback(tmp_path, monkeypatch, caplog):
+    listener = TelegramFeedbackListener("token", tmp_path)
+
+    def stalled_get(*args, **kwargs):
+        listener.stop_event.set()
+        raise requests.ReadTimeout("Read timed out. (read timeout=30)")
+
+    monkeypatch.setattr("aidetector.exporters.telegram.requests.get", stalled_get)
+
+    listener._poll()
+
+    assert [(record.levelname, record.exc_info) for record in caplog.records] == [
+        ("WARNING", None)
+    ]
+    assert listener.offset == 0

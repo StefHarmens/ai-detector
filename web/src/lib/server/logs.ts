@@ -2,7 +2,7 @@
 // (see macos/cowcatcher.sh), so they can be seen on the web page instead of
 // in a Terminal on the Mac mini.
 import { existsSync } from 'node:fs';
-import { open, stat } from 'node:fs/promises';
+import { open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -26,7 +26,13 @@ export interface LogPage {
 	// the services of the install script.
 	directory: string | null;
 	entries: LogEntry[];
+	// When the farmer last cleared the Logboek ("2026-10-04T13:05:00"); only
+	// what came after it is shown. The log files themselves are kept.
+	cleared: string | null;
 }
+
+// Next to the logs; not a .log file, so the updater leaves it alone.
+const CLEARED_FILE = 'logboek-gewist.txt';
 
 // The detector logs every detection, so 16 MB is about a day and a half;
 // the services keep at most 50 MB per file.
@@ -136,16 +142,45 @@ async function readTail(file: string, bytes = TAIL_BYTES): Promise<string> {
 }
 
 export async function readLogs(directory = logDirectory()): Promise<LogPage> {
-	if (!existsSync(directory)) return { directory: null, entries: [] };
-	const [detector, updater] = await Promise.all([
+	if (!existsSync(directory)) return { directory: null, entries: [], cleared: null };
+	const [detector, updater, cleared] = await Promise.all([
 		readTail(path.join(directory, 'detector.log')),
-		readTail(path.join(directory, 'updater.log'))
+		readTail(path.join(directory, 'updater.log')),
+		readCleared(directory)
 	]);
 	const entries = [...parseDetectorLog(detector), ...parseUpdaterLog(updater)]
+		.filter((entry) => cleared === null || entry.time > cleared)
 		// Newest first; the same second keeps the order of the log.
 		.map((entry, index) => ({ entry, index }))
 		.sort((a, b) => b.entry.time.localeCompare(a.entry.time) || b.index - a.index)
 		.slice(0, MAX_ENTRIES)
 		.map(({ entry }) => entry);
-	return { directory, entries };
+	return { directory, entries, cleared };
+}
+
+const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+
+async function readCleared(directory: string): Promise<string | null> {
+	try {
+		const text = (await readFile(path.join(directory, CLEARED_FILE), 'utf8')).trim();
+		return LOCAL_TIME.test(text) ? text : null;
+	} catch {
+		return null;
+	}
+}
+
+// Local time as the logs write it, so it compares with their entries.
+export function localTime(date = new Date()): string {
+	const pad = (value: number) => String(value).padStart(2, '0');
+	return (
+		`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+		`T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+	);
+}
+
+// Hides everything up to now on the Logboek page, or (undo) shows it again.
+export async function clearLogs(clear: boolean, directory = logDirectory()): Promise<void> {
+	const file = path.join(directory, CLEARED_FILE);
+	if (clear) await writeFile(file, `${localTime()}\n`);
+	else await rm(file, { force: true });
 }

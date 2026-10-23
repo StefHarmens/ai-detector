@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { NativeSelect, NativeSelectOption } from '$lib/components/ui/native-select';
-	import { api, type Cow, type Sighting, type SightingPage } from './api';
+	import { api, type Cow, type RecognitionRules, type Sighting, type SightingPage } from './api';
+	import HerkenningUitleg from './herkenning-uitleg.svelte';
 	import SprongCard from './sprong-card.svelte';
 
 	const PAGE_SIZE = 10;
@@ -18,6 +19,7 @@
 	let items = $state<Sighting[]>([]);
 	let total = $state(0);
 	let cameras = $state<string[]>([]);
+	let rules = $state<RecognitionRules | null>(null);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let version = 0;
@@ -44,6 +46,7 @@
 			items = reset ? page.items : [...items, ...page.items.filter((item) => !known.has(item.id))];
 			total = page.total;
 			cameras = page.cameras;
+			rules = page.rules ?? null;
 			openCount = page.open;
 			onopen(openCount);
 		} catch (err) {
@@ -66,6 +69,12 @@
 	}
 
 	let openCount = $state(0);
+	const filterUitleg = {
+		open: 'Sprongen waarbij nog minstens één koe ingevuld moet worden.',
+		herkend:
+			'Sprongen waarbij CowCatcher minstens één koe zelf herkende (blauw). Controleer ze en klik op Klopt; de andere koe kan nog open staan.',
+		alles: 'Alle sprongen, ook de ingevulde en die zonder sprong.'
+	} as const;
 	const remaining = $derived(
 		total - (filter === 'open' ? items.filter((item) => item.open).length : items.length)
 	);
@@ -89,6 +98,8 @@
 		<option value={cow.number ?? cow.life_number}>{cow.label}</option>
 	{/each}
 </datalist>
+
+<HerkenningUitleg {rules} />
 
 <div class="flex flex-wrap items-center gap-2">
 	{#each [['open', 'Nog invullen'], ['herkend', 'Zelf herkend'], ['alles', 'Alles']] as [value, label] (value)}
@@ -114,6 +125,7 @@
 		Vernieuwen
 	</Button>
 </div>
+<p class="-mt-2 text-sm text-muted-foreground">{filterUitleg[filter]}</p>
 
 {#if error}
 	<p class="text-sm font-semibold text-destructive">{error}</p>
@@ -127,7 +139,7 @@
 
 <div class="grid gap-4 xl:grid-cols-2">
 	{#each items as sighting (sighting.id)}
-		<SprongCard {sighting} cowList={cowListId} onchange={changed} />
+		<SprongCard {sighting} {rules} cowList={cowListId} onchange={changed} />
 	{/each}
 </div>
 

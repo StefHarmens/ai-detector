@@ -599,11 +599,6 @@
           "default": "auto",
           "title": "Hwaccel"
         },
-        "keyframes_only": {
-          "default": true,
-          "title": "Keyframes Only",
-          "type": "boolean"
-        },
         "max_width": {
           "anyOf": [
             {
