@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { error, type RequestHandler } from '@sveltejs/kit';
 import {
@@ -230,6 +230,44 @@ function createStream(source: string, ffmpegPath: string, signal: AbortSignal, f
 	});
 }
 
+// One frame from the camera, to tell the farmer why the live view stays empty
+// without opening the log. Without the Mac's decoder too, to see if that is it.
+function diagnose(source: string, ffmpegPath: string) {
+	const attempt = (decoder: string[]) => {
+		const result = spawnSync(
+			ffmpegPath,
+			[
+				'-hide_banner',
+				'-loglevel',
+				'error',
+				'-nostdin',
+				...decoder,
+				...getRtspInputArgs(source),
+				'-map',
+				'0:v:0',
+				'-frames:v',
+				'1',
+				'-f',
+				'null',
+				'-'
+			],
+			{ encoding: 'utf8', timeout: 25_000, windowsHide: true }
+		);
+		const text = sanitizeTextForLogs(`${result.stderr ?? ''}${result.error?.message ?? ''}`).trim();
+		return { ok: result.status === 0, text: text.split('\n').slice(-4).join('\n') };
+	};
+	const first = attempt(DECODER_ARGS);
+	if (first.ok)
+		return { ok: true, message: 'Eén beeld ophalen lukt; het kijkt even later opnieuw.' };
+	if (DECODER_ARGS.length && attempt([]).ok) {
+		return {
+			ok: false,
+			message: `Het beeld lukt alleen zonder de hardware-decoder van de Mac (VideoToolbox). ${first.text}`
+		};
+	}
+	return { ok: false, message: first.text || 'Geen beeld en geen foutmelding van ffmpeg.' };
+}
+
 export const GET: RequestHandler = async ({ params, request, url }) => {
 	const source = params.source?.trim();
 	if (!source || !isRtspSource(source)) {
@@ -242,6 +280,10 @@ export const GET: RequestHandler = async ({ params, request, url }) => {
 			500,
 			`FFmpeg binary not available. Set FFMPEG_PATH, install ffmpeg in PATH, or place ${getExecutableName()} next to ${path.basename(process.execPath)}.`
 		);
+	}
+
+	if (url.searchParams.has('diagnose')) {
+		return Response.json(diagnose(source, ffmpegPath));
 	}
 
 	const full = url.searchParams.get('kwaliteit') === '4k';
