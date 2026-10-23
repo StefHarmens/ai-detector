@@ -1,13 +1,15 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { api, type CowList } from './api';
+	import Agrovision from './agrovision.svelte';
 	import Beoordelen from './beoordelen.svelte';
 	import KoeienLijst from './koeien-lijst.svelte';
 	import Overzicht from './overzicht.svelte';
 
-	let tab = $state('beoordelen');
+	let tab = $state(page.url.searchParams.get('tab') ?? 'beoordelen');
 	let open = $state<number | null>(null);
 	let cows = $state<CowList | null>(null);
 	let cowsError = $state<string | null>(null);
@@ -51,6 +53,7 @@
 			</Tabs.Trigger>
 			<Tabs.Trigger value="koeien">Koeien</Tabs.Trigger>
 			<Tabs.Trigger value="overzicht">Overzicht</Tabs.Trigger>
+			<Tabs.Trigger value="agrovision">AgroVision</Tabs.Trigger>
 		</Tabs.List>
 		<Tabs.Content value="beoordelen" class="flex flex-col gap-4">
 			<Beoordelen
@@ -70,6 +73,9 @@
 		<Tabs.Content value="overzicht" class="flex flex-col gap-4">
 			<!-- Loaded when opened, so it counts what was just filled in. -->
 			{#if tab === 'overzicht'}<Overzicht />{/if}
+		</Tabs.Content>
+		<Tabs.Content value="agrovision" class="flex flex-col gap-4">
+			<Agrovision onchanged={loadCows} />
 		</Tabs.Content>
 	</Tabs.Root>
 </section>

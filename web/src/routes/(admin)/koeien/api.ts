@@ -165,3 +165,19 @@ export function formatDate(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
 }
+
+// The AgroVision connector: the herd list is fetched every night.
+export interface Agrovision {
+	configured: boolean;
+	url: string;
+	username: string;
+	has_password: boolean;
+	run_at: string;
+	status: 'never' | 'running' | 'ok' | 'failed';
+	// What a run in progress is doing.
+	step: string | null;
+	reason: string | null;
+	attempted: string | null;
+	succeeded: string | null;
+	animals: number | null;
+}

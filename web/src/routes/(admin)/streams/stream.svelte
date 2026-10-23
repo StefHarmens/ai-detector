@@ -28,6 +28,7 @@
 	let imageReady = $state(false);
 	let unavailable = $state(false);
 	let image: HTMLImageElement | null = null;
+	let reason = $state<string | null>(null);
 
 	const streamUrl = $derived(resolve(`/streams/${encodeURIComponent(source)}`));
 	const hiresUrl = $derived(
@@ -40,9 +41,17 @@
 		unavailable = false;
 	}
 
-	function handleError() {
+	async function handleError() {
 		imageReady = false;
 		unavailable = true;
+		reason = null;
+		try {
+			const response = await fetch(`${streamUrl}?diagnose=1`);
+			const result = await response.json();
+			reason = result.message ?? null;
+		} catch {
+			reason = 'De website zelf is niet bereikbaar.';
+		}
 	}
 
 	function stopStream() {
@@ -58,6 +67,7 @@
 		streamUrl;
 		imageReady = false;
 		unavailable = false;
+		reason = null;
 
 		return stopStream;
 	});
@@ -93,7 +103,12 @@
 			<div
 				class="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-white/70"
 			>
-				Live stream unavailable.
+				<div class="space-y-1">
+					<p>Live stream unavailable.</p>
+					{#if reason}<p class="font-mono break-words whitespace-pre-wrap text-white/50">
+							{reason}
+						</p>{/if}
+				</div>
 			</div>
 		{:else if loading && !showLoading}
 			<div

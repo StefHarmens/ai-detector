@@ -14,6 +14,7 @@ from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from aidetector.cows.agrovision import get_connector
 from aidetector.cows.registry import NumberTaken, normalize_life_number, normalize_number
 from aidetector.cows.reid import EMBEDDINGS_FOLDER
 from aidetector.cows.upload import MAX_UPLOAD, add_photo, find_cows, snapshot, upload_photo
@@ -56,6 +57,10 @@ def _services() -> list[CowService]:
             'Koeien herkennen staat uit: zet "cows": {} bij een Telegram-chat in config.json.',
         )
     return services
+
+
+def _connector():
+    return get_connector(_services()[0].directory)
 
 
 def _mount_services() -> list[CowService]:
@@ -618,6 +623,21 @@ class Handler(BaseHTTPRequestHandler):
                 return _cow_photo(_services()[0], life_number, name)
             case "DELETE", ["koeien", life_number, "fotos", name]:
                 return delete_cow_photo(life_number, name)
+            case "GET", ["agrovision"]:
+                return _connector().view()
+            case "POST", ["agrovision"]:
+                connector = _connector()
+                connector.save(self._body())
+                connector.sync_now()
+                return connector.view()
+            case "POST", ["agrovision", "sync"]:
+                connector = _connector()
+                connector.sync_now()
+                return connector.view()
+            case "DELETE", ["agrovision"]:
+                connector = _connector()
+                connector.delete()
+                return connector.view()
             case "GET", ["overzicht"]:
                 return overview(query)
             case "GET", ["twijfel"]:
