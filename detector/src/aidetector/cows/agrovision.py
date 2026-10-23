@@ -254,6 +254,94 @@ def _without_session(url: str) -> str:
     return urlunsplit(parts._replace(query=query))
 
 
+SPREADSHEET_NS = "urn:schemas-microsoft-com:office:spreadsheet"
+
+
+def _spreadsheet_rows(data: bytes) -> list[list[Any]]:
+    """Excel 2003 XML ("XML-werkblad"): AgroVision gives this with an .xml name."""
+    from xml.etree import ElementTree
+
+    root = ElementTree.fromstring(data)
+    ns = {"s": SPREADSHEET_NS}
+    index_key = f"{{{SPREADSHEET_NS}}}Index"
+    sheet = root.find(".//s:Worksheet", ns)
+    if sheet is None:
+        raise ValueError("geen werkblad in het XML-bestand")
+    rows: list[list[Any]] = []
+    for row in sheet.iterfind(".//s:Row", ns):
+        values: list[Any] = []
+        for cell in row.iterfind("s:Cell", ns):
+            if index_key in cell.attrib:
+                values.extend([None] * (int(cell.attrib[index_key]) - 1 - len(values)))
+            node = cell.find("s:Data", ns)
+            text = None if node is None or node.text is None else node.text.strip()
+            kind = node.attrib.get(f"{{{SPREADSHEET_NS}}}Type") if node is not None else None
+            if text and kind == "Number":
+                try:
+                    number = float(text)
+                    text = int(number) if number.is_integer() else number
+                except ValueError:
+                    pass
+            values.append(text or None)
+        rows.append(values)
+    return rows
+
+
+def _html_rows(data: bytes) -> list[list[Any]]:
+    """An HTML table with an Excel name, as some programs export."""
+    from html.parser import HTMLParser
+
+    class Table(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rows: list[list[Any]] = []
+            self.cell: list[str] | None = None
+
+        def handle_starttag(self, tag: str, attrs: Any) -> None:
+            if tag == "tr":
+                self.rows.append([])
+            elif tag in ("td", "th") and self.rows:
+                self.cell = []
+
+        def handle_data(self, data: str) -> None:
+            if self.cell is not None:
+                self.cell.append(data)
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag in ("td", "th") and self.cell is not None and self.rows:
+                self.rows[-1].append("".join(self.cell).strip() or None)
+                self.cell = None
+
+    table = Table()
+    table.feed(data.decode("utf-8", errors="replace"))
+    return table.rows
+
+
+def to_xlsx(source: Path, target: Path) -> None:
+    """Makes the download a real .xlsx, whatever AgroVision called it."""
+    from openpyxl import Workbook
+
+    data = source.read_bytes()
+    if data[:2] == b"PK":
+        shutil.copyfile(source, target)
+        return
+    head = data[:2000].lstrip(b"\xef\xbb\xbf \r\n\t")
+    try:
+        if SPREADSHEET_NS.encode() in data[:4000]:
+            rows = _spreadsheet_rows(data)
+        elif b"<table" in data[:200000].lower():
+            rows = _html_rows(data)
+        else:
+            shown = head[:60].decode("utf-8", errors="replace")
+            raise ValueError(f"onbekend bestandstype, begint met {shown!r}")
+    except Exception as error:
+        raise ConnectorError(f"Wat AgroVision gaf is geen koeienlijst ({error})") from error
+    workbook = Workbook()
+    for row in rows:
+        workbook.active.append(row)
+    workbook.save(target)
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -452,13 +540,16 @@ class AgrovisionConnector:
             self.fetch(state, out)
             if not out.is_file():
                 raise ConnectorError("Er is geen bestand gedownload.")
-            result = self._check(out)
+            converted = out.with_name("lijst.xlsx")
+            to_xlsx(out, converted)
+            result = self._check(converted)
             staged = self.herd_file.with_name(self.herd_file.name + ".new")
             self.herd_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(out, staged)
+            shutil.copyfile(converted, staged)
             os.replace(staged, self.herd_file)
         finally:
             out.unlink(missing_ok=True)
+            out.with_name("lijst.xlsx").unlink(missing_ok=True)
         return result
 
     def _check(self, path: Path) -> Result:
