@@ -78,13 +78,25 @@ with sync_playwright() as playwright:
             page.wait_for_timeout(2000)
             if page.locator("input[type=password]:visible").count():
                 finish(False, "Inloggen mislukt: gebruikersnaam of wachtwoord klopt niet, of AgroVision vraagt een extra verificatiestap")
-            fragment = job["url"].partition("#")[2]
-            if fragment and ("#" + fragment) not in page.url:
-                # The session is in the page's address: keep it, change the route.
+            if not job["url"].partition("#")[2] and page.url.rstrip("/") != job["url"].rstrip("/"):
+                page.goto(job["url"], wait_until="networkidle")
+
+        # The portal opens its own start report after logging in, over any
+        # route in the address: set ours once it has settled, and see it hold.
+        fragment = job["url"].partition("#")[2]
+        if fragment:
+            from urllib.parse import unquote
+            for attempt in range(5):
+                page.wait_for_timeout(3000)
+                if unquote(page.url.partition("#")[2]) == unquote(fragment):
+                    break
                 page.evaluate("fragment => { location.hash = fragment }", fragment)
                 page.wait_for_timeout(2000)
-            elif not fragment and page.url.rstrip("/") != job["url"].rstrip("/"):
-                page.goto(job["url"], wait_until="networkidle")
+            try:
+                page.wait_for_load_state("networkidle")
+            except TimeoutError:
+                pass
+
         def locators(frame, text):
             # The button may be a link, an icon with a tooltip or a button.
             if "excel" in text.lower():
