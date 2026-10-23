@@ -55,7 +55,10 @@ def finish(ok, reason=None):
 
 
 with sync_playwright() as playwright:
-    context = playwright.chromium.launch_persistent_context(job["profile"], headless=True, accept_downloads=True)
+    # A fresh browser each run: a kept profile brought back an old session,
+    # and the portal then only said that it had expired.
+    browser = playwright.chromium.launch(headless=True)
+    context = browser.new_context(accept_downloads=True)
     page = context.pages[0] if context.pages else context.new_page()
     page.set_default_timeout(job["timeout"] * 1000)
     try:
@@ -63,6 +66,21 @@ with sync_playwright() as playwright:
             page.goto(job["url"], wait_until="networkidle")
         except (TimeoutError, Error) as error:
             finish(False, "AgroVision is niet bereikbaar of reageert niet: " + str(error).splitlines()[0])
+        def dismiss_expired():
+            # "Uw sessie is verlopen": Ok sends the portal to the login.
+            for _ in range(3):
+                notice = page.get_by_text("sessie is verlopen", exact=False)
+                if not notice.count():
+                    return
+                page.get_by_role("button", name="Ok", exact=True).first.click()
+                page.wait_for_timeout(1500)
+
+        # The portal loads for a while before it shows the login or the report.
+        for _ in range(40):
+            dismiss_expired()
+            if page.locator("input[type=password]:visible, [data-bind*=printExcel]").count():
+                break
+            page.wait_for_timeout(500)
         password = page.locator("input[type=password]:visible")
         if password.count():
             fields = page.locator("input:visible:not([type=password]):not([type=hidden]):not([type=checkbox]):not([type=submit])")
@@ -169,6 +187,7 @@ with sync_playwright() as playwright:
         except Exception:
             pass
         context.close()
+        browser.close()
 '''
 
 
