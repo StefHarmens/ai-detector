@@ -132,22 +132,6 @@ with sync_playwright() as playwright:
                 break
             page.wait_for_timeout(500)
 
-        # The portal opens its own start report after logging in, over any
-        # route in the address: set ours once it has settled, and see it hold.
-        fragment = job["url"].partition("#")[2]
-        if fragment:
-            from urllib.parse import unquote
-            for attempt in range(5):
-                page.wait_for_timeout(3000)
-                if unquote(page.url.partition("#")[2]) == unquote(fragment):
-                    break
-                page.evaluate("fragment => { location.hash = fragment }", fragment)
-                page.wait_for_timeout(2000)
-            try:
-                page.wait_for_load_state("networkidle")
-            except TimeoutError:
-                pass
-
         def locators(frame, text):
             # The button may be a link, an icon with a tooltip or a button.
             if "excel" in text.lower():
@@ -188,6 +172,33 @@ with sync_playwright() as playwright:
             except Exception:
                 pass
             return "Pagina: '" + title + "' (" + page.url.split("?")[0] + page.url.partition("#")[1] + page.url.partition("#")[2] + "). Gevonden met excel/export: " + (", ".join(sorted(set(seen))[:8]) or "niets") + "."
+
+        # The portal opens its own start report after logging in, over any
+        # route in the address: set ours once it has settled, and see it hold.
+        fragment = job["url"].partition("#")[2]
+        if fragment:
+            # Cows opens on Dierregistratie: the report route only works once
+            # the Dieranalyse tab is open.
+            if "analysis" in fragment.lower() and not page.locator("[data-bind*=printExcel]").count():
+                tab = find("Dieranalyse", 20)
+                if tab is None:
+                    finish(False, "De tab 'Dieranalyse' staat niet bovenin AgroVision Cows. " + around())
+                tab.click()
+                try:
+                    page.wait_for_load_state("networkidle")
+                except TimeoutError:
+                    pass
+            from urllib.parse import unquote
+            for attempt in range(5):
+                page.wait_for_timeout(3000)
+                if unquote(page.url.partition("#")[2]) == unquote(fragment):
+                    break
+                page.evaluate("fragment => { location.hash = fragment }", fragment)
+                page.wait_for_timeout(2000)
+            try:
+                page.wait_for_load_state("networkidle")
+            except TimeoutError:
+                pass
 
         for step in job.get("steps", []):
             item = find(step, 20)
