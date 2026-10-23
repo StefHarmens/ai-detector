@@ -173,6 +173,8 @@ export interface Agrovision {
 	username: string;
 	has_password: boolean;
 	run_at: string;
+	// What is clicked in the menu to reach the report, e.g. "Dieranalyse > Koeienlijst".
+	path: string;
 	status: 'never' | 'running' | 'ok' | 'failed';
 	// What a run in progress is doing.
 	step: string | null;

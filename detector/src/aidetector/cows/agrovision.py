@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from aidetector.cows.importer import parse_herd, read_table
 
@@ -77,14 +78,38 @@ with sync_playwright() as playwright:
             page.wait_for_timeout(2000)
             if page.locator("input[type=password]:visible").count():
                 finish(False, "Inloggen mislukt: gebruikersnaam of wachtwoord klopt niet, of AgroVision vraagt een extra verificatiestap")
-            if page.url.rstrip("/") != job["url"].rstrip("/"):
+            fragment = job["url"].partition("#")[2]
+            if fragment and ("#" + fragment) not in page.url:
+                # The session is in the page's address: keep it, change the route.
+                page.evaluate("fragment => { location.hash = fragment }", fragment)
+                page.wait_for_timeout(2000)
+            elif not fragment and page.url.rstrip("/") != job["url"].rstrip("/"):
                 page.goto(job["url"], wait_until="networkidle")
-        button = page.get_by_text(job["export_text"], exact=False)
-        if button.count() == 0:
-            finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt het adres van het rapport?")
+        def find(text):
+            # AgroVision shows its reports in frames: look in all of them.
+            for _ in range(20):
+                for frame in page.frames:
+                    found = frame.get_by_text(text, exact=False)
+                    if found.count():
+                        return found.first
+                page.wait_for_timeout(500)
+            return None
+
+        for step in job.get("steps", []):
+            item = find(step)
+            if item is None:
+                finish(False, "In het menu van AgroVision staat '" + step + "' niet: klopt de weg naar het rapport?")
+            item.click()
+            try:
+                page.wait_for_load_state("networkidle")
+            except TimeoutError:
+                pass
+        button = find(job["export_text"])
+        if button is None:
+            finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport?")
         try:
             with page.expect_download() as info:
-                button.first.click()
+                button.click()
         except (TimeoutError, Error) as error:
             finish(False, "Na het klikken op exporteren kwam er geen bestand: " + str(error).splitlines()[0])
         info.value.save_as(job["out"])
@@ -111,6 +136,15 @@ class ConnectorError(Exception):
 class Result:
     animals: int
     problems: int
+
+
+def _without_session(url: str) -> str:
+    """A pasted address holds a SessionID that is valid for one login only."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [(key, value) for key, value in parse_qsl(parts.query) if key.lower() not in ("sessionid", "session")]
+    )
+    return urlunsplit(parts._replace(query=query))
 
 
 def _now() -> str:
@@ -167,6 +201,7 @@ class AgrovisionConnector:
             "username": state.get("username", ""),
             "has_password": bool(state.get("password")),
             "run_at": state.get("run_at", DEFAULT_RUN_AT),
+            "path": " > ".join(state.get("steps", [])),
             "status": "running" if self.running else last.get("status", "never"),
             "step": state.get("step"),
             "reason": last.get("reason"),
@@ -180,9 +215,12 @@ class AgrovisionConnector:
         username = str(body.get("username", "")).strip()
         password = str(body.get("password") or "")
         run_at = str(body.get("run_at") or DEFAULT_RUN_AT).strip()
+        # "Dieranalyse > Koeienlijst": what to click before the export button.
+        steps = [part.strip() for part in str(body.get("path") or "").split(">") if part.strip()]
         state = self._read()
         # Left empty, the password stays as it was.
         password = password or state.get("password", "")
+        url = _without_session(url)
         if not url.lower().startswith(("https://", "http://")):
             raise ValueError("Vul het adres van het rapport in, beginnend met https://")
         if not username or not password:
@@ -193,7 +231,7 @@ class AgrovisionConnector:
                 raise ValueError
         except ValueError:
             raise ValueError("Geef de tijd als uren:minuten, bijvoorbeeld 03:30.") from None
-        state.update(url=url, username=username, password=password, run_at=run_at)
+        state.update(url=url, username=username, password=password, run_at=run_at, steps=steps)
         self._write(state)
 
     def delete(self) -> None:
@@ -367,6 +405,7 @@ class AgrovisionConnector:
             "out": str(out),
             "timeout": 60,
             "export_text": EXPORT_TEXT,
+            "steps": state.get("steps", []),
             "screenshot": str(self.folder / "laatste-fout.png"),
         }
         try:

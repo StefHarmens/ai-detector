@@ -18,6 +18,7 @@
 	let url = $state('');
 	let username = $state('');
 	let password = $state('');
+	let path = $state('');
 	let runAt = $state('03:30');
 	let editing = $state(false);
 
@@ -30,6 +31,7 @@
 			url = next.url;
 			username = next.username;
 			runAt = next.run_at;
+			path = next.path;
 		}
 		// The cows follow the list that was just fetched.
 		if (wasRunning && next.status !== 'running') onchanged();
@@ -63,7 +65,8 @@
 					url,
 					username,
 					password,
-					run_at: runAt
+					run_at: runAt,
+					path
 				})
 			);
 			password = '';
@@ -146,6 +149,10 @@
 				<dd>{when(link.attempted)}</dd>
 				<dt class="text-muted-foreground">Elke nacht om</dt>
 				<dd>{link.run_at}</dd>
+				{#if link.path}
+					<dt class="text-muted-foreground">Rapport</dt>
+					<dd>{link.path}</dd>
+				{/if}
 				<dt class="text-muted-foreground">Gebruiker</dt>
 				<dd>{link.username}</dd>
 			</dl>
@@ -167,6 +174,19 @@
 						placeholder="https://… (de pagina met de koeienlijst)"
 						autocomplete="off"
 					/>
+				</div>
+				<div class="grid gap-1.5">
+					<Label for="agro-path">Weg naar het rapport</Label>
+					<Input
+						id="agro-path"
+						bind:value={path}
+						placeholder="Dieranalyse > Koeienlijst"
+						autocomplete="off"
+					/>
+					<p class="text-xs text-muted-foreground">
+						Wat je in AgroVision aanklikt, in volgorde en gescheiden door &gt;, tot de knop
+						'exporteren naar Excel' in beeld is. Laat leeg als het adres al het rapport is.
+					</p>
 				</div>
 				<div class="grid gap-1.5">
 					<Label for="agro-user">Gebruikersnaam</Label>
