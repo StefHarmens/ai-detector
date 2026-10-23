@@ -29,6 +29,8 @@ FOLDER = ".agrovision"
 STATE_FILE = "connector.json"
 # What the connector fetched; read as the herd list when none is configured.
 HERD_FILE = "koeienlijst.xlsx"
+# The last download that was refused, to look at what AgroVision gave.
+KEPT_DOWNLOAD = "laatste-download.xml"
 EXPORT_TEXT = "exporteren naar excel"
 DEFAULT_RUN_AT = "03:30"
 INSTALL_SECONDS = 20 * 60
@@ -209,17 +211,28 @@ with sync_playwright() as playwright:
                 page.wait_for_load_state("networkidle")
             except TimeoutError:
                 pass
-        # A report can take a while to load.
-        button = find(job["export_text"], 40)
-        if button is None:
-            finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport? " + around())
-        try:
-            with page.expect_download() as info:
-                button.click()
-        except (TimeoutError, Error) as error:
-            finish(False, "Na het klikken op exporteren kwam er geen bestand: " + str(error).splitlines()[0])
-        info.value.save_as(job["out"])
-        finish(True)
+        # A report can take a while to load, and exporting before its rows are
+        # there gives a file with only the column names: look again a few times.
+        import os, re
+        page.wait_for_timeout(5000)
+        for attempt in range(4):
+            button = find(job["export_text"], 40 if attempt == 0 else 10)
+            if button is None:
+                finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport? " + around())
+            try:
+                with page.expect_download() as info:
+                    button.click()
+            except (TimeoutError, Error) as error:
+                finish(False, "Na het klikken op exporteren kwam er geen bestand: " + str(error).splitlines()[0])
+            info.value.save_as(job["out"])
+            text = open(job["out"], "rb").read().decode("utf-8", errors="replace")
+            rows = re.findall(r"<Row[^>]*>(.*?)</Row>", text, re.S)
+            # Not a spreadsheet in XML: the importer will judge it.
+            if not rows or sum("<Data" in row for row in rows) >= 2:
+                finish(True)
+            os.remove(job["out"])
+            page.wait_for_timeout(10000)
+        finish(False, "De lijst in AgroVision bleef leeg: er staan alleen kolomnamen in de export. Klopt het rapport, of staat er een filter aan?")
     except SystemExit:
         raise
     except Exception as error:
@@ -547,9 +560,15 @@ class AgrovisionConnector:
             self.herd_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(converted, staged)
             os.replace(staged, self.herd_file)
+        except ConnectorError:
+            # Kept for the farmer to look at: one file, replaced by the next run.
+            if out.is_file():
+                os.replace(out, self.folder / KEPT_DOWNLOAD)
+            raise
         finally:
             out.unlink(missing_ok=True)
             out.with_name("lijst.xlsx").unlink(missing_ok=True)
+        (self.folder / KEPT_DOWNLOAD).unlink(missing_ok=True)
         return result
 
     def _check(self, path: Path) -> Result:
@@ -559,8 +578,12 @@ class AgrovisionConnector:
         except Exception as error:
             raise ConnectorError(f"Wat AgroVision gaf is geen koeienlijst ({error})") from error
         if not parsed.animals:
+            table = read_table(path)
+            filled = [row for row in table if any(cell.strip() for cell in row)]
+            names = ", ".join(cell for cell in (filled[0] if filled else []) if cell and not any(c.isdigit() for c in cell))
             raise ConnectorError(
-                "Wat AgroVision gaf is geen koeienlijst: geen dieren met Diernr of Levensnummer gevonden."
+                "Wat AgroVision gaf is geen koeienlijst: geen dieren met Diernr of Levensnummer gevonden "
+                f"({len(filled)} gevulde rijen; kolommen: {names[:150] or 'niet herkend'})."
             )
         if self.herd_file.is_file():
             try:
