@@ -29,6 +29,8 @@ FOLDER = ".agrovision"
 STATE_FILE = "connector.json"
 # What the connector fetched; read as the herd list when none is configured.
 HERD_FILE = "koeienlijst.xlsx"
+# The last download that was refused, to look at what AgroVision gave.
+KEPT_DOWNLOAD = "laatste-download.xml"
 EXPORT_TEXT = "exporteren naar excel"
 DEFAULT_RUN_AT = "03:30"
 INSTALL_SECONDS = 20 * 60
@@ -558,9 +560,15 @@ class AgrovisionConnector:
             self.herd_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(converted, staged)
             os.replace(staged, self.herd_file)
+        except ConnectorError:
+            # Kept for the farmer to look at: one file, replaced by the next run.
+            if out.is_file():
+                os.replace(out, self.folder / KEPT_DOWNLOAD)
+            raise
         finally:
             out.unlink(missing_ok=True)
             out.with_name("lijst.xlsx").unlink(missing_ok=True)
+        (self.folder / KEPT_DOWNLOAD).unlink(missing_ok=True)
         return result
 
     def _check(self, path: Path) -> Result:
