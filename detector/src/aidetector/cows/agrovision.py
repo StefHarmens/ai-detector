@@ -287,7 +287,8 @@ def _spreadsheet_rows(data: bytes) -> list[list[Any]]:
             if index_key in cell.attrib:
                 values.extend([None] * (int(cell.attrib[index_key]) - 1 - len(values)))
             node = cell.find("s:Data", ns)
-            text = None if node is None or node.text is None else node.text.strip()
+            # AgroVision puts part of a life number in <b>: take all text in the cell.
+            text = None if node is None else "".join(node.itertext()).strip()
             kind = node.attrib.get(f"{{{SPREADSHEET_NS}}}Type") if node is not None else None
             if text and kind == "Number":
                 try:

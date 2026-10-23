@@ -249,3 +249,29 @@ def test_a_refused_download_is_kept_until_the_next_good_one(connector):
     connector.fetch = lambda state, out: herd(out, 10)
     connector._run()
     assert not (connector.folder / "laatste-download.xml").exists()
+
+
+BOLD_SHAPE = """<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles><Style ss:ID="s61"><NumberFormat ss:Format="General Date"/></Style></Styles>
+<Worksheet ss:Name="Stallijst"><Table>
+<Column ss:Width="100"></Column>
+<Row>
+<Cell ss:Index="1"><Data ss:Type="String">Diernr</Data></Cell><Cell ss:Index="2"><Data ss:Type="String">Resp 1</Data></Cell><Cell ss:Index="3"><Data ss:Type="String">Levensnummer</Data></Cell><Cell ss:Index="4"><Data ss:Type="String">Gesl</Data></Cell><Cell ss:Index="5"><Data ss:Type="String">Geb dat</Data></Cell><Cell ss:Index="6"><Data ss:Type="String">Naam</Data></Cell><Cell ss:Index="7"><Data ss:Type="String">Haarkl</Data></Cell><Cell ss:Index="8"><Data ss:Type="String">Diercat</Data></Cell><Cell ss:Index="9"><Data ss:Type="String">Levnr moeder</Data></Cell><Cell ss:Index="10"><Data ss:Type="String">Aankdat</Data></Cell></Row>
+<Row>
+<Cell ss:Index="1" ><Data ss:Type="String">1</Data></Cell><Cell ss:Index="2" ><Data ss:Type="String">1234567</Data></Cell><Cell ss:Index="3" ><Data ss:Type="String">NL 0000.<b>0003</b>.0</Data></Cell><Cell ss:Index="4" ><Data ss:Type="String">Vrouwelijk</Data></Cell><Cell ss:Index="5" ><Data ss:Type="String">19-03-20</Data></Cell><Cell ss:Index="6" ><Data ss:Type="String">BERTHA 1</Data></Cell><Cell ss:Index="7" ><Data ss:Type="String">Roodbont</Data></Cell><Cell ss:Index="8" ><Data ss:Type="String">Koeien</Data></Cell><Cell ss:Index="9" ><Data ss:Type="String">NL 000000001</Data></Cell><Cell ss:Index="10" ><Data ss:Type="String"></Data></Cell></Row>
+<Row>
+<Cell ss:Index="1" ><Data ss:Type="String">2</Data></Cell><Cell ss:Index="2" ><Data ss:Type="String">1234568</Data></Cell><Cell ss:Index="3" ><Data ss:Type="String">NL 0000.<b>0007</b>.7</Data></Cell><Cell ss:Index="4" ><Data ss:Type="String">Vrouwelijk</Data></Cell><Cell ss:Index="5" ><Data ss:Type="String">18-04-23</Data></Cell><Cell ss:Index="6" ><Data ss:Type="String">KLAARTJE 2</Data></Cell><Cell ss:Index="7" ><Data ss:Type="String">Roodbont</Data></Cell><Cell ss:Index="8" ><Data ss:Type="String">Koeien</Data></Cell><Cell ss:Index="9" ><Data ss:Type="String">NL 000000002</Data></Cell><Cell ss:Index="10" ><Data ss:Type="String"></Data></Cell></Row>
+</Table></Worksheet></Workbook>"""
+
+
+def test_life_number_with_bold_part_is_read_whole(connector):
+    from openpyxl import load_workbook
+
+    connector.save(LOGIN)
+    connector.fetch = lambda state, out: out.write_text(BOLD_SHAPE)
+    connector._run()
+    assert connector.view()["status"] == "ok" and connector.view()["animals"] == 2
+    sheet = load_workbook(connector.herd_file).active
+    assert [row[2] for row in sheet.iter_rows(min_row=2, values_only=True)] == ["NL 0000.0003.0", "NL 0000.0007.7"]
