@@ -87,6 +87,10 @@ with sync_playwright() as playwright:
                 page.goto(job["url"], wait_until="networkidle")
         def locators(frame, text):
             # The button may be a link, an icon with a tooltip or a button.
+            if "excel" in text.lower():
+                # AgroVision's export is an icon without text; its tooltip only
+                # exists while hovering.
+                yield frame.locator("[data-bind*='printExcel'], a:has(.fa-file-excel-o), button:has(.fa-file-excel-o)")
             yield frame.get_by_text(text, exact=False)
             yield frame.get_by_role("button", name=text)
             yield frame.get_by_role("link", name=text)
