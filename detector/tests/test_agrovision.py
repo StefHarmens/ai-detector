@@ -231,3 +231,11 @@ def test_the_shape_of_agrovisions_own_export(connector):
     connector.fetch = lambda state, out: out.write_text(REAL_SHAPE)
     connector._run()
     assert connector.view()["status"] == "ok" and connector.view()["animals"] == 1
+
+
+def test_a_list_without_animals_says_what_it_holds(connector):
+    connector.save(LOGIN)
+    connector.fetch = lambda state, out: herd(out, 0)
+    connector._run()
+    reason = connector.view()["reason"]
+    assert "1 gevulde rijen" in reason and "Diernr" in reason
