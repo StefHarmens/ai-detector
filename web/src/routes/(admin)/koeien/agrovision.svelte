@@ -130,6 +130,19 @@
 			<div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
 				<p class="font-medium">De laatste poging is mislukt</p>
 				<p>{link.reason}</p>
+				{#if link.screenshot}
+					<p class="mt-1">
+						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+						<a
+							href="/koeien/api/agrovision/fout.png?t={encodeURIComponent(link.attempted ?? '')}"
+							target="_blank"
+							rel="noreferrer"
+							class="underline"
+						>
+							Bekijk wat de browser zag
+						</a>
+					</p>
+				{/if}
 				<p class="mt-1 text-muted-foreground">
 					Geprobeerd op {when(link.attempted)}. De oude lijst blijft gebruikt tot het weer lukt.
 				</p>

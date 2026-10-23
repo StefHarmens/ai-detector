@@ -176,6 +176,8 @@ export interface Agrovision {
 	// What is clicked in the menu to reach the report, e.g. "Dieranalyse > Koeienlijst".
 	path: string;
 	status: 'never' | 'running' | 'ok' | 'failed';
+	// The browser's screenshot of the last failed run is available.
+	screenshot: boolean;
 	// What a run in progress is doing.
 	step: string | null;
 	reason: string | null;
