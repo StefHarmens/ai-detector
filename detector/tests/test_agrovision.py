@@ -44,6 +44,14 @@ def test_save_rejects_incomplete_input(connector, change):
         connector.save({**LOGIN, **change})
 
 
+def test_menu_path_is_stored_as_steps(connector):
+    connector.save({**LOGIN, "path": "Dieranalyse >  Koeienlijst > "})
+    assert connector._read()["steps"] == ["Dieranalyse", "Koeienlijst"]
+    assert connector.view()["path"] == "Dieranalyse > Koeienlijst"
+    connector.save({**LOGIN, "path": ""})
+    assert connector._read()["steps"] == []
+
+
 def test_success_writes_the_herd_list_and_status(connector):
     connector.save(LOGIN)
     connector._run()
@@ -93,3 +101,16 @@ def test_delete_forgets_everything(connector):
     connector.save(LOGIN)
     connector.delete()
     assert not connector.view()["configured"]
+
+
+def test_session_code_is_taken_out_of_the_address(connector):
+    connector.save(
+        {
+            **LOGIN,
+            "url": "https://cowvision.agrovision.nl/CowVision/Applications/Portal_v2026_03/?SessionID=abc#analysis/reports/5/293/1/stallijst%20hoentjen",
+        }
+    )
+    assert connector.view()["url"] == (
+        "https://cowvision.agrovision.nl/CowVision/Applications/Portal_v2026_03/"
+        "#analysis/reports/5/293/1/stallijst%20hoentjen"
+    )
