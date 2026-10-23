@@ -126,3 +126,108 @@ def test_one_list_file_is_kept_and_replaced(connector):
     assert sorted(path.name for path in connector.directory.glob("*.xlsx*")) == ["koeienlijst.xlsx"]
     assert not list(connector.folder.glob("*.xlsx*"))
     assert connector.view()["animals"] == 12
+
+
+XML = """<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Stallijst"><Table>
+<Row><Cell><Data ss:Type="String">Stallijst</Data></Cell></Row>
+<Row>{header}</Row>
+{rows}
+</Table></Worksheet></Workbook>"""
+
+
+def cell(value, kind="String"):
+    return f'<Cell><Data ss:Type="{kind}">{value}</Data></Cell>'
+
+
+def xml_list(count):
+    header = "".join(cell(name) for name in HEADER)
+    rows = "\n".join(
+        "<Row>"
+        + cell(number, "Number")
+        + '<Cell ss:Index="3"><Data ss:Type="String">NL%09d</Data></Cell>' % number
+        + cell("V")
+        + cell("")
+        + cell(f"Koe{number}")
+        + cell(number, "Number")
+        + cell("Koeien")
+        + "</Row>"
+        for number in range(1, count + 1)
+    )
+    return XML.format(header=header, rows=rows)
+
+
+def test_excel_2003_xml_download_is_converted(connector):
+    connector.save(LOGIN)
+    connector.fetch = lambda state, out: out.write_text(xml_list(10))
+    connector._run()
+    assert connector.view()["status"] == "ok" and connector.view()["animals"] == 10
+    assert connector.herd_file.read_bytes()[:2] == b"PK"
+
+
+def test_html_table_download_is_converted(connector):
+    connector.save(LOGIN)
+    rows = "".join(
+        f"<tr><td>{n}</td><td></td><td>NL{n:09d}</td><td>V</td><td></td><td>Koe{n}</td><td>{n}</td><td>Koeien</td></tr>"
+        for n in range(1, 4)
+    )
+    head = "<tr>" + "".join(f"<th>{name}</th>" for name in HEADER[:8]) + "</tr>"
+    connector.fetch = lambda state, out: out.write_text(f"<html><table>{head}{rows}</table></html>")
+    connector._run()
+    assert connector.view()["animals"] == 3
+
+
+def test_unknown_file_type_names_how_it_starts(connector):
+    connector.save(LOGIN)
+    connector.fetch = lambda state, out: out.write_text("%PDF-1.4 rest")
+    connector._run()
+    assert "PDF" in connector.view()["reason"]
+
+
+REAL_SHAPE = """<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="stallijst">
+  <Table ss:ExpandedColumnCount="10">
+   <Row>
+    <Cell><Data ss:Type="String">Diernr</Data><NamedCell ss:Name="_FilterDatabase"/></Cell>
+    <Cell><Data ss:Type="String">Resp 1</Data><NamedCell ss:Name="_FilterDatabase"/></Cell>
+    <Cell><Data ss:Type="String">Levensnummer</Data><NamedCell
+      ss:Name="_FilterDatabase"/></Cell>
+    <Cell><Data ss:Type="String">Gesl</Data></Cell>
+    <Cell><Data ss:Type="String">Geb dat</Data></Cell>
+    <Cell><Data ss:Type="String">Naam</Data></Cell>
+    <Cell><Data ss:Type="String">Haarkl</Data></Cell>
+    <Cell><Data ss:Type="String">Diercat</Data></Cell>
+    <Cell><Data ss:Type="String">Levnr moeder</Data></Cell>
+    <Cell><Data ss:Type="String">Aankdat</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">7</Data></Cell>
+    <Cell><Data ss:Type="String">1234567</Data></Cell>
+    <Cell ss:StyleID="s62"><Data ss:Type="String">NL 0000.0003.0</Data></Cell>
+    <Cell><Data ss:Type="String">Vrouwelijk</Data></Cell>
+    <Cell><Data ss:Type="String">19-03-20</Data></Cell>
+    <Cell><Data ss:Type="String">BERTHA 7</Data></Cell>
+    <Cell><Data ss:Type="String">Roodbont</Data></Cell>
+    <Cell><Data ss:Type="String">Koeien</Data></Cell>
+    <Cell><Data ss:Type="String">NL 000000001</Data></Cell>
+    <Cell><Data ss:Type="String"></Data></Cell>
+   </Row>
+   <Row>
+    <Cell ss:Index="3" ss:StyleID="s62"/>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>"""
+
+
+def test_the_shape_of_agrovisions_own_export(connector):
+    connector.save(LOGIN)
+    connector.fetch = lambda state, out: out.write_text(REAL_SHAPE)
+    connector._run()
+    assert connector.view()["status"] == "ok" and connector.view()["animals"] == 1
