@@ -99,6 +99,39 @@ with sync_playwright() as playwright:
             if not job["url"].partition("#")[2] and page.url.rstrip("/") != job["url"].rstrip("/"):
                 page.goto(job["url"], wait_until="networkidle")
 
+        # After logging in AgroVision first shows "My applications": the report
+        # is in AgroVision Cows, which may open in a new tab.
+        def cows_tile():
+            for tile in (
+                page.get_by_alt_text("AgroVision Cows"),
+                page.get_by_role("link", name="AgroVision Cows"),
+                page.get_by_text("AgroVision Cows", exact=False),
+            ):
+                if tile.count():
+                    return tile.first
+            return None
+
+        for _ in range(20):
+            if page.locator("[data-bind*=printExcel]").count():
+                break
+            tile = cows_tile()
+            if tile is not None and not page.locator("input[type=password]:visible").count():
+                try:
+                    with context.expect_page(timeout=10000) as opened:
+                        tile.click()
+                    page = opened.value
+                    page.set_default_timeout(job["timeout"] * 1000)
+                except TimeoutError:
+                    # Same tab.
+                    pass
+                try:
+                    page.wait_for_load_state("networkidle")
+                except TimeoutError:
+                    pass
+                dismiss_expired()
+                break
+            page.wait_for_timeout(500)
+
         # The portal opens its own start report after logging in, over any
         # route in the address: set ours once it has settled, and see it hold.
         fragment = job["url"].partition("#")[2]
@@ -402,15 +435,19 @@ class AgrovisionConnector:
         out = self.folder / "download.xlsx"
         out.unlink(missing_ok=True)
         self.screenshot.unlink(missing_ok=True)
-        self.fetch(state, out)
-        if not out.is_file():
-            raise ConnectorError("Er is geen bestand gedownload.")
-        result = self._check(out)
-        staged = self.herd_file.with_name(self.herd_file.name + ".new")
-        self.herd_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(out, staged)
-        os.replace(staged, self.herd_file)
-        out.unlink(missing_ok=True)
+        # The list always goes to the same file, replacing the last one; the
+        # download itself is removed whatever happens.
+        try:
+            self.fetch(state, out)
+            if not out.is_file():
+                raise ConnectorError("Er is geen bestand gedownload.")
+            result = self._check(out)
+            staged = self.herd_file.with_name(self.herd_file.name + ".new")
+            self.herd_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(out, staged)
+            os.replace(staged, self.herd_file)
+        finally:
+            out.unlink(missing_ok=True)
         return result
 
     def _check(self, path: Path) -> Result:
