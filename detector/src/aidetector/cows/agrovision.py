@@ -124,7 +124,7 @@ with sync_playwright() as playwright:
                 title = page.title()
             except Exception:
                 pass
-            return "Pagina: '" + title + "'. Gevonden met excel/export: " + (", ".join(sorted(set(seen))[:8]) or "niets") + "."
+            return "Pagina: '" + title + "' (" + page.url.split("?")[0] + page.url.partition("#")[1] + page.url.partition("#")[2] + "). Gevonden met excel/export: " + (", ".join(sorted(set(seen))[:8]) or "niets") + "."
 
         for step in job.get("steps", []):
             item = find(step, 20)
@@ -135,7 +135,8 @@ with sync_playwright() as playwright:
                 page.wait_for_load_state("networkidle")
             except TimeoutError:
                 pass
-        button = find(job["export_text"])
+        # A report can take a while to load.
+        button = find(job["export_text"], 40)
         if button is None:
             finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport? " + around())
         try:
@@ -198,6 +199,11 @@ class AgrovisionConnector:
     # State
 
     @property
+    def screenshot(self) -> Path:
+        """What the browser saw when the last run failed."""
+        return self.folder / "laatste-fout.png"
+
+    @property
     def herd_file(self) -> Path:
         return self.directory / HERD_FILE
 
@@ -235,6 +241,7 @@ class AgrovisionConnector:
             "path": " > ".join(state.get("steps", [])),
             "status": "running" if self.running else last.get("status", "never"),
             "step": state.get("step"),
+            "screenshot": self.screenshot.is_file() and last.get("status") == "failed",
             "reason": last.get("reason"),
             "attempted": last.get("at"),
             "succeeded": state.get("succeeded"),
@@ -363,6 +370,7 @@ class AgrovisionConnector:
         self.folder.mkdir(parents=True, exist_ok=True)
         out = self.folder / "download.xlsx"
         out.unlink(missing_ok=True)
+        self.screenshot.unlink(missing_ok=True)
         self.fetch(state, out)
         if not out.is_file():
             raise ConnectorError("Er is geen bestand gedownload.")
@@ -437,7 +445,7 @@ class AgrovisionConnector:
             "timeout": 60,
             "export_text": EXPORT_TEXT,
             "steps": state.get("steps", []),
-            "screenshot": str(self.folder / "laatste-fout.png"),
+            "screenshot": str(self.screenshot),
         }
         try:
             # The login goes in over stdin: not in the process list.

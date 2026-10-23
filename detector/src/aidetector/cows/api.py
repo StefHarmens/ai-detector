@@ -625,6 +625,11 @@ class Handler(BaseHTTPRequestHandler):
                 return delete_cow_photo(life_number, name)
             case "GET", ["agrovision"]:
                 return _connector().view()
+            case "GET", ["agrovision", "fout.png"]:
+                screenshot = _connector().screenshot
+                if not screenshot.is_file():
+                    raise ApiError(HTTPStatus.NOT_FOUND, "Er is geen schermafbeelding van een mislukte poging.")
+                return screenshot
             case "POST", ["agrovision"]:
                 connector = _connector()
                 connector.save(self._body())
@@ -695,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
         """Sends a photo or video. Browsers ask for a video in parts (Range),
         and Safari plays none without it."""
         payload = path.read_bytes()
-        content_type = "video/mp4" if path.suffix == ".mp4" else "image/jpeg"
+        content_type = {".mp4": "video/mp4", ".png": "image/png"}.get(path.suffix, "image/jpeg")
         wanted = _RANGE.match(self.headers.get("Range") or "")
         status = HTTPStatus.OK
         start, end = 0, len(payload) - 1
