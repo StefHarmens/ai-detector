@@ -85,18 +85,49 @@ with sync_playwright() as playwright:
                 page.wait_for_timeout(2000)
             elif not fragment and page.url.rstrip("/") != job["url"].rstrip("/"):
                 page.goto(job["url"], wait_until="networkidle")
-        def find(text):
+        def locators(frame, text):
+            # The button may be a link, an icon with a tooltip or a button.
+            if "excel" in text.lower():
+                # AgroVision's export is an icon without text; its tooltip only
+                # exists while hovering.
+                yield frame.locator("[data-bind*='printExcel'], a:has(.fa-file-excel-o), button:has(.fa-file-excel-o)")
+            yield frame.get_by_text(text, exact=False)
+            yield frame.get_by_role("button", name=text)
+            yield frame.get_by_role("link", name=text)
+            yield frame.locator("[title*='" + text + "' i], [aria-label*='" + text + "' i], [alt*='" + text + "' i]")
+
+        def find(text, wait=10):
             # AgroVision shows its reports in frames: look in all of them.
-            for _ in range(20):
+            for _ in range(wait * 2):
                 for frame in page.frames:
-                    found = frame.get_by_text(text, exact=False)
-                    if found.count():
-                        return found.first
+                    for found in locators(frame, text):
+                        if found.count():
+                            return found.first
                 page.wait_for_timeout(500)
             return None
 
+        def around():
+            # What the page offers with "excel" or "export" in it, for the reason.
+            seen = []
+            for frame in page.frames:
+                try:
+                    texts = frame.evaluate(
+                        """() => [...document.querySelectorAll('a,button,[role=button],[title],[aria-label],img[alt]')]
+                            .map(e => (e.innerText || e.title || e.getAttribute('aria-label') || e.alt || '').trim())
+                            .filter(t => /excel|export|xls|download/i.test(t))"""
+                    )
+                    seen += texts
+                except Exception:
+                    pass
+            title = ""
+            try:
+                title = page.title()
+            except Exception:
+                pass
+            return "Pagina: '" + title + "'. Gevonden met excel/export: " + (", ".join(sorted(set(seen))[:8]) or "niets") + "."
+
         for step in job.get("steps", []):
-            item = find(step)
+            item = find(step, 20)
             if item is None:
                 finish(False, "In het menu van AgroVision staat '" + step + "' niet: klopt de weg naar het rapport?")
             item.click()
@@ -106,7 +137,7 @@ with sync_playwright() as playwright:
                 pass
         button = find(job["export_text"])
         if button is None:
-            finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport?")
+            finish(False, "De knop 'exporteren naar Excel' staat niet op de pagina: klopt de weg naar het rapport? " + around())
         try:
             with page.expect_download() as info:
                 button.click()
