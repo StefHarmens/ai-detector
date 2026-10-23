@@ -17,6 +17,7 @@ import requests
 from numpy import ndarray
 
 from aidetector.cows.answers import Answer, parse_answers
+from aidetector.cows.agrovision import get_connector
 from aidetector.cows.importer import EXCEL_SUFFIXES, SyncResult, import_cows, sync_herd
 from aidetector.cows.photos import control_image, side_by_side
 from aidetector.cows.registry import (
@@ -373,8 +374,17 @@ class CowService:
         self.cleaned = 0.0
         self.stop_event = Event()
         self.herd_missing = False
-        if config.herd_file is not None:
-            Thread(target=self._watch_herd, name="koeienlijst", daemon=True).start()
+        # The AgroVision connector (set up in the web interface) fetches a
+        # list of its own, which is read when no herd_file is configured.
+        self.connector = get_connector(directory)
+        self.connector.start(self._send_text)
+        Thread(target=self._watch_herd, name="koeienlijst", daemon=True).start()
+
+    @property
+    def herd_path(self) -> Path | None:
+        if self.config.herd_file is not None:
+            return self.config.herd_file.expanduser()
+        return self.connector.herd_file if self.connector.configured else None
 
     @property
     def sightings(self) -> dict[str, Sighting]:
@@ -398,11 +408,15 @@ class CowService:
         tells the farmer what changed. The version read is remembered in the
         folder, so a restart does not repeat the message and chats that share
         the folder read it once."""
-        assert self.config.herd_file is not None
-        path = self.config.herd_file.expanduser()
+        path = self.herd_path
+        if path is None:
+            return None
         try:
             modified = path.stat().st_mtime
         except FileNotFoundError:
+            if path == self.connector.herd_file:
+                # Not fetched yet; the connector reports when that fails.
+                return None
             if not self.herd_missing:
                 self.logger.warning("Herd list %s not found", path)
                 self._send_text(f"⚠️ De koeienlijst {path} is niet gevonden.")
@@ -883,7 +897,9 @@ class CowService:
     ) -> None:
         """Stores the farmer's choice and files the masked photo in the cow's
         folder, which is what the recognition learns from. A photo that does
-        not show one cow of the mount (file=False) is never filed."""
+        not show one cow of the mount (file=False) is never filed, and an
+        unknown cow (cow=None) has no folder to learn from: her photo is
+        filed only when she is filled in after all."""
         with self.lock:
             filed = sighting.how[slot] == "boer" and not sighting.bad_photo[slot]
             previous = sighting.cows[slot]
@@ -901,7 +917,7 @@ class CowService:
         source = folder / f"{SLOT_NAMES[slot]}_koe.jpg"
         if not source.is_file():
             source = folder / f"{SLOT_NAMES[slot]}.jpg"
-        if file and source.is_file():
+        if file and cow is not None and source.is_file():
             destination = self.registry.folder(cow)
             destination.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination / name)

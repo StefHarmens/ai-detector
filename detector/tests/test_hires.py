@@ -307,26 +307,17 @@ def test_the_keyframe_interval_is_not_measured_on_the_first_gop(monkeypatch, cap
 
     import aidetector.sources.hires as hires_module
 
-    class Process:
-        stdout = type("Stdout", (), {"fileno": lambda self: 0})()
-        stderr: list[bytes] = []
-
-        def poll(self):
-            return 0
-
-        def wait(self):
-            return 0
-
     recorder = HiresRecorder("rtsp://camera", HiresConfig(), "Camera kleine stal")
     # As on the farm: the first GOP after connecting is a single frame.
     short = Gop(1, b"", bytearray(), [(0, START)])
     full = Gop(1, b"", bytearray(), [(n, START + timedelta(seconds=0.04 * n)) for n in range(125)])
     completed = iter([[short], [full]])
-    recorder.splitter.feed = lambda chunk, now: next(completed)
-    chunks = iter([b"x", b"x", b""])
-    monkeypatch.setattr(hires_module.subprocess, "Popen", lambda *args, **kwargs: Process())
-    monkeypatch.setattr(hires_module.os, "read", lambda fd, size: next(chunks))
+    recorder.splitter.feed = lambda chunk, now: next(completed, [])
     monkeypatch.setattr(hires_module, "TsSplitter", lambda connection: recorder.splitter)
+    # A stream that sends two pieces, so the splitter is fed twice.
+    monkeypatch.setattr(
+        hires_module, "record_command", lambda source: ["/bin/sh", "-c", "printf x; sleep 0.3; printf x"]
+    )
 
     with caplog.at_level(logging.INFO, logger="aidetector.sources.hires"):
         recorder._read()

@@ -13,7 +13,8 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TvIcon from '@lucide/svelte/icons/tv';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
-	import type { Component } from 'svelte';
+	import SproutIcon from '@lucide/svelte/icons/sprout';
+	import { onMount, type Component } from 'svelte';
 
 	type Step = {
 		title: string;
@@ -31,6 +32,17 @@
 	const streams = await getStreams();
 	const telegrams = await getTelegrams();
 	const detectors = await getDetectors();
+	// The AgroVision connector lives in the detector; unreachable counts as not connected.
+	let agrovision = $state<{ configured: boolean; status: string } | null>(null);
+	onMount(async () => {
+		try {
+			const response = await fetch('/koeien/api/agrovision');
+			if (response.ok) agrovision = await response.json();
+		} catch {
+			// Not connected.
+		}
+	});
+	const hasAgrovision = $derived(!!agrovision?.configured);
 	const complete = $derived(page.url.searchParams.has('complete'));
 	const hasStreams = $derived(streams.length > 0);
 	const hasTelegrams = $derived(telegrams.length > 0);
@@ -73,6 +85,21 @@
 			href: '/detectors/add?setup=1',
 			viewHref: '/detectors',
 			action: hasDetectors ? 'Add another' : 'Add detector'
+		},
+		{
+			title: 'AgroVision',
+			description:
+				agrovision?.status === 'failed'
+					? 'The last fetch failed, see the reason on the page.'
+					: 'Optional. Fetches the herd list from AgroVision every night.',
+			icon: SproutIcon,
+			status: hasAgrovision ? 'complete' : 'available',
+			badge: agrovision?.status === 'failed' ? 'Failed' : hasAgrovision ? 'Done' : 'Optional',
+			count: hasAgrovision ? 1 : 0,
+			countLabel: 'connection',
+			href: '/koeien?tab=agrovision',
+			viewHref: '/koeien?tab=agrovision',
+			action: hasAgrovision ? 'Change' : 'Connect AgroVision'
 		}
 	]);
 	const current = $derived(steps.find((step) => step.status === 'recommended') ?? steps[2]);

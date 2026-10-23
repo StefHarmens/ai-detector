@@ -447,6 +447,8 @@ responder has it on her ear tag); the `Werknummer` is stored and shown on the we
 but is no number, since several animals share one; only the categories in `herd_categories` take part, male
 animals never, and `Levnr moeder` is never taken for the life number.
 
+**AgroVision connector.** Instead of `herd_file` the farmer can connect AgroVision on the web page (Koeien → AgroVision): address of the Dieranalyse report, login and time. The detector then fetches the list ("exporteren naar Excel") every night in a background browser (Playwright, installed on first use in `<directory>/.agrovision/`, needs `python3` on the computer), checks that it is a whole herd list and reads it like a `herd_file`. A failure (wrong login, page changed, partial list) keeps the old list, shows as *Mislukt* with the reason on the page and once as a Telegram message. The password is kept in `<directory>/.agrovision/connector.json` (mode 600) and never sent to the web page. A configured `herd_file` takes precedence.
+
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |
 | `directory`          | `<feedback_directory>/koeien` | Where cows, photos and mounts are kept. |

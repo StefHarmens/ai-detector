@@ -17,18 +17,21 @@
 		formatDate,
 		percent,
 		sightingPhoto,
+		type RecognitionRules,
 		type Sighting,
 		type Slot
 	} from './api';
 
 	type Props = {
 		sighting: Sighting;
+		// When the detector fills in a cow itself, to say why it did not.
+		rules?: RecognitionRules | null;
 		// The datalist with all cows, shared by the cards.
 		cowList: string;
 		onchange: (sighting: Sighting, wasOpen: boolean) => void;
 	};
 
-	let { sighting, cowList, onchange }: Props = $props();
+	let { sighting, rules = null, cowList, onchange }: Props = $props();
 	let values = $state<string[]>(['', '']);
 	let busy = $state(false);
 	let inputs = $state<(HTMLInputElement | null)[]>([null, null]);
@@ -74,6 +77,29 @@
 		return { text: 'Nog invullen', tone: 'open' };
 	}
 
+	// Why a cow that could be seen on her own was not filled in: the same
+	// rules as the detector's (CowService._accept).
+	function reason(slot: Slot): string | null {
+		if (slot.how !== null || !sighting.split || sighting.split_wrong || sighting.false) return null;
+		const { accept_score, accept_margin, min_photos } = rules ?? {
+			accept_score: 0.9,
+			accept_margin: 0.08,
+			min_photos: 5
+		};
+		const [best, next] = slot.candidates;
+		if (!best) return "er is nog geen koe met foto's om haar mee te vergelijken.";
+		if (best.score < accept_score)
+			return `ze lijkt het meest op ${best.label}, maar ${percent(best.score)} is minder dan de ${percent(accept_score)} die nodig is.`;
+		if (next && best.score - next.score < accept_margin)
+			return `ze lijkt bijna even veel op ${best.label} als op ${next.label}.`;
+		if (best.photos < min_photos)
+			return `ze lijkt op ${best.label}, maar die map heeft nog maar ${best.photos} ${best.photos === 1 ? 'foto' : "foto's"} (${min_photos} nodig).`;
+		const other = sighting.slots[1 - slot.slot]?.candidates[0];
+		if (other?.cow === best.cow)
+			return `beide koeien lijken het meest op ${best.label}, en een koe springt niet op zichzelf.`;
+		return null;
+	}
+
 	const toneClasses = {
 		done: 'bg-emerald-600 text-white',
 		auto: 'bg-sky-600 text-white',
@@ -106,8 +132,9 @@
 			</Card.Description>
 		{:else if !sighting.split}
 			<Card.Description>
-				De twee koeien waren niet los te zien: links wie sprong, rechts wie werd besprongen. Deze
-				foto's gaan niet in de koemappen.
+				De twee koeien waren niet los te zien, daarom kon CowCatcher ze niet zelf herkennen. Links
+				wie sprong, rechts wie werd besprongen; vul ze allebei in. Deze foto's gaan niet in de
+				koemappen.
 			</Card.Description>
 		{:else if !sighting.role_certain}
 			<Card.Description>
@@ -118,6 +145,7 @@
 	<Card.Content class="grid gap-4 sm:grid-cols-2">
 		{#each sighting.slots as slot (slot.slot)}
 			{@const info = status(slot)}
+			{@const why = reason(slot)}
 			<div class="flex flex-col gap-2">
 				<a
 					href={sightingPhoto(sighting.id, slot.slot === 0 ? 'A' : 'B')}
@@ -141,6 +169,9 @@
 						{info.text}
 					</Badge>
 				</div>
+				{#if why}
+					<p class="text-xs text-muted-foreground">Niet zelf herkend: {why}</p>
+				{/if}
 
 				{#if slot.candidates.length > 0 && !sighting.split_wrong}
 					<div class="flex flex-wrap gap-2">
@@ -208,6 +239,7 @@
 						size="sm"
 						variant="outline"
 						disabled={busy}
+						title="Weet je niet welke koe dit is: de sprong telt als afgehandeld en de foto gaat in geen map"
 						onclick={() => send({ action: 'onbekend', slot: slot.slot }, 1 - slot.slot)}
 					>
 						Onbekend

@@ -95,9 +95,9 @@ def start() -> bool:
     threads = manager.start()[: len(manager.detectors)]
     api = None
     if config.api is not None:
-        from aidetector.cows.api import CowApi, review_folders
+        from aidetector.cows.api import CowApi, camera_sources, review_folders
 
-        api = CowApi(config.api, review_folders(config))
+        api = CowApi(config.api, review_folders(config), camera_sources(config))
         api.start()
     try:
         while True:

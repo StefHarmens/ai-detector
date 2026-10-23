@@ -1,6 +1,8 @@
 import argparse
 import json
+import os
 import shutil
+import time
 import webbrowser
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -10,6 +12,11 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 DECISIONS = {"good", "bad", "skip"}
+# A judged event moves here, out of the doubt folder the farmer sees; taking
+# the choice back moves it back. After a month it is cleared away: the image
+# in good or bad, which training uses, stays.
+JUDGED_FOLDER = ".beoordeeld"
+_KEEP_JUDGED_SECONDS = 30 * 24 * 3600
 MEDIA_TYPES = {
     "clean.jpg": "image/jpeg",
     "best.jpg": "image/jpeg",
@@ -28,16 +35,28 @@ class ReviewSession:
         self.source = source.resolve()
         self.data_root = data_root.resolve()
         self.state_path = self.source / ".review-decisions.json"
-        self.events = {
-            path.name: ReviewEvent(path.name, path)
-            for path in sorted(self.source.iterdir())
+        self.judged = self.source / JUDGED_FOLDER
+        self._clear_old_judged()
+        found = [
+            path
+            for folder in (self.source, self.judged)
+            if folder.is_dir()
+            for path in folder.iterdir()
             if path.is_dir()
+            and not path.name.startswith(".")
             and (path / "clean.jpg").is_file()
             and (path / "metadata.json").is_file()
+        ]
+        self.events = {
+            path.name: ReviewEvent(path.name, path)
+            for path in sorted(found, key=lambda path: path.name)
         }
         self.decisions: dict[str, str] = {}
         self.history: list[str] = []
         self._load()
+        # Judged before events moved out: tidy the doubt folder now.
+        for name in self.decisions:
+            self._move(name, judged=True)
 
     def _load(self) -> None:
         if not self.state_path.exists():
@@ -81,6 +100,7 @@ class ReviewSession:
         self._remove_outputs(event_name)
         if decision in {"good", "bad"}:
             self._copy_outputs(self.events[event_name], decision)
+        self._move(event_name, judged=True)
         self.decisions[event_name] = decision
         self.history = [name for name in self.history if name != event_name]
         self.history.append(event_name)
@@ -94,6 +114,7 @@ class ReviewSession:
         self.decisions.pop(event_name, None)
         self.history = [name for name in self.history if name != event_name]
         self._remove_outputs(event_name)
+        self._move(event_name, judged=False)
         self._save()
 
     def undo(self) -> dict[str, Any]:
@@ -102,6 +123,7 @@ class ReviewSession:
         event_name = self.history.pop()
         self.decisions.pop(event_name, None)
         self._remove_outputs(event_name)
+        self._move(event_name, judged=False)
         self._save()
         status = self.status()
         status["current"] = self._event_payload(self.events[event_name])
@@ -122,6 +144,33 @@ class ReviewSession:
         shutil.copy2(
             event.directory / "metadata.json", destination / f"{event.name}.json"
         )
+
+    def _move(self, event_name: str, judged: bool) -> None:
+        """Puts an event in the doubt folder, or out of it once judged."""
+        event = self.events[event_name]
+        parent = self.judged if judged else self.source
+        if event.directory.parent == parent:
+            return
+        target = parent / event_name
+        if target.exists():
+            return
+        parent.mkdir(parents=True, exist_ok=True)
+        event.directory.rename(target)
+        if judged:
+            # The month counts from the choice.
+            os.utime(target)
+        self.events[event_name] = ReviewEvent(event_name, target)
+
+    def _clear_old_judged(self) -> None:
+        if not self.judged.is_dir():
+            return
+        oldest = time.time() - _KEEP_JUDGED_SECONDS
+        for path in self.judged.iterdir():
+            try:
+                if path.is_dir() and path.stat().st_mtime < oldest:
+                    shutil.rmtree(path)
+            except OSError:
+                pass
 
     def _remove_outputs(self, event_name: str) -> None:
         for decision in ("good", "bad"):
