@@ -14,6 +14,7 @@ from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from aidetector.cows import fertility
 from aidetector.cows.agrovision import get_connector
 from aidetector.cows.registry import NumberTaken, normalize_life_number, normalize_number
 from aidetector.cows.reid import EMBEDDINGS_FOLDER
@@ -395,6 +396,8 @@ def overview(query: dict[str, str]) -> dict[str, Any]:
     per_cow: dict[str, dict[str, Any]] = {}
     services = _mount_services()
     registry = services[0].registry
+    # Fertility from AgroVision, linked by the number the animal wears now.
+    herd = fertility.load(services[0].directory)
     for service in services:
         count, counts, labels, missing = service.overview_counts(start, end, every_chat=True)
         mounts += count
@@ -407,6 +410,7 @@ def overview(query: dict[str, str]) -> dict[str, Any]:
                     "cow": cow,
                     "label": labels[cow],
                     "work_number": known.work_number if known else None,
+                    "fertility": fertility.lookup(herd, registry.number_of(cow)),
                     "mounted": 0,
                     "mounting": 0,
                 },

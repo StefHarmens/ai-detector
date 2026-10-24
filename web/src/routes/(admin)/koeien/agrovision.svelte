@@ -19,6 +19,8 @@
 	let username = $state('');
 	let password = $state('');
 	let path = $state('');
+	let reportKoeien = $state('');
+	let reportJongvee = $state('');
 	let runAt = $state('03:30');
 	let editing = $state(false);
 
@@ -32,6 +34,8 @@
 			username = next.username;
 			runAt = next.run_at;
 			path = next.path;
+			reportKoeien = next.reports.koeien.value;
+			reportJongvee = next.reports.jongvee.value;
 		}
 		// The cows follow the list that was just fetched.
 		if (wasRunning && next.status !== 'running') onchanged();
@@ -66,7 +70,9 @@
 					username,
 					password,
 					run_at: runAt,
-					path
+					path,
+					report_koeien: reportKoeien,
+					report_jongvee: reportJongvee
 				})
 			);
 			password = '';
@@ -168,6 +174,20 @@
 				{/if}
 				<dt class="text-muted-foreground">Gebruiker</dt>
 				<dd>{link.username}</dd>
+				{#each Object.values(link.reports) as report (report.label)}
+					{#if report.value}
+						<dt class="text-muted-foreground">{report.label}</dt>
+						<dd>
+							{#if report.status === 'ok'}
+								{report.animals} dieren · {when(report.at ?? null)}
+							{:else if report.status === 'failed'}
+								<span class="text-destructive">Mislukt: {report.reason}</span>
+							{:else}
+								Nog niet opgehaald
+							{/if}
+						</dd>
+					{/if}
+				{/each}
 			</dl>
 		{/if}
 
@@ -199,6 +219,28 @@
 					<p class="text-xs text-muted-foreground">
 						Wat je in AgroVision aanklikt, in volgorde en gescheiden door &gt;, tot de knop
 						'exporteren naar Excel' in beeld is. Laat leeg als het adres al het rapport is.
+					</p>
+				</div>
+				<div class="grid gap-1.5">
+					<Label for="agro-mk">Vruchtbaarheid koeien (Vruchtbaarheid MK)</Label>
+					<Input
+						id="agro-mk"
+						bind:value={reportKoeien}
+						placeholder="Mijn rapporten > Vruchtbaarheid MK"
+						autocomplete="off"
+					/>
+				</div>
+				<div class="grid gap-1.5">
+					<Label for="agro-jv">Vruchtbaarheid jongvee (Vruchtbaarheid JV)</Label>
+					<Input
+						id="agro-jv"
+						bind:value={reportJongvee}
+						placeholder="Mijn rapporten > Vruchtbaarheid JV"
+						autocomplete="off"
+					/>
+					<p class="text-xs text-muted-foreground">
+						Optioneel. Vul de weg in zoals hierboven, of het adres met de #route van het rapport. De
+						gegevens komen bij de koe in het tabblad Overzicht.
 					</p>
 				</div>
 				<div class="grid gap-1.5">

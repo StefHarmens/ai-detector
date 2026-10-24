@@ -207,7 +207,7 @@ def test_overview_counts_both_cows(tmp_path, api, telegram):
     assert status == 200
     assert body["mounts"] == 1 and body["unknown"] == 1
     assert body["items"] == [
-        {"cow": BERTHA, "label": "30 (Bertha)", "work_number": None, "mounted": 1, "mounting": 0}
+        {"cow": BERTHA, "label": "30 (Bertha)", "work_number": None, "fertility": None, "mounted": 1, "mounting": 0}
     ]
 
 
@@ -581,3 +581,28 @@ def test_a_camera_photo_is_a_whole_frame_when_joining_a_stream_halfway(tmp_path)
 
     # testsrc2 is colourful all over; a grey frame is nearly flat.
     assert image.std() > 40
+
+
+def test_overview_adds_the_fertility_of_the_animal_by_her_number(tmp_path, api, telegram):
+    from aidetector.cows import fertility
+
+    service = register(api, make_service(tmp_path, pair(), [[], []]))
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+    sighting.date = service_module.datetime.now().isoformat()
+    service.set_cow(sighting.id, 0, "30")
+    service.set_cow(sighting.id, 1, "12")
+    fertility.save(
+        tmp_path,
+        fertility.COWS,
+        {"30": {"status": "Drachtig", "days_in_status": 112, "lact_days": 187, "inseminations": 2}},
+        "2026-10-24T03:30:00",
+    )
+
+    items = {item["cow"]: item for item in api("GET", "overzicht?dagen=7")[1]["items"]}
+
+    assert items[BERTHA]["fertility"] == {
+        "group": "koeien", "updated": "2026-10-24T03:30:00",
+        "status": "Drachtig", "days_in_status": 112, "lact_days": 187, "inseminations": 2,
+    }
+    # No data for her: nothing to show, not an error.
+    assert items[PINK]["fertility"] is None
