@@ -20,7 +20,8 @@ _PARENT_WORDS = ("moeder", "vader", "mother", "father")
 # The farmer calls a cow by her collar number. Lely has no collar column: its
 # Diernr is unique, on the collar of a cow and on the ear tag of a heifer (the
 # middle digits of her life number). Its Werknummer is not unique (several
-# cows and heifers share one), so it is kept and shown, but is no number.
+# cows and heifers share one), so it is no number. The work number shown for
+# an animal is the middle part of her life number, not this column.
 _COLLAR_COLUMNS = ("halsband", "collar")
 _ANIMAL_COLUMNS = ("diernr", "diernummer")
 _WORK_COLUMNS = ("werknummer", "werknr")
@@ -99,7 +100,6 @@ class HerdRow:
     name: str | None
     # Whether she wears a collar; else the number is on her ear tag.
     collar: bool
-    work_number: str | None = None
 
 
 @dataclass
@@ -172,9 +172,6 @@ class _Columns:
             return other, self.work is None and self.collar is None
         return collar, True
 
-    def work_number(self, row: list[str]) -> str | None:
-        return _cell(row, self.work) or None
-
     def skip(self, row: list[str], categories: Sequence[str] | None) -> bool:
         if _cell(row, self.sex).lower() in _MALE_VALUES:
             return True
@@ -218,7 +215,6 @@ def parse_herd(
                     normalize_life_number(_cell(row, columns.life)),
                     _cell(row, columns.name) or None,
                     collar,
-                    columns.work_number(row),
                 )
             )
         except ValueError as error:
@@ -267,7 +263,7 @@ def import_cows(
     for animal in parsed.animals:
         try:
             registry.add(
-                animal.number, animal.life_number, animal.name, work_number=animal.work_number
+                animal.number, animal.life_number, animal.name
             )
         except NumberTaken as error:
             result.problems.append(
@@ -363,7 +359,7 @@ def sync_herd(
         current = registry.number_of(life_number, at) if known else None
         try:
             registry.add(
-                animal.number, life_number, animal.name, at=at, work_number=animal.work_number
+                animal.number, life_number, animal.name, at=at
             )
         except NumberTaken as error:
             result.problems.append(

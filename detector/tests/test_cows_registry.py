@@ -165,3 +165,21 @@ def test_import_takes_the_collar_number_and_else_the_work_number(tmp_path):
     assert registry.label(OLD) == "30 (Bertha)"
     assert registry.label("NL100000001") == "5101 (Anna)"
     assert registry.with_name("anna") == ["NL100000001"]
+
+
+def test_the_work_number_is_the_middle_of_the_life_number_also_for_old_data(tmp_path):
+    import json
+
+    from aidetector.cows.registry import REGISTRY_FILE, work_number_of
+
+    assert work_number_of("NL893486839") == "8683"
+    # Some life numbers have a longer first part.
+    assert work_number_of("NL120009488762") == "8876"
+    assert work_number_of("DE0123456789") is None
+    # A register written by an earlier version holds the herd list's Werknummer.
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / REGISTRY_FILE).write_text(
+        json.dumps({"cows": {"NL893486839": {"life_number": "NL893486839", "work_number": "1"}}, "numbers": []})
+    )
+
+    assert CowRegistry(tmp_path).cow("NL893486839").work_number == "8683"
