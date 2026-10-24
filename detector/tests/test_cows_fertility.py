@@ -35,7 +35,8 @@ def test_young_stock_has_age_in_months_and_no_lactation():
 
 @pytest.mark.parametrize("header", [["Diernr", "Status", "Dgn status", "Lactdgn", "# insem"],
                                     ["DIERNR", "STATUS", "DGN. STATUS", "LACT DGN", "#INSEM"],
-                                    ["Diernr", "Status", "Dgn status", "Lactdgn", "#Isem"]])
+                                    ["Diernr", "Status", "Dgn status", "Lactdgn", "#Isem"],
+                                    ["Diernr", "Status", "Dgn status", "Lactdgn", "# Ins."]])
 def test_headers_are_matched_without_caring_for_spaces_dots_and_case(header):
     animals = fertility.parse([header, ["1", "Leeg", "5", "40", "1"]], fertility.COWS)
 
@@ -73,3 +74,29 @@ def test_store_keeps_both_groups_and_links_by_diernr(tmp_path):
     fertility.save(tmp_path, fertility.COWS, {}, "2026-10-25T03:30:00")
     assert fertility.lookup(fertility.load(tmp_path), "8") is None
     assert fertility.lookup(fertility.load(tmp_path), "8835") is not None
+
+
+# The farm's report for young stock, as AgroVision exports it.
+FARM_HEIFERS = [
+    ["Diernr", "Werknr", "Geb dat", "Lft mnd", "Status", "Dgn status", "Tocht dat", "Dekdatum", "Dekinfo",
+     "# Ins.", "Stier", "Verw klfdt", "Koe prod. type"],
+    ["64", "8684", "20-09-24", "25,00", "Drachtig+", "270,00", "02-11-25", "27-01-26", "Inseminatie",
+     "2,00", "CHIPTUNER-RED", "03-11-26", "Melkvee"],
+]
+
+
+def test_the_farms_young_stock_report_with_decimal_commas():
+    animals = fertility.parse(FARM_HEIFERS, fertility.HEADS)
+
+    assert animals == {
+        "64": {"age_months": 25, "status": "Drachtig+", "days_in_status": 270, "inseminations": 2}
+    }
+
+
+def test_the_lactation_number_is_not_the_lactation_days():
+    animals = fertility.parse(
+        [["Diernr", "Lact nr", "Status", "Dgn status", "Lactdgn", "# Ins."], ["5", "3", "Leeg", "10", "88", "1"]],
+        fertility.COWS,
+    )
+
+    assert animals["5"]["lact_days"] == 88

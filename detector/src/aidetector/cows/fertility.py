@@ -24,7 +24,7 @@ COLUMN_NAMES = {
     "days_in_status": "Dgn status",
     "lact_days": "Lactdgn",
     "inseminations": "#Insem",
-    "age_months": "Lft mdn",
+    "age_months": "Lft mnd",
 }
 _HEADER_ROWS = 10
 _TEXT_FIELDS = ("status",)
@@ -45,10 +45,13 @@ def _is(field: str, name: str) -> bool:
             "status" in name and name.startswith(("dgn", "dagen"))
         )
     if field == "lact_days":
-        return name.startswith("lact")
+        # Not the lactation number ("Lact nr").
+        return name.startswith("lact") and ("dgn" in name or "dag" in name)
     if field == "inseminations":
-        return re.search(r"i(n)?sem", name) is not None
+        # "#Insem", "# Ins.", "#Isem".
+        return name in ("ins", "isem") or name.startswith("insem")
     if field == "age_months":
+        # "Lft mnd" or "Lft mdn".
         return name.startswith("lft") or name.startswith("leeftijd")
     return False
 
