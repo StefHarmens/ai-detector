@@ -76,11 +76,11 @@ def test_lely_export_diernr_for_cows_and_heifers(tmp_path):
     assert parsed.problems == []
     assert parsed.skipped == 2
     assert [
-        (animal.number, animal.life_number, animal.name, animal.collar, animal.work_number)
+        (animal.number, animal.life_number, animal.name, animal.collar)
         for animal in parsed.animals
     ] == [
-        ("30", BERTHA, "Bertha", True, "4030"),
-        ("512", ANNA, "Anna", False, "5101"),
+        ("30", BERTHA, "Bertha", True),
+        ("512", ANNA, "Anna", False),
     ]
 
     # Anna calves and gets a collar: the next export has her responder, and
@@ -88,7 +88,9 @@ def test_lely_export_diernr_for_cows_and_heifers(tmp_path):
     registry = CowRegistry(tmp_path / "koeien")
     start = datetime(2026, 10, 2, 8, 0)
     assert sync_herd(path, registry, at=start).added == ["30 (Bertha)", "512 (Anna)"]
-    assert registry.cow(ANNA).work_number == "5101"
+    # The Werknummer column is not used: the work number is the middle part
+    # of the life number.
+    assert registry.cow(ANNA).work_number == "0005"
     calved = excel(
         tmp_path / "lely.xlsx",
         [LELY_HEADER, [30, 123456, BERTHA, "Vrouwelijk", None, "Bertha", 4030, "Koeien", None, None],
@@ -98,7 +100,7 @@ def test_lely_export_diernr_for_cows_and_heifers(tmp_path):
     result = sync_herd(calved, registry, at=later)
     assert not result.changed
     assert registry.label(ANNA, later) == "512 (Anna)"
-    assert registry.cow(ANNA).work_number == "7"
+    assert registry.cow(ANNA).work_number == "0005"
 
 
 def test_animals_sharing_a_work_number_all_take_part(tmp_path):
@@ -116,7 +118,8 @@ def test_animals_sharing_a_work_number_all_take_part(tmp_path):
 
     assert result.problems == []
     assert result.added == ["37 (LOTTE)", "84 (Anne)", "8835 (BERTHA)", "8764 (Anne)"]
-    assert registry.cow("NL690587643").work_number == "4"
+    assert registry.cow("NL893486839").work_number == "8683"
+    assert registry.cow("NL690587643").work_number == "8764"
 
 
 def test_only_the_listed_categories_take_part():

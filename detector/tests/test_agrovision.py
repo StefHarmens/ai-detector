@@ -275,3 +275,129 @@ def test_life_number_with_bold_part_is_read_whole(connector):
     assert connector.view()["status"] == "ok" and connector.view()["animals"] == 2
     sheet = load_workbook(connector.herd_file).active
     assert [row[2] for row in sheet.iter_rows(min_row=2, values_only=True)] == ["NL 0000.0003.0", "NL 0000.0007.7"]
+
+
+def sheet_file(path, rows):
+    workbook = Workbook()
+    for row in rows:
+        workbook.active.append(row)
+    workbook.save(path)
+
+
+COW_REPORT = [["Diernr", "Status", "Dgn status", "Lactdgn", "#Insem"], ["8", "Drachtig", "112", "187", "2"]]
+HEIFER_REPORT = [["Diernr", "Lft mdn", "Status", "Dgn status", "#Insem"], ["8835", "16", "Tochtig", "1", "0"]]
+REPORTS = {
+    "report_koeien": "https://cowvision.agrovision.nl/CowVision/Applications/Portal_v2026_03/?SessionID=abc#analysis/reports/5/301/1/vruchtbaarheid%20mk",
+    "report_jongvee": "Mijn rapporten > Vruchtbaarheid JV",
+}
+
+
+def fetch_with(connector, cows=COW_REPORT, heifers=HEIFER_REPORT):
+    def fetch(state, out):
+        herd(out, 10)
+        if cows is not None:
+            sheet_file(connector.folder / "download-koeien.xml", cows)
+        if heifers is not None:
+            sheet_file(connector.folder / "download-jongvee.xml", heifers)
+
+    connector.fetch = fetch
+
+
+def test_reports_are_a_route_or_a_menu_path_and_lose_their_session_code(connector):
+    connector.save({**LOGIN, **REPORTS})
+
+    extras = connector._extras(connector._read())
+
+    assert [(extra["key"], extra["fragment"], extra["steps"]) for extra in extras] == [
+        ("koeien", "analysis/reports/5/301/1/vruchtbaarheid%20mk", []),
+        ("jongvee", "", ["Mijn rapporten", "Vruchtbaarheid JV"]),
+    ]
+    assert "SessionID" not in connector.view()["reports"]["koeien"]["value"]
+    # Cleared, nothing extra is fetched.
+    connector.save(LOGIN)
+    assert connector._extras(connector._read()) == []
+
+
+def test_the_fertility_reports_are_in_reproductie_unless_filled_in_otherwise(connector):
+    connector.save(LOGIN)
+    state = connector._read()
+    del state["reports"]  # saved by a version without fertility
+    connector._write(state)
+
+    extras = connector._extras(connector._read())
+
+    assert [(extra["key"], extra["steps"]) for extra in extras] == [
+        ("koeien", ["Reproductie", "Vruchtbaarheid MK"]),
+        ("jongvee", ["Reproductie", "Vruchtbaarheid JV"]),
+    ]
+    assert connector.view()["reports"]["koeien"]["value"] == "Reproductie > Vruchtbaarheid MK"
+
+
+def test_a_report_address_needs_a_route(connector):
+    with pytest.raises(ValueError, match="route na de #"):
+        connector.save({**LOGIN, "report_koeien": "https://cowvision.agrovision.nl/portal/"})
+
+
+def test_fertility_is_fetched_with_the_herd_list_and_kept_per_animal(connector):
+    from aidetector.cows import fertility
+
+    connector.save({**LOGIN, **REPORTS})
+    fetch_with(connector)
+
+    connector._run()
+
+    view = connector.view()
+    assert view["status"] == "ok"
+    assert view["reports"]["koeien"]["status"] == "ok" and view["reports"]["koeien"]["animals"] == 1
+    assert view["reports"]["jongvee"]["status"] == "ok"
+    data = fertility.load(connector.directory)
+    assert fertility.lookup(data, "8")["lact_days"] == 187
+    assert fertility.lookup(data, "8835")["age_months"] == 16
+    assert not list(connector.folder.glob("download-*"))
+
+
+def test_a_failing_fertility_report_leaves_the_herd_list_alone(connector):
+    from aidetector.cows import fertility
+
+    connector.save({**LOGIN, **REPORTS})
+    # The cows' report lacks a column; the heifers' report was not downloaded.
+    fetch_with(connector, cows=[["Diernr", "Status"], ["8", "Drachtig"]], heifers=None)
+    connector.extra_reasons = {}
+
+    def fetch(state, out):
+        herd(out, 10)
+        sheet_file(connector.folder / "download-koeien.xml", [["Diernr", "Status"], ["8", "Drachtig"]])
+        connector.extra_reasons = {"jongvee": "De knop 'exporteren naar Excel' staat niet op de pagina"}
+
+    connector.fetch = fetch
+    connector._run()
+
+    view = connector.view()
+    assert view["status"] == "ok" and view["animals"] == 10
+    assert view["reports"]["koeien"]["status"] == "failed"
+    assert "Dgn status" in view["reports"]["koeien"]["reason"] and "Lactdgn" in view["reports"]["koeien"]["reason"]
+    assert view["reports"]["jongvee"]["status"] == "failed"
+    assert "exporteren" in view["reports"]["jongvee"]["reason"]
+    assert (connector.folder / "laatste-download-koeien.xml").is_file()
+    assert fertility.load(connector.directory) == {}
+
+    # Fixed: fetched again, the kept download goes.
+    fetch_with(connector)
+    connector._run()
+    assert connector.view()["reports"]["koeien"]["status"] == "ok"
+    assert not (connector.folder / "laatste-download-koeien.xml").exists()
+
+
+def test_fertility_reports_are_not_read_when_the_herd_list_is_refused(connector):
+    connector.save({**LOGIN, **REPORTS})
+
+    def fetch(state, out):
+        herd(out, 0)
+        sheet_file(connector.folder / "download-koeien.xml", COW_REPORT)
+
+    connector.fetch = fetch
+    connector._run()
+
+    assert connector.view()["status"] == "failed"
+    assert not list(connector.folder.glob("download-*"))
+    assert connector.view()["reports"]["koeien"]["status"] == "never"

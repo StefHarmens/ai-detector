@@ -283,13 +283,12 @@ class CowSplitter:
             )
         return None
 
-    def mounted_region(self, image: ndarray, mount: Box) -> Box:
-        """The area that shows the mounted cow in full on a frame of the jump.
-        The mount box fits the mounter; the cow below sticks out of it with her
-        head. She is the cow that is partly inside the mount box and reaches
-        furthest out of it: the detector also finds pieces of the mounter, such
-        as her back, that lie fully inside and add nothing. Without such a cow a
-        wider area is used."""
+    def mounted_cow(self, image: ndarray, mount: Box) -> tuple[Box | None, float]:
+        """The box of the mounted cow on a frame of the jump, and how far she
+        reaches out of the mount box. She is the cow that is partly inside the
+        mount box and reaches furthest out of it: the detector also finds
+        pieces of the mounter, such as her back, that lie fully inside and add
+        nothing. None when no cow qualifies."""
         outside = [
             (area(box) - intersection(box, mount), box)
             for box in (cow.box for cow in self._cows(image, mount))
@@ -298,7 +297,14 @@ class CowSplitter:
             and intersection(box, mount) / area(box) >= _MOUNTED_INSIDE
         ]
         reach, box = max(outside, default=(0.0, None), key=lambda item: item[0])
-        if box is not None and reach > 0:
+        return (box, reach) if box is not None and reach > 0 else (None, 0.0)
+
+    def mounted_region(self, image: ndarray, mount: Box) -> Box:
+        """The area that shows the mounted cow in full on a frame of the jump.
+        The mount box fits the mounter; the cow below sticks out of it with her
+        head. Without such a cow a wider area is used."""
+        box, _ = self.mounted_cow(image, mount)
+        if box is not None:
             return union(mount, box)
         return grow(mount, _MOUNTED_GROW)
 

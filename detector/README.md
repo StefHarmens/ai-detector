@@ -385,11 +385,14 @@ grouped together.
 
 ##### Cow recognition (`cows`)
 
-Every alert gets one photo reply with both cows side by side (A and B) and buttons for
-the cows that look most alike, `✏️ Nummers typen`, unknown per cow, `🔄 Andersom` (swap
-who jumped) and `🚫 Foto A/B` (photo is wrong). The farmer can also answer on the photo
-with both numbers, mounter first when the cows are not split: `30 12`, `? 12`, or a new
-cow with her life number, `44 NL123456789 12`. A farmer's choice files the cow's masked
+Every alert gets one photo reply: the frame of the jump with a blue box around the
+jumping cow and a red box around the mounted cow (`melding.jpg` in the mount's folder; when
+it cannot be drawn the photos of both cows side by side are sent instead). Below it are the
+two best guesses per cow as buttons and one typing button per cow (`✏️ 🔵 Springende koe`,
+`✏️ 🔴 Besprongen koe`): each asks for one number (no names), typed as the answer, so the cows are
+filled in separately; `🔄 Blauw en rood wisselen` only when the roles are a guess. Nothing has
+to be answered: a mount that stays open waits on the web page. A new cow is typed with her
+life number, `44 NL123456789`. A farmer's choice files the cow's masked
 photo in her folder, which is what recognition learns from; photos filled in
 automatically are never filed, so mistakes do not teach the model.
 
@@ -443,11 +446,11 @@ number, life number and optional name (headers such as `Levensnummer`, `Werknumm
 `Halsbandnummer` and `Naam` are recognised, also below a title), or run
 `import-koeien export.xlsx`. In a Lely export (`Diernr`, `Resp 1`, `Levensnummer`, `Gesl`,
 `Naam`, `Werknummer`, `Diercat`) every animal gets her `Diernr` (a heifer without a
-responder has it on her ear tag); the `Werknummer` is stored and shown on the web page
-but is no number, since several animals share one; only the categories in `herd_categories` take part, male
+responder has it on her ear tag); the `Werknummer` column is no number (several animals share one) and is not shown: the
+work number on the web page is the middle part of the life number (8683 for NL 8934.8683.9 and 8876 for NL 1200094.8876.2); only the categories in `herd_categories` take part, male
 animals never, and `Levnr moeder` is never taken for the life number.
 
-**AgroVision connector.** Instead of `herd_file` the farmer can connect AgroVision on the web page (Koeien → AgroVision): address of the Dieranalyse report, login and time. The detector then fetches the list ("exporteren naar Excel") every night in a background browser (Playwright, installed on first use in `<directory>/.agrovision/`, needs `python3` on the computer), checks that it is a whole herd list and reads it like a `herd_file`. A failure (wrong login, page changed, partial list) keeps the old list, shows as *Mislukt* with the reason on the page and once as a Telegram message. The password is kept in `<directory>/.agrovision/connector.json` (mode 600) and never sent to the web page. A configured `herd_file` takes precedence.
+**AgroVision connector.** Instead of `herd_file` the farmer can connect AgroVision on the web page (Koeien → AgroVision): address of the Dieranalyse report, login and time. The detector then fetches the list ("exporteren naar Excel") every night in a background browser (Playwright, installed on first use in `<directory>/.agrovision/`, needs `python3` on the computer), checks that it is a whole herd list and reads it like a `herd_file`. A failure (wrong login, page changed, partial list) keeps the old list, shows as *Mislukt* with the reason on the page and once as a Telegram message. The password is kept in `<directory>/.agrovision/connector.json` (mode 600) and never sent to the web page. A configured `herd_file` takes precedence. **Fertility.** With the reports *Vruchtbaarheid MK* (cows: `Diernr`, `Status`, `Dgn status`, `Lactdgn`, `# Ins.`) and *Vruchtbaarheid JV* (young stock: `Diernr`, `Lft mnd`, `Status`, `Dgn status`, `# Ins.`) filled in on the same tab (the menu path `Reproductie > Vruchtbaarheid MK` and `Reproductie > Vruchtbaarheid JV` after the Dieranalyse tab by default, or an address with a `#route`; empty switches it off), the same nightly run also exports those reports, in the same browser session after the herd list. They are kept in `<directory>/.vruchtbaarheid.json`, linked to the animal by her Diernr, and shown in the *Overzicht* tab when a cow is opened. A report that fails shows its reason on the AgroVision tab and never fails the herd list; the refused download is kept as `.agrovision/laatste-download-koeien.xml` (or `-jongvee`).
 
 | Field                | Default       | Description |
 | :------------------- | :------------ | :---------- |

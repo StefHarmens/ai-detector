@@ -228,27 +228,29 @@ weg, dan wordt elke detectie weer een losse melding.
 
 ### Ook vragen in Telegram
 
-Met `"cows": { "telegram": true }` stuurt de bot na elke melding ook één foto met beide
-koeien naast elkaar (A en B), met knoppen:
+Met `"cows": { "telegram": true }` stuurt de bot na elke melding ook één bericht met de
+camerafoto van de sprong: een **blauwe box** om de koe die springt en een **rode box** om de
+koe die besprongen wordt. Eronder staan de koe(ien) die de bot herkent als knop, en één knop
+om de nummers in te vullen:
 
 ```text
 🐄 Wie zijn het?
-A werd besprongen (gok): ✅ 30 (Bertha) · herkend 93%
-B sprong (gok): ❓
+🔵 Springende koe: ✅ 30 (Bertha) · herkend 93%
+🔴 Besprongen koe: ❓
 
-Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 12
-[ ✅ A: 30 (Bertha) · 93% ] [ A: 44 · 78% ]
-[ B: 44 · 88% ] [ B: 12 · 80% ]
-[ ✏️ Nummers typen ]
-[ ❔ A onbekend ] [ ❔ B onbekend ]
-[ 🔄 Andersom ] [ 🚫 Foto A ] [ 🚫 Foto B ]
+Weet je het niet? Laat het dan gewoon staan.
+[ 🔵 ✅ 30 (Bertha) · 93% ]
+[ 🔴 44 · 88% ] [ 🔴 12 · 80% ]
+[ ✏️ 🔵 Springende koe ] [ ✏️ 🔴 Besprongen koe ]
 ```
 
-- **Antwoorden** gaat het snelst door op de foto te antwoorden met twee nummers, eerst A
-  dan B: `30 12`. Onbekend is een vraagteken (`? 12`). Een koe die de bot nog niet kent,
-  typ je met haar levensnummer: `44 NL123456789 12`. Eén nummer vult de koe die nog open
-  staat. Iets fout? Antwoord nog eens met de goede nummers.
-- **Tikken** kan ook: een nummer aan, **✏️ Nummers typen**, of **❔ onbekend** per koe.
+- **Weet je het niet?** Dan hoef je niets te doen: de sprong blijft staan als *te beoordelen*
+  op de web-interface en je kunt hem later invullen.
+- **Invullen** doe je per koe: tik op **✏️ 🔵 Springende koe** of **✏️ 🔴 Besprongen koe** en
+  antwoord met haar nummer: `30` (alleen nummers, geen namen). Weet je het niet, laat het dan staan (of typ een
+  vraagteken). Een koe die de bot nog niet kent, typ je met haar levensnummer:
+  `44 NL123456789`. Iets fout? Tik nog eens op die koe.
+- **Tikken** kan ook: de gok van de bot per koe (blauw of rood bolletje ervoor).
 - **Onbekend** (of `?`) is voor een koe die je niet weet en ook niet gaat uitzoeken: de sprong
   telt als afgehandeld en haar foto gaat in geen map. Weet je het later toch, vul haar dan in
   bij die sprong (filter *Alles* op de web-interface); dan gaat de foto alsnog in haar map.
@@ -256,13 +258,11 @@ Tik een nummer aan, of antwoord op deze foto met de nummers, eerst A dan B: 30 1
   de herkenning, dus in het begin moet je vaak antwoorden. Zodra een koe 5 foto's heeft en
   duidelijk herkend wordt, vult de bot haar zelf in (`✅ 30 · herkend 93%`); antwoord dan
   alleen nog als het fout is.
-- **🔄 Andersom** draait om wie sprong en wie besprongen werd. Met *(gok)* weet de bot
-  het niet zeker.
-- **🚫 Foto A/B**: die uitsnede toont niet één koe van de sprong. Die foto gaat dan in geen
-  enkele map.
-- Vindt de bot geen twee losse koeien, vóór of na de sprong, dan toont hij de sprong zelf:
-  links de koe die sprong, rechts ruimer de koe eronder. Je antwoordt op dezelfde manier
-  (eerst wie sprong); deze foto's gaan niet in een koemap.
+- **🔄 Blauw en rood wisselen** staat er alleen als de bot niet zeker weet welke koe sprong
+  (*gok*): de boxen op de foto kloppen altijd, maar de herkenning kan de koeien omdraaien.
+- Zonder twee losse koeien (vóór of na de sprong) staat er geen gok; de foto en de boxen zijn
+  hetzelfde en deze foto's gaan niet in een koemap. De foto's per koe (A en B) en
+  **🚫 Foto klopt niet** staan op de web-interface.
 - Een sprong die je met **Fout** afkeurt, telt niet mee.
 - **Niet wachten tot ze springt?** Op de [web-interface](#web-interface), tab *Koeien*, klik
   je op een koe en kies je **Uit camera** (een verse 4K-foto van een stalcamera) of **Foto
@@ -375,7 +375,8 @@ Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe
 alleen een label met een tijdstip, want nummer 30 gaat naar een pink als de oude 30 weg is.
 Zo blijven oude sprongen bij de oude koe. Dat nummer is het halsbandnummer, of bij een
 pink zonder halsband het diernummer op haar oormerk (of haar werknummer als de lijst geen
-diernummer heeft). Antwoorden kan ook met een naam (`Anna 12`).
+diernummer heeft). Het werknummer dat je op de webpagina ziet, is het middelste stuk van het
+levensnummer (8683 bij NL 8934.8683.9 en 8876 bij NL 1200094.8876.2).
 Commando's in de chat:
 
 | Commando | Wat het doet |
