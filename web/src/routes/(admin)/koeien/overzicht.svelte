@@ -3,7 +3,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import { api, type Overview } from './api';
+	import { api, type Fertility, type Overview } from './api';
 	import KoeSprongen from './koe-sprongen.svelte';
 
 	let days = $state(7);
@@ -13,6 +13,10 @@
 	let expanded = $state<string | null>(null);
 
 	const most = $derived(Math.max(1, ...(overview?.items ?? []).map((item) => item.mounted)));
+
+	function when(value: string) {
+		return new Date(value).toLocaleString('nl-NL', { dateStyle: 'medium', timeStyle: 'short' });
+	}
 
 	async function load() {
 		error = null;
@@ -28,6 +32,37 @@
 		void load();
 	});
 </script>
+
+{#snippet fertility(data: Fertility | null)}
+	{#if data}
+		<div class="space-y-1">
+			<h3 class="text-sm font-semibold">
+				Vruchtbaarheid
+				<span class="text-xs font-normal text-muted-foreground">
+					uit AgroVision{#if data.updated}, bijgewerkt {when(data.updated)}{/if}
+				</span>
+			</h3>
+			<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-sm">
+				<dt class="text-muted-foreground">Status</dt>
+				<dd>
+					{data.status ?? '–'}{#if data.days_in_status != null}
+						· {data.days_in_status} {data.days_in_status === 1 ? 'dag' : 'dagen'}{/if}
+				</dd>
+				{#if data.group === 'koeien'}
+					<dt class="text-muted-foreground">Lactatiedagen</dt>
+					<dd>{data.lact_days ?? '–'}</dd>
+				{:else}
+					<dt class="text-muted-foreground">Leeftijd</dt>
+					<dd>{data.age_months != null ? `${data.age_months} maanden` : '–'}</dd>
+				{/if}
+				<dt class="text-muted-foreground">Inseminaties</dt>
+				<dd>{data.inseminations ?? '–'}</dd>
+			</dl>
+		</div>
+	{:else}
+		<p class="text-xs text-muted-foreground">Geen vruchtbaarheidsgegevens voor deze koe.</p>
+	{/if}
+{/snippet}
 
 <div class="flex flex-wrap items-center gap-2">
 	{#each [1, 3, 7, 14, 30] as value (value)}
@@ -98,7 +133,8 @@
 					</Table.Row>
 					{#if expanded === item.cow}
 						<Table.Row class="hover:bg-transparent">
-							<Table.Cell colspan={4} class="bg-muted/30 whitespace-normal">
+							<Table.Cell colspan={4} class="space-y-4 bg-muted/30 whitespace-normal">
+								{@render fertility(item.fertility)}
 								<KoeSprongen cow={item.cow} {days} />
 							</Table.Cell>
 						</Table.Row>

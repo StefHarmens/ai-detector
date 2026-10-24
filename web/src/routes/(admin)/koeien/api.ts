@@ -66,6 +66,19 @@ export interface CowList {
 	herd_file: string | null;
 }
 
+// Fertility from AgroVision (Vruchtbaarheid MK for cows, JV for young stock).
+export interface Fertility {
+	group: 'koeien' | 'jongvee';
+	updated: string | null;
+	status: string | null;
+	days_in_status: number | null;
+	inseminations: number | null;
+	// Cows only.
+	lact_days?: number | null;
+	// Young stock only.
+	age_months?: number | null;
+}
+
 export interface Overview {
 	days: number;
 	mounts: number;
@@ -74,6 +87,7 @@ export interface Overview {
 		cow: string;
 		label: string;
 		work_number: string | null;
+		fertility: Fertility | null;
 		mounted: number;
 		mounting: number;
 	}[];
@@ -184,4 +198,16 @@ export interface Agrovision {
 	attempted: string | null;
 	succeeded: string | null;
 	animals: number | null;
+	// The fertility reports fetched after the herd list.
+	reports: Record<'koeien' | 'jongvee', ReportStatus>;
+}
+
+export interface ReportStatus {
+	// What was filled in: an address with a #route, or a menu path.
+	value: string;
+	label: string;
+	status: 'never' | 'ok' | 'failed';
+	reason?: string | null;
+	at?: string;
+	animals?: number;
 }
