@@ -376,7 +376,7 @@ alleen een label met een tijdstip, want nummer 30 gaat naar een pink als de oude
 Zo blijven oude sprongen bij de oude koe. Dat nummer is het halsbandnummer, of bij een
 pink zonder halsband het diernummer op haar oormerk (of haar werknummer als de lijst geen
 diernummer heeft). Het werknummer dat je op de webpagina ziet, is het middelste stuk van het
-levensnummer (8683 bij NL 8934.8683.9).
+levensnummer (8683 bij NL 8934.8683.9 en 8876 bij NL 1200094.8876.2).
 Commando's in de chat:
 
 | Commando | Wat het doet |

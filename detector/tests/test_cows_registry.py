@@ -173,6 +173,8 @@ def test_the_work_number_is_the_middle_of_the_life_number_also_for_old_data(tmp_
     from aidetector.cows.registry import REGISTRY_FILE, work_number_of
 
     assert work_number_of("NL893486839") == "8683"
+    # Some life numbers have a longer first part.
+    assert work_number_of("NL120009488762") == "8876"
     assert work_number_of("DE0123456789") is None
     # A register written by an earlier version holds the herd list's Werknummer.
     tmp_path.mkdir(exist_ok=True)

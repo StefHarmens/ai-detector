@@ -38,10 +38,11 @@ def normalize_life_number(value: str) -> str:
 
 
 def work_number_of(life_number: str) -> str | None:
-    """The work number is the middle part of a Dutch life number: 8683 for
-    NL 8934.8683.9. Other life numbers have none."""
-    if re.fullmatch(r"NL\d{9}", life_number):
-        return life_number[6:10]
+    """The work number is the four digits before the last digit of a Dutch
+    life number: 8683 for NL 8934.8683.9 and 8876 for NL 1200094.8876.2. Other
+    life numbers have none."""
+    if re.fullmatch(r"NL\d{9,12}", life_number):
+        return life_number[-5:-1]
     return None
 
 
