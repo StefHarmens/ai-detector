@@ -313,9 +313,24 @@ def test_reports_are_a_route_or_a_menu_path_and_lose_their_session_code(connecto
         ("jongvee", "", ["Mijn rapporten", "Vruchtbaarheid JV"]),
     ]
     assert "SessionID" not in connector.view()["reports"]["koeien"]["value"]
-    # Without reports nothing extra is fetched.
+    # Cleared, nothing extra is fetched.
     connector.save(LOGIN)
     assert connector._extras(connector._read()) == []
+
+
+def test_the_fertility_reports_are_in_reproductie_unless_filled_in_otherwise(connector):
+    connector.save(LOGIN)
+    state = connector._read()
+    del state["reports"]  # saved by a version without fertility
+    connector._write(state)
+
+    extras = connector._extras(connector._read())
+
+    assert [(extra["key"], extra["steps"]) for extra in extras] == [
+        ("koeien", ["Reproductie", "Vruchtbaarheid MK"]),
+        ("jongvee", ["Reproductie", "Vruchtbaarheid JV"]),
+    ]
+    assert connector.view()["reports"]["koeien"]["value"] == "Reproductie > Vruchtbaarheid MK"
 
 
 def test_a_report_address_needs_a_route(connector):

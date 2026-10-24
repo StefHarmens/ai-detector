@@ -41,6 +41,13 @@ RUN_SECONDS = 180
 # partial export: it is not taken.
 MIN_SHARE = 0.8
 
+# Where the fertility reports are in AgroVision Cows, after the Dieranalyse
+# tab: used when nothing else was filled in.
+DEFAULT_REPORTS = {
+    fertility.COWS: "Reproductie > Vruchtbaarheid MK",
+    fertility.HEADS: "Reproductie > Vruchtbaarheid JV",
+}
+
 PYTHONS = ("python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3")
 
 # Runs in the Playwright Python. Reads {"url", "username", "password",
@@ -475,7 +482,7 @@ class AgrovisionConnector:
             "animals": state.get("animals"),
             "reports": {
                 group: {
-                    "value": (state.get("reports") or {}).get(group, ""),
+                    "value": self._report_value(state, group),
                     "label": fertility.LABELS[group],
                     **((state.get("fertility") or {}).get(group) or {"status": "never"}),
                 }
@@ -739,12 +746,21 @@ class AgrovisionConnector:
                 raise ConnectorError(f"Het installeren van de browser mislukte: {tail[0]}")
         (runtime / ".ready").write_text("")
 
+    @staticmethod
+    def _report_value(state: dict[str, Any], group: str) -> str:
+        """What was filled in for a fertility report: the default when it was
+        never saved, nothing (off) when the farmer cleared it."""
+        reports = state.get("reports")
+        if reports is None or group not in reports:
+            return DEFAULT_REPORTS[group]
+        return str(reports[group] or "")
+
     def _extras(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """The fertility reports to fetch after the herd list: one with a
         #route in its address, or a menu path like "Mijn rapporten > Naam"."""
         extras = []
         for group in fertility.GROUPS:
-            value = ((state.get("reports") or {}).get(group) or "").strip()
+            value = self._report_value(state, group).strip()
             if not value:
                 continue
             fragment = value.partition("#")[2] if "#" in value else ""

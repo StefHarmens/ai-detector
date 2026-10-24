@@ -226,7 +226,7 @@
 					<Input
 						id="agro-mk"
 						bind:value={reportKoeien}
-						placeholder="Mijn rapporten > Vruchtbaarheid MK"
+						placeholder="Reproductie > Vruchtbaarheid MK"
 						autocomplete="off"
 					/>
 				</div>
@@ -235,12 +235,12 @@
 					<Input
 						id="agro-jv"
 						bind:value={reportJongvee}
-						placeholder="Mijn rapporten > Vruchtbaarheid JV"
+						placeholder="Reproductie > Vruchtbaarheid JV"
 						autocomplete="off"
 					/>
 					<p class="text-xs text-muted-foreground">
-						Optioneel. Vul de weg in zoals hierboven, of het adres met de #route van het rapport. De
-						gegevens komen bij de koe in het tabblad Overzicht.
+						Standaard na de tab Dieranalyse, zoals de koeienlijst. Leeg laten zet het ophalen uit.
+						De gegevens komen bij de koe in het tabblad Overzicht.
 					</p>
 				</div>
 				<div class="grid gap-1.5">
