@@ -385,11 +385,14 @@ grouped together.
 
 ##### Cow recognition (`cows`)
 
-Every alert gets one photo reply with both cows side by side (A and B) and buttons for
-the cows that look most alike, `✏️ Nummers typen`, unknown per cow, `🔄 Andersom` (swap
-who jumped) and `🚫 Foto A/B` (photo is wrong). The farmer can also answer on the photo
-with both numbers, mounter first when the cows are not split: `30 12`, `? 12`, or a new
-cow with her life number, `44 NL123456789 12`. A farmer's choice files the cow's masked
+Every alert gets one photo reply: the frame of the jump with a blue box around the
+jumping cow and a red box around the mounted cow (`melding.jpg` in the mount's folder; when
+it cannot be drawn the photos of both cows side by side are sent instead). Below it are the
+two best guesses per cow as buttons and `✏️ Nummers invullen`; `🔄 Blauw en rood wisselen`
+only when the roles are a guess. Nothing has to be answered: a mount that stays open waits on
+the web page. The farmer can also answer on the photo with both numbers, jumping (blue)
+first: `30 12`, `30 ?`, `? 12`, or a new cow with her life number, `44 NL123456789 12`. A
+farmer's choice files the cow's masked
 photo in her folder, which is what recognition learns from; photos filled in
 automatically are never filed, so mistakes do not teach the model.
 

@@ -69,6 +69,9 @@ class FakeSplitter:
     def mounted_region(self, image, mount):
         return grow(mount, 1.8)
 
+    def mounted_cow(self, image, mount):
+        return (0.5, 0.4, 0.6, 0.6), 0.1
+
 
 class FakeGallery:
     def __init__(self, scores: list[list[tuple[str, float]]]):
@@ -163,22 +166,22 @@ def test_one_photo_with_both_cows_and_their_candidates(tmp_path, telegram):
     assert photos[0]["reply_to_message_id"] == "42"
     assert photos[0]["caption"].splitlines()[:3] == [
         "🐄 Wie zijn het?",
-        "A werd besprongen (gok): ❓",
-        "B sprong (gok): ❓",
+        "🔵 Springende koe (gok): ❓",
+        "🔴 Besprongen koe (gok): ❓",
     ]
-    assert "antwoord op deze foto met de nummers of namen, eerst A dan B: 30 12" in photos[0]["caption"]
+    assert "Weet je het niet? Laat het dan gewoon staan." in photos[0]["caption"]
+    # The jumping cow (blue) first; short enough for a phone.
     assert buttons(photos[0]["reply_markup"]) == [
-        ["A: 30 (Bertha) · 70%", "A: 12 · 60%"],
-        ["B: 12 · 80%"],
-        ["✏️ Nummers typen"],
-        ["❔ A onbekend", "❔ B onbekend"],
-        ["🔄 Andersom", "🚫 Foto A", "🚫 Foto B"],
+        ["🔵 12 · 80%"],
+        ["🔴 30 (Bertha) · 70%", "🔴 12 · 60%"],
+        ["✏️ Nummers invullen"],
+        ["🔄 Blauw en rood wisselen"],
     ]
     # Recognition compares the masked cows, without the barn.
     assert [int(image[0, 0, 0]) for image in service.gallery.images] == [11, 201]
     folder = tmp_path / ".meldingen" / sighting.id
     assert {path.name for path in folder.iterdir()} >= {
-        "A.jpg", "B.jpg", "A_koe.jpg", "B_koe.jpg", "controle.jpg", "beelden",
+        "A.jpg", "B.jpg", "A_koe.jpg", "B_koe.jpg", "controle.jpg", "melding.jpg", "beelden",
     }
     assert sorted(path.name for path in (folder / "beelden").iterdir()) == ["+007.0s.jpg", "-002.0s.jpg"]
 
@@ -190,9 +193,10 @@ def test_numbers_only_sends_the_photo_to_type_the_numbers(tmp_path, telegram):
     service.set_commands()
 
     photo = telegram.sent("sendPhoto")[0]
-    assert buttons(photo["reply_markup"]) == [["✏️ Nummers typen"]]
-    assert "\nAntwoord op deze foto met de nummers of namen, eerst A dan B: 30 12" in photo["caption"]
-    assert reply(service, "30 12") == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+    assert buttons(photo["reply_markup"]) == [["✏️ Nummers invullen"]]
+    assert "Weet je het niet? Laat het dan gewoon staan." in photo["caption"]
+    # The first number is the jumping cow (blue), here slot B.
+    assert reply(service, "30 12") == "✅ Opgeslagen: 🔵 Springende koe = 30 (Bertha), 🔴 Besprongen koe = 12"
     assert service.handle_message({"text": "/koeien"}) is None
     assert service.handle_message({"document": {"file_id": "f", "file_name": "koeien.csv"}}) is None
     assert [method for method, _ in telegram.calls] == ["sendPhoto", "deleteMyCommands", "editMessageCaption"]
@@ -216,7 +220,7 @@ def test_a_clear_match_with_enough_photos_is_filled_in(tmp_path, telegram):
 
     assert sighting.cows == [BERTHA, None]
     assert sighting.how == ["auto", None]
-    assert "A werd besprongen: ✅ 30 (Bertha) · herkend 95%" in telegram.sent("sendPhoto")[0]["caption"]
+    assert "🔴 Besprongen koe: ✅ 30 (Bertha) · herkend 95%" in telegram.sent("sendPhoto")[0]["caption"]
 
 
 def test_tapping_a_candidate_files_the_masked_photo(tmp_path, telegram):
@@ -230,8 +234,8 @@ def test_tapping_a_candidate_files_the_masked_photo(tmp_path, telegram):
     # The masked crop (value 11), not the one sent to the farmer (value 10).
     assert abs(int(cv2.imread(str(filed[0]))[0, 0, 0]) - 11) <= 1
     edit = telegram.sent("editMessageCaption")[-1]
-    assert "A werd besprongen: ✅ 30 (Bertha)" in edit["caption"]
-    assert buttons(edit["reply_markup"])[0] == ["✅ A: 30 (Bertha) · 70%"]
+    assert "🔴 Besprongen koe: ✅ 30 (Bertha)" in edit["caption"]
+    assert buttons(edit["reply_markup"])[1] == ["🔴 ✅ 30 (Bertha) · 70%"]
 
     # Changing the answer takes the photo out; an unknown cow has no folder
     # to learn from, and a wrong photo goes nowhere.
@@ -244,29 +248,31 @@ def test_tapping_a_candidate_files_the_masked_photo(tmp_path, telegram):
     assert len(list((tmp_path / BERTHA).glob("*.jpg"))) == 1
     service.handle_callback(f"cow:{sighting.id}:0:x")
     assert list((tmp_path / BERTHA).glob("*.jpg")) == []
-    assert "A werd besprongen: 🚫 foto klopt niet" in telegram.sent("editMessageCaption")[-1]["caption"]
+    assert "🔴 Besprongen koe: 🚫 foto klopt niet" in telegram.sent("editMessageCaption")[-1]["caption"]
 
 
 def test_answering_on_the_photo_with_two_numbers(tmp_path, telegram):
     service = make_service(tmp_path, pair(), [[], []])
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
-    assert reply(service, "30 12") == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+    # The first number is the jumping cow (blue), here slot B.
+    assert reply(service, "12 30") == "✅ Opgeslagen: 🔵 Springende koe = 12, 🔴 Besprongen koe = 30 (Bertha)"
     assert sighting.cows == [BERTHA, PINK]
-    assert "Iets fout? Antwoord op deze foto met de goede nummers." in telegram.sent("editMessageCaption")[-1]["caption"]
+    assert "Iets fout? Tik op Nummers invullen." in telegram.sent("editMessageCaption")[-1]["caption"]
 
     # Correcting later works the same way.
-    assert reply(service, "? 30") == "✅ Opgeslagen: A = onbekend, B = 30 (Bertha)"
+    assert reply(service, "? 30") == "✅ Opgeslagen: 🔵 Springende koe = onbekend, 🔴 Besprongen koe = 30 (Bertha)"
 
 
 def test_one_number_fills_the_open_cow_and_new_cows_need_a_life_number(tmp_path, telegram):
     service = make_service(tmp_path, pair(), [[], []])
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
-    assert reply(service, "30") == "✅ Opgeslagen: A = 30 (Bertha)"
+    # One number fills the jumping cow first (blue, slot B), then the other.
+    assert reply(service, "30") == "✅ Opgeslagen: 🔵 Springende koe = 30 (Bertha)"
     assert reply(service, "44").startswith("Nummer 44 ken ik nog niet")
-    assert reply(service, "44 NL 5555 5555 5") == "✅ Opgeslagen: B = 44"
-    assert sighting.cows == [BERTHA, "NL555555555"]
+    assert reply(service, "44 NL 5555 5555 5") == "✅ Opgeslagen: 🔴 Besprongen koe = 44"
+    assert sighting.cows == ["NL555555555", BERTHA]
     # The number counts from the mount the farmer answered for.
     assert service.registry.cow_with_number("44", START) == "NL555555555"
     assert reply(service, "12").startswith("Beide koeien zijn al ingevuld")
@@ -283,12 +289,12 @@ def test_heifers_without_a_collar_by_work_number_and_name(tmp_path, telegram):
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     assert reply(service, "nel anna").splitlines() == [
-        "✅ Opgeslagen: A = 1236 (Nel)",
+        "✅ Opgeslagen: 🔵 Springende koe = 1236 (Nel)",
         "Er zijn 2 dieren die anna heten, typ het nummer.",
     ]
     assert reply(service, "Tessa").startswith("Geen koe of pink die Tessa heet")
-    assert reply(service, "1234") == "✅ Opgeslagen: B = 1234 (Anna)"
-    assert sighting.cows == ["NL100000003", "NL100000001"]
+    assert reply(service, "1234") == "✅ Opgeslagen: 🔴 Besprongen koe = 1234 (Anna)"
+    assert sighting.cows == ["NL100000001", "NL100000003"]
 
     # After calving she gets collar 31: the same animal, with a new number.
     service.handle_message({"text": "/koe 31 NL100000001"})
@@ -318,13 +324,15 @@ def test_typing_button_asks_and_the_answer_survives_a_restart(tmp_path, telegram
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     assert service.handle_callback(f"cow:{sighting.id}:-:n") == "Typ de nummers als antwoord"
-    assert telegram.sent("sendMessage")[-1]["text"].startswith("Typ de nummers of namen, eerst A dan B: 30 12")
+    assert telegram.sent("sendMessage")[-1]["text"].startswith(
+        "Typ de nummers of namen, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12"
+    )
     prompt = telegram.last_id
 
     # A restart happens after every change to config.json.
     restarted = CowService("token", "chat", tmp_path, CowsConfig(telegram=True), gallery=FakeGallery([]))
     answer = restarted.handle_message({"text": "30 12", "reply_to_message": {"message_id": prompt}})
-    assert answer == "✅ Opgeslagen: A = 30 (Bertha), B = 12"
+    assert answer == "✅ Opgeslagen: 🔵 Springende koe = 30 (Bertha), 🔴 Besprongen koe = 12"
 
 
 def test_swapping_roles(tmp_path, telegram):
@@ -333,8 +341,8 @@ def test_swapping_roles(tmp_path, telegram):
 
     assert service.handle_callback(f"cow:{sighting.id}:-:s") == "Rollen omgedraaid"
     assert telegram.sent("editMessageCaption")[-1]["caption"].splitlines()[1:3] == [
-        "A sprong: ❓",
-        "B werd besprongen: ❓",
+        "🔵 Springende koe: ❓",
+        "🔴 Besprongen koe: ❓",
     ]
 
 
@@ -344,19 +352,18 @@ def test_without_two_cows_the_photo_shows_the_jump_per_role(tmp_path, telegram):
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
     photo = telegram.sent("sendPhoto")[0]
-    assert photo["caption"].splitlines()[:3] == ["🐄 Wie zijn het?", "Sprong: ❓", "Werd besprongen: ❓"]
-    assert "eerst wie sprong dan wie werd besprongen: 30 12" in photo["caption"]
-    assert "nummers of namen" in photo["caption"]
-    assert buttons(photo["reply_markup"]) == [
-        ["✏️ Nummers typen"],
-        ["❔ Sprong onbekend", "❔ Besprongen onbekend"],
+    assert photo["caption"].splitlines()[:3] == [
+        "🐄 Wie zijn het?",
+        "🔵 Springende koe: ❓",
+        "🔴 Besprongen koe: ❓",
     ]
+    assert buttons(photo["reply_markup"]) == [["✏️ Nummers invullen"]]
     # The mounted cow gets a wider photo than the mounter.
     folder = tmp_path / ".meldingen" / sighting.id
     mounter, mounted = (cv2.imread(str(folder / f"{slot}.jpg")) for slot in "AB")
     assert mounted.shape[0] > mounter.shape[0] and mounted.shape[1] > mounter.shape[1]
     # Both cows are on these photos, so they never go into a cow folder.
-    assert reply(service, "? 30") == "✅ Opgeslagen: Sprong = onbekend, Besprongen = 30 (Bertha)"
+    assert reply(service, "? 30") == "✅ Opgeslagen: 🔵 Springende koe = onbekend, 🔴 Besprongen koe = 30 (Bertha)"
     assert sighting.cows == [None, BERTHA]
     assert not (tmp_path / BERTHA).exists() and not (tmp_path / "onbekend").exists()
 
@@ -739,3 +746,29 @@ def test_the_old_files_per_chat_are_merged_into_one(tmp_path):
     ]
     # Answering the old photo in the partner chat still works.
     assert service.mounts.replies[("partner", 21)] == "aaaa0001"
+
+
+def test_the_message_shows_the_jump_with_a_blue_and_a_red_box(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    photo = cv2.imread(str(tmp_path / ".meldingen" / sighting.id / "melding.jpg"))
+    assert photo is not None and photo.shape[1] == 1280
+    blue = (photo[:, :, 0] > 200) & (photo[:, :, 2] < 60)
+    red = (photo[:, :, 2] > 200) & (photo[:, :, 0] < 60)
+    assert blue.any() and red.any()
+    assert len(telegram.sent("sendPhoto")) == 1
+
+
+def test_a_failing_drawing_still_sends_the_photos_of_both_cows(tmp_path, telegram):
+    service = make_service(tmp_path, pair(), [[], []])
+
+    def broken(image, mount):
+        raise RuntimeError("model failed")
+
+    service.splitter.mounted_cow = broken
+    sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
+
+    assert not (tmp_path / ".meldingen" / sighting.id / "melding.jpg").exists()
+    assert len(telegram.sent("sendPhoto")) == 1

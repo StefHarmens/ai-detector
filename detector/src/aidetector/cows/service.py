@@ -19,7 +19,7 @@ from numpy import ndarray
 from aidetector.cows.answers import Answer, parse_answers
 from aidetector.cows.agrovision import get_connector
 from aidetector.cows.importer import EXCEL_SUFFIXES, SyncResult, import_cows, sync_herd
-from aidetector.cows.photos import control_image, side_by_side
+from aidetector.cows.photos import alert_image, control_image, side_by_side
 from aidetector.cows.registry import (
     CowRegistry,
     NumberTaken,
@@ -47,6 +47,9 @@ OLD_SIGHTINGS_FILES = "sprongen-*.jsonl"
 CROPS_FOLDER = ".meldingen"
 FRAMES_FOLDER = "beelden"
 VIDEO_FILE = "video.mp4"
+# The frame of the jump with a blue box around the jumping and a red box
+# around the mounted cow: the photo of the Telegram message.
+ALERT_PHOTO = "melding.jpg"
 IMPORT_FOLDER = ".import"
 HERD_STATE_FILE = ".koeienlijst.json"
 _HERD_CHECK_SECONDS = 30
@@ -537,12 +540,23 @@ class CowService:
             # The alert's own video, to look back at the mount on the web page.
             (folder / VIDEO_FILE).write_bytes(video)
         self._keep_frames(folder, frames, jump, box)
+        self._alert_photo(folder, jump, box, splitter)
         with self.lock:
             self.sightings[sighting.id] = sighting
             self._add_link(sighting, link)
         if self.config.telegram:
             self._send(sighting)
         return sighting
+
+    def _alert_photo(self, folder: Path, jump: ndarray, box: Box, splitter: CowSplitter) -> None:
+        """The frame of the jump with the jumping cow in blue and the mounted
+        cow in red, which is what the farmer sees on the phone. Without it the
+        message shows the photos of both cows."""
+        try:
+            mounted, _ = splitter.mounted_cow(jump, box)
+            (folder / ALERT_PHOTO).write_bytes(get_image(alert_image(jump, box, mounted), 88))
+        except Exception:
+            self.logger.warning("Could not draw the cows on the jump", exc_info=True)
 
     def _add_link(self, sighting: Sighting, link: ChatLink) -> None:
         """Gives this chat its part of the mount, with a Goed/Fout that was
@@ -659,6 +673,16 @@ class CowService:
         is done on the web page."""
         return self.config.telegram == "nummers"
 
+    @staticmethod
+    def _roles(sighting: Sighting) -> tuple[int, int]:
+        """The slots in the order of the message: the jumping cow (blue) first,
+        then the mounted cow (red)."""
+        return sighting.mounter, 1 - sighting.mounter
+
+    @staticmethod
+    def _role_name(sighting: Sighting, slot: int) -> str:
+        return "🔵 Springende koe" if slot == sighting.mounter else "🔴 Besprongen koe"
+
     def _names(self, sighting: Sighting) -> tuple[str, str]:
         if sighting.split:
             return SLOT_NAMES
@@ -667,7 +691,8 @@ class CowService:
     def _send(self, sighting: Sighting) -> None:
         folder = self.directory / CROPS_FOLDER / sighting.id
         labels = SLOT_NAMES if sighting.split else ("SPRONG", "BESPRONGEN")
-        photo = side_by_side(
+        marked = cv2.imread(str(folder / ALERT_PHOTO)) if (folder / ALERT_PHOTO).is_file() else None
+        photo = marked if marked is not None else side_by_side(
             [cv2.imread(str(folder / f"{name}.jpg")) for name in SLOT_NAMES],
             list(labels),
         )
@@ -711,54 +736,43 @@ class CowService:
 
     def caption(self, sighting: Sighting) -> str:
         lines = ["🐄 Wie zijn het?"] + [
-            f"{self._title(sighting, slot)}: {self._status(sighting, slot)}"
-            for slot in (0, 1)
+            f"{self._role_name(sighting, slot)}"
+            f"{' (gok)' if sighting.split and not sighting.role_certain else ''}: "
+            f"{self._status(sighting, slot)}"
+            for slot in self._roles(sighting)
         ]
         if None in sighting.how:
-            first, second = ("A", "B") if sighting.split else ("wie sprong", "wie werd besprongen")
-            lines.append(
-                f"\n{'Tik een nummer aan, of antwoord' if any(sighting.candidates) and not self._numbers_only else 'Antwoord'}"
-                f" op deze foto met de nummers of namen, eerst {first} dan {second}: 30 12"
-            )
+            lines.append("\nWeet je het niet? Laat het dan gewoon staan.")
         else:
-            lines.append("\nIets fout? Antwoord op deze foto met de goede nummers.")
+            lines.append("\nIets fout? Tik op Nummers invullen.")
         return "\n".join(lines)
 
     def keyboard(self, sighting: Sighting) -> str:
+        """Kept short for a phone: the best guess per cow as a button, one
+        button to type the numbers, and nothing to answer when it is not
+        known."""
         at = sighting.when
         prefix = f"cow:{sighting.id}"
-        typing = [{"text": "✏️ Nummers typen", "callback_data": f"{prefix}:-:n"}]
+        typing = [{"text": "✏️ Nummers invullen", "callback_data": f"{prefix}:-:n"}]
         if self._numbers_only:
             return json.dumps({"inline_keyboard": [typing]})
-        names = self._names(sighting)
         rows = []
-        for slot in (0, 1):
+        for slot in self._roles(sighting):
+            dot = "🔵" if slot == sighting.mounter else "🔴"
             candidates = [
                 {
-                    "text": f"{'✅ ' if cow == sighting.cows[slot] else ''}{names[slot]}:"
-                    f" {self.registry.label(cow, at)} · {score:.0%}",
+                    "text": f"{dot} {'✅ ' if cow == sighting.cows[slot] else ''}"
+                    f"{self.registry.label(cow, at)} · {score:.0%}",
                     "callback_data": f"{prefix}:{slot}:c{index}",
                 }
                 for index, (cow, score) in enumerate(sighting.candidates[slot])
                 if self.registry.cow(cow) is not None
-            ]
+            ][:2]
             if candidates:
                 rows.append(candidates)
         rows.append(typing)
-        rows.append(
-            [
-                {"text": f"❔ {names[slot]} onbekend", "callback_data": f"{prefix}:{slot}:u"}
-                for slot in (0, 1)
-            ]
-        )
-        if sighting.split:
-            rows.append(
-                [{"text": "🔄 Andersom", "callback_data": f"{prefix}:-:s"}]
-                + [
-                    {"text": f"🚫 Foto {SLOT_NAMES[slot]}", "callback_data": f"{prefix}:{slot}:x"}
-                    for slot in (0, 1)
-                ]
-            )
+        if sighting.split and not sighting.role_certain:
+            rows.append([{"text": "🔄 Blauw en rood wisselen", "callback_data": f"{prefix}:-:s"}])
         return json.dumps({"inline_keyboard": rows})
 
     def _refresh(self, sighting: Sighting, quiet: bool = False) -> None:
@@ -871,14 +885,14 @@ class CowService:
         raise ValueError(f"Unknown cow action {action}")
 
     def _ask_numbers(self, sighting: Sighting) -> None:
-        first, second = ("A", "B") if sighting.split else ("wie sprong", "wie werd besprongen")
         result = _call(
             self.api_url,
             "sendMessage",
             {
                 "chat_id": self.chat,
-                "text": f"Typ de nummers of namen, eerst {first} dan {second}: 30 12\n"
-                "Onbekend: ?   Nieuwe koe: 44 NL123456789",
+                "text": "Typ de nummers of namen, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12\n"
+                "Weet je er één niet? Typ een ?  Bijvoorbeeld: 30 ?\n"
+                "Nieuwe koe: 44 NL123456789",
                 "reply_to_message_id": str(self._link(sighting).message or ""),
                 "allow_sending_without_reply": "true",
                 "reply_markup": json.dumps(
@@ -1051,18 +1065,18 @@ class CowService:
     def _answer(self, sighting: Sighting, text: str) -> str:
         """Reads typed numbers for the cows of a mount: two numbers fill both,
         one number fills the cow that is still open."""
-        names = self._names(sighting)
+        order = self._roles(sighting)
         example = "Voorbeeld: 30 12 of Anna 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
         try:
             answers = parse_answers(text)
         except ValueError as error:
             return f"⚠️ {error}\n{example}"
         if not answers or len(answers) > 2:
-            return f"Typ één of twee nummers of namen, eerst {names[0]} dan {names[1]}.\n{example}"
+            return f"Typ één of twee nummers of namen, eerst 🔵 de springende koe dan 🔴 de besprongen koe.\n{example}"
         if len(answers) == 2:
-            slots = [0, 1]
+            slots = list(order)
         else:
-            open_slots = [slot for slot in (0, 1) if sighting.how[slot] != "boer"]
+            open_slots = [slot for slot in order if sighting.how[slot] != "boer"]
             if not open_slots:
                 return f"Beide koeien zijn al ingevuld. Typ twee nummers om ze te verbeteren.\n{example}"
             slots = open_slots[:1]
@@ -1084,8 +1098,8 @@ class CowService:
                 self._store(sighting)
             self._refresh(sighting)
         saved = ", ".join(
-            f"{names[slot]} = {self.registry.label(cow, sighting.when) if cow else 'onbekend'}"
-            for slot, cow in sorted(chosen.items())
+            f"{self._role_name(sighting, slot)} = {self.registry.label(cow, sighting.when) if cow else 'onbekend'}"
+            for slot, cow in sorted(chosen.items(), key=lambda item: order.index(item[0]))
         )
         return "\n".join(([f"✅ Opgeslagen: {saved}"] if saved else []) + problems)
 
