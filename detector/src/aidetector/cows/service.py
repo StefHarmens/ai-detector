@@ -103,8 +103,10 @@ class ChatLink:
     event: str | None = None
     feedback: str | None = None
     message: int | None = None
-    # The open question for typed numbers, so answers work after a restart.
+    # The open question for typed numbers, so answers work after a restart,
+    # and the cow it is about (None: both).
     prompt: int | None = None
+    prompt_slot: int | None = None
 
 
 _LINK_FIELDS = tuple(item.name for item in fields(ChatLink))
@@ -744,7 +746,7 @@ class CowService:
         if None in sighting.how:
             lines.append("\nWeet je het niet? Laat het dan gewoon staan.")
         else:
-            lines.append("\nIets fout? Tik op Nummers invullen.")
+            lines.append("\nIets fout? Tik op de koe die je wilt aanpassen.")
         return "\n".join(lines)
 
     def keyboard(self, sighting: Sighting) -> str:
@@ -753,7 +755,14 @@ class CowService:
         known."""
         at = sighting.when
         prefix = f"cow:{sighting.id}"
-        typing = [{"text": "✏️ Nummers invullen", "callback_data": f"{prefix}:-:n"}]
+        # Each cow is filled in on her own.
+        typing = [
+            {
+                "text": f"✏️ {self._role_name(sighting, slot)}",
+                "callback_data": f"{prefix}:{slot}:n",
+            }
+            for slot in self._roles(sighting)
+        ]
         if self._numbers_only:
             return json.dumps({"inline_keyboard": [typing]})
         rows = []
@@ -860,8 +869,9 @@ class CowService:
             self._refresh(sighting, quiet)
             return "Rollen omgedraaid"
         if action == "n":
-            self._ask_numbers(sighting)
-            return "Typ de nummers als antwoord"
+            # "-" is a button of an older message: both cows.
+            self._ask_numbers(sighting, int(slot_text) if slot_text in ("0", "1") else None)
+            return "Typ het nummer als antwoord"
         slot = int(slot_text)
         if slot not in (0, 1):
             raise ValueError(f"Unknown slot {slot_text}")
@@ -884,25 +894,36 @@ class CowService:
             return f"{name}: {self.registry.label(cow, sighting.when)}"
         raise ValueError(f"Unknown cow action {action}")
 
-    def _ask_numbers(self, sighting: Sighting) -> None:
+    def _ask_numbers(self, sighting: Sighting, slot: int | None = None) -> None:
+        if slot is None:
+            text = (
+                "Typ de nummers of namen, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12\n"
+                "Weet je er één niet? Typ een ?  Bijvoorbeeld: 30 ?\n"
+                "Nieuwe koe: 44 NL123456789"
+            )
+        else:
+            text = (
+                f"{self._role_name(sighting, slot)}: typ het nummer of de naam, bijvoorbeeld 30\n"
+                "Weet je het niet? Laat het dan staan.\n"
+                "Nieuwe koe: 44 NL123456789"
+            )
         result = _call(
             self.api_url,
             "sendMessage",
             {
                 "chat_id": self.chat,
-                "text": "Typ de nummers of namen, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12\n"
-                "Weet je er één niet? Typ een ?  Bijvoorbeeld: 30 ?\n"
-                "Nieuwe koe: 44 NL123456789",
+                "text": text,
                 "reply_to_message_id": str(self._link(sighting).message or ""),
                 "allow_sending_without_reply": "true",
                 "reply_markup": json.dumps(
-                    {"force_reply": True, "input_field_placeholder": "30 12"}
+                    {"force_reply": True, "input_field_placeholder": "30" if slot is not None else "30 12"}
                 ),
             },
         )
         with self.lock:
             link = self._link(sighting)
             link.prompt = int(result["message_id"])
+            link.prompt_slot = slot
             self.mounts.replies[(self.chat, link.prompt)] = sighting.id
             self._store(sighting)
 
@@ -1033,6 +1054,9 @@ class CowService:
             )
             sighting = self.sightings.get(sighting_id) if sighting_id else None
         if sighting is not None and not text.startswith("/"):
+            link = sighting.chats.get(self.chat)
+            if link is not None and link.prompt_slot is not None and reply_to == link.prompt:
+                return self._answer_one(sighting, link.prompt_slot, text)
             return self._answer(sighting, text)
         if not text.startswith("/") or self._numbers_only:
             return None
@@ -1102,6 +1126,31 @@ class CowService:
             for slot, cow in sorted(chosen.items(), key=lambda item: order.index(item[0]))
         )
         return "\n".join(([f"✅ Opgeslagen: {saved}"] if saved else []) + problems)
+
+    def _answer_one(self, sighting: Sighting, slot: int, text: str) -> str:
+        """Reads the number typed for one cow, the one the farmer tapped."""
+        name = self._role_name(sighting, slot)
+        example = "Voorbeeld: 30 of Anna   (nieuwe koe: 44 NL123456789)"
+        try:
+            answers = parse_answers(text)
+        except ValueError as error:
+            return f"⚠️ {error}\n{example}"
+        if len(answers) != 1:
+            return f"Typ één nummer of naam voor {name}.\n{example}"
+        try:
+            cow = self._resolve(sighting, answers[0])
+        except ValueError as error:
+            return f"⚠️ {error}"
+        if cow is not None and cow == sighting.cows[1 - slot]:
+            return "Twee keer dezelfde koe: een koe springt niet op zichzelf."
+        self._set(sighting, slot, cow)
+        with self.lock:
+            link = self._link(sighting)
+            link.prompt = None
+            link.prompt_slot = None
+            self._store(sighting)
+        self._refresh(sighting)
+        return f"✅ Opgeslagen: {name} = {self.registry.label(cow, sighting.when) if cow else 'onbekend'}"
 
     def _resolve(self, sighting: Sighting, answer: Answer) -> str | None:
         """The cow the farmer means, None for unknown; a ValueError says in

@@ -241,16 +241,15 @@ om de nummers in te vullen:
 Weet je het niet? Laat het dan gewoon staan.
 [ 🔵 ✅ 30 (Bertha) · 93% ]
 [ 🔴 44 · 88% ] [ 🔴 12 · 80% ]
-[ ✏️ Nummers invullen ]
+[ ✏️ 🔵 Springende koe ] [ ✏️ 🔴 Besprongen koe ]
 ```
 
 - **Weet je het niet?** Dan hoef je niets te doen: de sprong blijft staan als *te beoordelen*
   op de web-interface en je kunt hem later invullen.
-- **Invullen** met **✏️ Nummers invullen** (of antwoord op de foto): twee nummers, eerst de
-  blauwe (springende) koe en dan de rode (besprongen) koe: `30 12`. Weet je er één niet,
-  typ dan een vraagteken: `30 ?` of `? 12`. Een koe die de bot nog niet kent, typ je met haar
-  levensnummer: `44 NL123456789 12`. Eén nummer vult eerst de blauwe koe, dan de rode.
-  Iets fout? Vul het nog eens in.
+- **Invullen** doe je per koe: tik op **✏️ 🔵 Springende koe** of **✏️ 🔴 Besprongen koe** en
+  antwoord met haar nummer of naam: `30`. Weet je het niet, laat het dan staan (of typ een
+  vraagteken). Een koe die de bot nog niet kent, typ je met haar levensnummer:
+  `44 NL123456789`. Iets fout? Tik nog eens op die koe.
 - **Tikken** kan ook: de gok van de bot per koe (blauw of rood bolletje ervoor).
 - **Onbekend** (of `?`) is voor een koe die je niet weet en ook niet gaat uitzoeken: de sprong
   telt als afgehandeld en haar foto gaat in geen map. Weet je het later toch, vul haar dan in
