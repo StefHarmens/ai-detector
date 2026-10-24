@@ -247,7 +247,7 @@ Weet je het niet? Laat het dan gewoon staan.
 - **Weet je het niet?** Dan hoef je niets te doen: de sprong blijft staan als *te beoordelen*
   op de web-interface en je kunt hem later invullen.
 - **Invullen** doe je per koe: tik op **✏️ 🔵 Springende koe** of **✏️ 🔴 Besprongen koe** en
-  antwoord met haar nummer of naam: `30`. Weet je het niet, laat het dan staan (of typ een
+  antwoord met haar nummer: `30` (alleen nummers, geen namen). Weet je het niet, laat het dan staan (of typ een
   vraagteken). Een koe die de bot nog niet kent, typ je met haar levensnummer:
   `44 NL123456789`. Iets fout? Tik nog eens op die koe.
 - **Tikken** kan ook: de gok van de bot per koe (blauw of rood bolletje ervoor).

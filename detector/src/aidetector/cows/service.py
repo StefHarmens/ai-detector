@@ -897,13 +897,13 @@ class CowService:
     def _ask_numbers(self, sighting: Sighting, slot: int | None = None) -> None:
         if slot is None:
             text = (
-                "Typ de nummers of namen, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12\n"
+                "Typ de nummers, eerst 🔵 de springende koe, dan 🔴 de besprongen koe: 30 12\n"
                 "Weet je er één niet? Typ een ?  Bijvoorbeeld: 30 ?\n"
                 "Nieuwe koe: 44 NL123456789"
             )
         else:
             text = (
-                f"{self._role_name(sighting, slot)}: typ het nummer of de naam, bijvoorbeeld 30\n"
+                f"{self._role_name(sighting, slot)}: typ het nummer, bijvoorbeeld 30\n"
                 "Weet je het niet? Laat het dan staan.\n"
                 "Nieuwe koe: 44 NL123456789"
             )
@@ -1090,13 +1090,15 @@ class CowService:
         """Reads typed numbers for the cows of a mount: two numbers fill both,
         one number fills the cow that is still open."""
         order = self._roles(sighting)
-        example = "Voorbeeld: 30 12 of Anna 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
+        example = "Voorbeeld: 30 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
         try:
             answers = parse_answers(text)
         except ValueError as error:
             return f"⚠️ {error}\n{example}"
         if not answers or len(answers) > 2:
-            return f"Typ één of twee nummers of namen, eerst 🔵 de springende koe dan 🔴 de besprongen koe.\n{example}"
+            return f"Typ één of twee nummers, eerst 🔵 de springende koe dan 🔴 de besprongen koe.\n{example}"
+        if any(answer.name is not None for answer in answers):
+            return f"Typ de nummers van de koeien, geen namen.\n{example}"
         if len(answers) == 2:
             slots = list(order)
         else:
@@ -1130,13 +1132,15 @@ class CowService:
     def _answer_one(self, sighting: Sighting, slot: int, text: str) -> str:
         """Reads the number typed for one cow, the one the farmer tapped."""
         name = self._role_name(sighting, slot)
-        example = "Voorbeeld: 30 of Anna   (nieuwe koe: 44 NL123456789)"
+        example = "Voorbeeld: 30   (nieuwe koe: 44 NL123456789)"
         try:
             answers = parse_answers(text)
         except ValueError as error:
             return f"⚠️ {error}\n{example}"
         if len(answers) != 1:
-            return f"Typ één nummer of naam voor {name}.\n{example}"
+            return f"Typ één nummer voor {name}.\n{example}"
+        if answers[0].name is not None:
+            return f"Typ het nummer van de koe, geen naam.\n{example}"
         try:
             cow = self._resolve(sighting, answers[0])
         except ValueError as error:

@@ -287,7 +287,7 @@ def test_one_number_fills_the_open_cow_and_new_cows_need_a_life_number(tmp_path,
     assert reply(service, "3x").startswith("⚠️ '3x' is geen nummer of naam")
 
 
-def test_heifers_without_a_collar_by_work_number_and_name(tmp_path, telegram):
+def test_heifers_without_a_collar_by_work_number(tmp_path, telegram):
     service = make_service(tmp_path, pair(), [[], []])
     # A heifer is added with her work number; she has no collar yet.
     assert service.handle_message({"text": "/koe 1234 NL100000001 Anna"}).startswith("✅ Nummer 1234 is nu 1234 (Anna)")
@@ -295,12 +295,9 @@ def test_heifers_without_a_collar_by_work_number_and_name(tmp_path, telegram):
     service.handle_message({"text": "/koe 1236 NL100000003 Nel"})
     sighting = service.identify(*mount(), alert=42, event="e1", feedback="f1")
 
-    assert reply(service, "nel anna").splitlines() == [
-        "✅ Opgeslagen: 🔵 Springende koe = 1236 (Nel)",
-        "Er zijn 2 dieren die anna heten, typ het nummer.",
-    ]
-    assert reply(service, "Tessa").startswith("Geen koe of pink die Tessa heet")
-    assert reply(service, "1234") == "✅ Opgeslagen: 🔴 Besprongen koe = 1234 (Anna)"
+    # Numbers only: the heifers are answered by their number, not their name.
+    assert reply(service, "nel anna") == "Typ de nummers van de koeien, geen namen.\nVoorbeeld: 30 12   (? = onbekend, nieuwe koe: 44 NL123456789)"
+    assert reply(service, "1236 1234") == "✅ Opgeslagen: 🔵 Springende koe = 1236 (Nel), 🔴 Besprongen koe = 1234 (Anna)"
     assert sighting.cows == ["NL100000001", "NL100000003"]
 
     # After calving she gets collar 31: the same animal, with a new number.
@@ -319,7 +316,7 @@ def test_the_heifer_camera_shares_the_cows_but_counts_its_own_mounts(tmp_path, t
     # The cows' chat knows the heifer too.
     assert cows.registry.label("NL100000001") == "1234 (Anna)"
     heifers.identify(*mount(), alert=42, event="e1", feedback="f1")
-    reply(heifers, "Anna ?")
+    reply(heifers, "1234 ?")
 
     window = (START - timedelta(hours=1), START + timedelta(hours=1))
     assert "1234 (Anna)" in heifers.overview_text(*window)
@@ -332,7 +329,7 @@ def test_each_cow_is_typed_on_her_own_and_the_answer_survives_a_restart(tmp_path
 
     # Slot 0 is the mounted (red) cow of this pair.
     assert service.handle_callback(f"cow:{sighting.id}:0:n") == "Typ het nummer als antwoord"
-    assert telegram.sent("sendMessage")[-1]["text"].startswith("🔴 Besprongen koe: typ het nummer of de naam")
+    assert telegram.sent("sendMessage")[-1]["text"].startswith("🔴 Besprongen koe: typ het nummer, bijvoorbeeld")
     prompt = telegram.last_id
 
     # A restart happens after every change to config.json.
@@ -356,7 +353,7 @@ def test_one_cow_can_be_left_unknown_and_never_equals_the_other(tmp_path, telegr
     service.handle_callback(f"cow:{sighting.id}:0:n")
     red = telegram.last_id
     assert service.handle_message({"text": "30 12", "reply_to_message": {"message_id": red}}).startswith(
-        "Typ één nummer of naam voor 🔴 Besprongen koe"
+        "Typ één nummer voor 🔴 Besprongen koe"
     )
     assert service.handle_message({"text": "30", "reply_to_message": {"message_id": red}}) == (
         "✅ Opgeslagen: 🔴 Besprongen koe = 30 (Bertha)"
