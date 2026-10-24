@@ -375,7 +375,8 @@ Koeien worden bewaard op hun **I&R-levensnummer**. Het nummer waarmee je een koe
 alleen een label met een tijdstip, want nummer 30 gaat naar een pink als de oude 30 weg is.
 Zo blijven oude sprongen bij de oude koe. Dat nummer is het halsbandnummer, of bij een
 pink zonder halsband het diernummer op haar oormerk (of haar werknummer als de lijst geen
-diernummer heeft). Antwoorden kan ook met een naam (`Anna 12`).
+diernummer heeft). Het werknummer dat je op de webpagina ziet, is het middelste stuk van het
+levensnummer (8683 bij NL 8934.8683.9).
 Commando's in de chat:
 
 | Commando | Wat het doet |

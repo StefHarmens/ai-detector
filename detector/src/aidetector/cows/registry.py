@@ -37,6 +37,14 @@ def normalize_life_number(value: str) -> str:
     return life_number
 
 
+def work_number_of(life_number: str) -> str | None:
+    """The work number is the middle part of a Dutch life number: 8683 for
+    NL 8934.8683.9. Other life numbers have none."""
+    if re.fullmatch(r"NL\d{9}", life_number):
+        return life_number[6:10]
+    return None
+
+
 def normalize_number(value: str) -> str:
     number = value.strip().lstrip("#")
     if not number.isdigit():
@@ -49,8 +57,8 @@ class Cow:
     life_number: str
     name: str | None = None
     archived: str | None = None
-    # Lely's Werknummer: shown next to the number, but several animals can
-    # share one.
+    # The middle part of her life number (see work_number_of): shown next to
+    # her number, but several animals can share one.
     work_number: str | None = None
 
 
@@ -148,7 +156,6 @@ class CowRegistry:
         life_number: str,
         name: str | None = None,
         at: Moment = None,
-        work_number: str | None = None,
     ) -> Cow:
         """Gives the collar number to a cow. Fails when another cow still wears
         the number; that needs switch() so the farmer decides about the old cow."""
@@ -160,8 +167,6 @@ class CowRegistry:
             if holder is not None and holder != life_number:
                 raise NumberTaken(number, holder)
             cow = self._ensure_cow(life_number, name)
-            if work_number is not None:
-                cow.work_number = work_number
             if holder is None:
                 self._end_numbers(life_number, at)
                 self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))
@@ -175,7 +180,6 @@ class CowRegistry:
         old_cow_left: bool,
         name: str | None = None,
         at: Moment = None,
-        work_number: str | None = None,
     ) -> str | None:
         """Gives the collar number to another cow and returns the cow that wore
         it. When she left the farm she is archived; otherwise (collars swapped)
@@ -186,18 +190,14 @@ class CowRegistry:
         with self.lock:
             old = self.cow_with_number(number, at)
             if old == life_number:
-                cow = self._ensure_cow(life_number, name)
-                if work_number is not None:
-                    cow.work_number = work_number
+                self._ensure_cow(life_number, name)
                 self._save()
                 return None
             if old is not None:
                 self._end_number(number, at)
                 if old_cow_left:
                     self.archive(old, at)
-            cow = self._ensure_cow(life_number, name)
-            if work_number is not None:
-                cow.work_number = work_number
+            self._ensure_cow(life_number, name)
             self._end_numbers(life_number, at)
             self.data.numbers.append(NumberPeriod(number, life_number, at.isoformat(timespec="seconds")))
             self._save()
@@ -265,6 +265,7 @@ class CowRegistry:
             cow = self.data.cows[life_number] = Cow(life_number, name)
         elif name:
             cow.name = name
+        cow.work_number = work_number_of(life_number)
         if cow.archived:
             # A cow that comes back (e.g. from the young stock barn).
             cow.archived = None
@@ -294,10 +295,13 @@ class CowRegistry:
         if not self.path.is_file():
             return RegistryData()
         raw = json.loads(self.path.read_text())
+        cows = {life_number: Cow(**cow) for life_number, cow in raw.get("cows", {}).items()}
+        # Earlier versions kept the Werknummer of the herd list, which is
+        # not the number on the animal; it comes from the life number now.
+        for life_number, cow in cows.items():
+            cow.work_number = work_number_of(life_number)
         return RegistryData(
-            cows={
-                life_number: Cow(**cow) for life_number, cow in raw.get("cows", {}).items()
-            },
+            cows=cows,
             numbers=[NumberPeriod(**period) for period in raw.get("numbers", [])],
         )
 
