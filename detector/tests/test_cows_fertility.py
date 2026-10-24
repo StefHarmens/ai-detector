@@ -100,3 +100,24 @@ def test_the_lactation_number_is_not_the_lactation_days():
     )
 
     assert animals["5"]["lact_days"] == 88
+
+
+# The farm's report for cows, as AgroVision exports it.
+FARM_COWS = [
+    ["Diernr", "Werknr", "Lact nr", "Lact dgn", "LW", "Kg melk (dag)", "Celget", "Klf dat", "Status", "Dgn status",
+     "Tocht dat", "Dekdatum", "# Ins.", "Stier", "Drg dat", "Dgn drg", "Vw TKT", "Vw drg", "Verw klfdt",
+     "Koe prod. type"],
+    ["45", "7933", "8,00", "0,00", "0,00", "0,00", "0,00", "24-10-26", "Vers", "0,00", "", "", "0,00", "", "",
+     "0,00", "0,00", "", "", "Melkvee"],
+    ["46", "7940", "2,00", "187,00", "31,0", "28,5", "120,00", "20-04-26", "Drachtig", "112,00", "", "", "2,00", "",
+     "", "0,00", "0,00", "", "", "Melkvee"],
+]
+
+
+def test_the_farms_cow_report_takes_lactation_days_not_the_lactation_number():
+    animals = fertility.parse(FARM_COWS, fertility.COWS)
+
+    assert animals == {
+        "45": {"status": "Vers", "days_in_status": 0, "lact_days": 0, "inseminations": 0},
+        "46": {"status": "Drachtig", "days_in_status": 112, "lact_days": 187, "inseminations": 2},
+    }
