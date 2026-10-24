@@ -389,7 +389,7 @@ Every alert gets one photo reply: the frame of the jump with a blue box around t
 jumping cow and a red box around the mounted cow (`melding.jpg` in the mount's folder; when
 it cannot be drawn the photos of both cows side by side are sent instead). Below it are the
 two best guesses per cow as buttons and one typing button per cow (`✏️ 🔵 Springende koe`,
-`✏️ 🔴 Besprongen koe`): each asks for one number or name, typed as the answer, so the cows are
+`✏️ 🔴 Besprongen koe`): each asks for one number (no names), typed as the answer, so the cows are
 filled in separately; `🔄 Blauw en rood wisselen` only when the roles are a guess. Nothing has
 to be answered: a mount that stays open waits on the web page. A new cow is typed with her
 life number, `44 NL123456789`. A farmer's choice files the cow's masked
