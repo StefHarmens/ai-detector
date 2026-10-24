@@ -350,7 +350,6 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
     registry = service.registry
     action = body.get("action")
     name = (str(body.get("name") or "").strip()) or None
-    work_number = (str(body.get("work_number") or "").strip()) or None
     try:
         if action == "weg":
             life_number = _life_number(str(body.get("life_number") or ""))
@@ -363,7 +362,7 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
         life_number = _life_number(str(body.get("life_number") or ""))
         if action == "toevoegen":
             try:
-                registry.add(number, life_number, name, work_number=work_number)
+                registry.add(number, life_number, name)
             except NumberTaken as error:
                 raise ApiError(
                     HTTPStatus.CONFLICT,
@@ -375,7 +374,7 @@ def change_cows(body: dict[str, Any]) -> dict[str, Any]:
             before = registry.cow_with_number(number)
             old_label = registry.label(before) if before else None
             old_left = bool(body.get("old_left"))
-            old = registry.switch(number, life_number, old_left, name, work_number=work_number)
+            old = registry.switch(number, life_number, old_left, name)
             message = f"Nummer {number} is nu {registry.label(life_number)} · {life_number}."
             if old and old_left:
                 message += f" {old_label} is gearchiveerd."

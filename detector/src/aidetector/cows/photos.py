@@ -69,3 +69,45 @@ def control_image(image: ndarray, box: Box, width: int | None = None) -> ndarray
             marked, (width, round(height * width / frame_width)), interpolation=cv2.INTER_AREA
         )
     return marked
+
+
+# BGR: the jumping cow is blue, the mounted cow red.
+MOUNTER_COLOR = (255, 90, 0)
+MOUNTED_COLOR = (0, 0, 230)
+
+
+def alert_image(
+    image: ndarray, mounter: Box, mounted: Box | None, width: int = 1600
+) -> ndarray:
+    """The frame of the jump for the phone: a blue box around the cow that
+    jumps and a red box around the cow that is mounted, each with a tag."""
+    height, frame_width = image.shape[:2]
+    if frame_width > width:
+        image = cv2.resize(
+            image, (width, round(height * width / frame_width)), interpolation=cv2.INTER_AREA
+        )
+        height, frame_width = image.shape[:2]
+    marked = image.copy()
+    thickness = max(3, frame_width // 400)
+    scale = max(0.6, frame_width / 1600)
+    tagged = [
+        (box, color, label)
+        for box, color, label in ((mounted, MOUNTED_COLOR, "BESPRONGEN"), (mounter, MOUNTER_COLOR, "SPRINGT"))
+        if box is not None
+    ]
+    pixels = [
+        (int(box[0] * frame_width), int(box[1] * height), int(box[2] * frame_width), int(box[3] * height))
+        for box, _, _ in tagged
+    ]
+    for (x1, y1, x2, y2), (_, color, _) in zip(pixels, tagged):
+        cv2.rectangle(marked, (x1, y1), (x2, y2), color, thickness)
+    # The tags last, so a box never runs through one.
+    for (x1, y1, _, _), (_, color, label) in zip(pixels, tagged):
+        (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness // 2 + 1)
+        top = max(0, y1 - text_h - baseline - 6)
+        cv2.rectangle(marked, (x1, top), (x1 + text_w + 12, top + text_h + baseline + 6), color, -1)
+        cv2.putText(
+            marked, label, (x1 + 6, top + text_h + 2), cv2.FONT_HERSHEY_SIMPLEX,
+            scale, (255, 255, 255), thickness // 2 + 1, cv2.LINE_AA,
+        )
+    return marked
